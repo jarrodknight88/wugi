@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { signInWithEmailAndPassword } from "firebase/auth"
-import { auth } from "@/lib/firebase"
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
+import { auth, db } from "@/lib/firebase"
 import { useAuth } from "@/hooks/useAuth"
 
 export default function LoginPage() {
@@ -26,7 +27,17 @@ export default function LoginPage() {
     setIsSubmitting(true)
 
     try {
-      await signInWithEmailAndPassword(auth, email, password)
+      const credential = await signInWithEmailAndPassword(auth, email, password)
+      const userRef = doc(db, "users", credential.user.uid)
+      const userSnap = await getDoc(userRef)
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          email: credential.user.email,
+          role: "patron",
+          active: true,
+          createdAt: serverTimestamp(),
+        })
+      }
       router.replace("/dashboard")
     } catch {
       setError("Invalid email or password.")
