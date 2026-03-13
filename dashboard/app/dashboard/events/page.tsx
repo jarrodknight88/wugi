@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuth } from "@/hooks/useAuth"
+import { useDashboardAccess } from "@/hooks/useDashboardAccess"
 
 type EventStatus = "pending" | "approved" | "rejected"
 
@@ -26,6 +27,7 @@ type EventItem = {
 export default function EventsApprovalPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const { hasDashboardAccess, hasUserDocument, loading: accessLoading } = useDashboardAccess()
   const [events, setEvents] = useState<EventItem[]>([])
   const [loadingEvents, setLoadingEvents] = useState(true)
   const [activeEventId, setActiveEventId] = useState<string | null>(null)
@@ -36,6 +38,12 @@ export default function EventsApprovalPage() {
       router.replace("/login")
     }
   }, [authLoading, router, user])
+
+  useEffect(() => {
+    if (!accessLoading && hasUserDocument && !hasDashboardAccess) {
+      router.replace("/unauthorized")
+    }
+  }, [accessLoading, hasDashboardAccess, hasUserDocument, router])
 
   useEffect(() => {
     if (!user) {
@@ -87,7 +95,6 @@ export default function EventsApprovalPage() {
       const eventRef = doc(db, "events", eventId)
       await updateDoc(eventRef, { status: nextStatus })
 
-      // Remove processed events from the pending queue list.
       setEvents((currentEvents) =>
         currentEvents.filter((event) => event.id !== eventId)
       )
@@ -98,11 +105,11 @@ export default function EventsApprovalPage() {
     }
   }
 
-  if (authLoading) {
+  if (authLoading || accessLoading) {
     return <main className="min-h-screen p-6">Checking authentication...</main>
   }
 
-  if (!user) {
+  if (!user || !hasDashboardAccess) {
     return null
   }
 
@@ -121,6 +128,11 @@ export default function EventsApprovalPage() {
 
         <p className="text-sm text-neutral-600">
           Review pending events and approve or reject them.
+          {!loadingEvents && (
+            <span className="ml-1 font-semibold">
+              {events.length} pending
+            </span>
+          )}
         </p>
 
         {error ? (
@@ -136,47 +148,54 @@ export default function EventsApprovalPage() {
             No pending events right now.
           </div>
         ) : (
-          <ul className="space-y-3">
-            {events.map((event) => {
-              const isUpdating = activeEventId === event.id
+          <div className="overflow-x-auto rounded border border-neutral-300">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-neutral-300 bg-neutral-50">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Title</th>
+                  <th className="px-4 py-3 font-semibold">Venue Name</th>
+                  <th className="px-4 py-3 font-semibold">Date</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((event) => {
+                  const isUpdating = activeEventId === event.id
 
-              return (
-                <li key={event.id} className="rounded border border-neutral-300 p-4">
-                  <div className="grid gap-2 text-sm md:grid-cols-4">
-                    <p>
-                      <span className="font-semibold">Title:</span> {event.title}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Venue:</span> {event.venueName}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Date:</span> {event.date}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Status:</span> {event.status}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => updateEventStatus(event.id, "approved")}
-                      disabled={isUpdating}
-                      className="rounded bg-green-600 px-3 py-2 text-sm text-white disabled:opacity-60"
+                  return (
+                    <tr
+                      key={event.id}
+                      className="border-b border-neutral-200 last:border-b-0"
                     >
-                      {isUpdating ? "Saving..." : "Approve"}
-                    </button>
-                    <button
-                      onClick={() => updateEventStatus(event.id, "rejected")}
-                      disabled={isUpdating}
-                      className="rounded bg-red-600 px-3 py-2 text-sm text-white disabled:opacity-60"
-                    >
-                      {isUpdating ? "Saving..." : "Reject"}
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+                      <td className="px-4 py-3">{event.title}</td>
+                      <td className="px-4 py-3">{event.venueName}</td>
+                      <td className="px-4 py-3">{event.date}</td>
+                      <td className="px-4 py-3">{event.status}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => updateEventStatus(event.id, "approved")}
+                            disabled={isUpdating}
+                            className="rounded bg-green-600 px-3 py-1 text-sm text-white disabled:opacity-60"
+                          >
+                            {isUpdating ? "Saving..." : "Approve"}
+                          </button>
+                          <button
+                            onClick={() => updateEventStatus(event.id, "rejected")}
+                            disabled={isUpdating}
+                            className="rounded bg-red-600 px-3 py-1 text-sm text-white disabled:opacity-60"
+                          >
+                            {isUpdating ? "Saving..." : "Reject"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </main>
