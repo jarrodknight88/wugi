@@ -1,0 +1,22 @@
+{
+  "name": "wugi",
+  "version": "1.0.0",
+  "description": "Wugi (\"What U Gettin Into?\") is a local discovery platform for restaurants, lounges, clubs, and events.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:39301/git/jarrodknight88/wugi"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "firebase-admin": "^13.7.0"
+  }
+}
