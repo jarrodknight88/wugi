@@ -19,8 +19,8 @@ type EventStatus = "pending" | "approved" | "rejected"
 type EventItem = {
   id: string
   title: string
-  venueName: string
-  date: string
+  venueId: string
+  startTime: string
   status: EventStatus
 }
 
@@ -67,11 +67,11 @@ export default function EventsApprovalPage() {
           return {
             id: eventDoc.id,
             title: typeof data.title === "string" ? data.title : "Untitled event",
-            venueName:
-              typeof data.venueName === "string"
-                ? data.venueName
+            venueId:
+              typeof data.venueId === "string"
+                ? data.venueId
                 : "Unknown venue",
-            date: typeof data.date === "string" ? data.date : "No date set",
+            startTime: typeof data.startTime === "string" ? data.startTime : "No date set",
             status: "pending",
           }
         })
@@ -152,11 +152,11 @@ export default function EventsApprovalPage() {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-neutral-300 bg-neutral-50">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Title</th>
-                  <th className="px-4 py-3 font-semibold">Venue Name</th>
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 font-semibold">Actions</th>
+                  <th className="px-4 py-3 font-semibold text-neutral-700">Title</th>
+                  <th className="px-4 py-3 font-semibold text-neutral-700">Venue</th>
+                  <th className="px-4 py-3 font-semibold text-neutral-700">Date</th>
+                  <th className="px-4 py-3 font-semibold text-neutral-700">Status</th>
+                  <th className="px-4 py-3 font-semibold text-neutral-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -169,8 +169,8 @@ export default function EventsApprovalPage() {
                       className="border-b border-neutral-200 last:border-b-0"
                     >
                       <td className="px-4 py-3">{event.title}</td>
-                      <td className="px-4 py-3">{event.venueName}</td>
-                      <td className="px-4 py-3">{event.date}</td>
+                      <td className="px-4 py-3">{event.venueId}</td>
+                      <td className="px-4 py-3">{event.startTime}</td>
                       <td className="px-4 py-3">{event.status}</td>
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
