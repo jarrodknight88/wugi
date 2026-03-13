@@ -26,4 +26,4 @@ build/
 .firebase/
 
 # Misc
-coverage/
+coverage/serviceAccount.json
