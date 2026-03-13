@@ -89,6 +89,10 @@ Fields:
 - tier
 - status
 - createdAt
+- eventSeriesId
+- isRecurringInstance
+- recurrenceDate
+- instanceStatus
 
 ## albums
 
@@ -190,3 +194,30 @@ Fields:
 - eventId
 - metadata
 - createdAt
+
+## eventSeries
+
+Defines recurring event patterns.
+
+Document ID: eventSeriesId
+
+Fields:
+
+- title
+- venueId
+- promoterId
+- description
+- flyerImage
+- tags
+- ticketLink
+- recurrenceType
+- recurrenceInterval
+- daysOfWeek
+- startTimeTemplate
+- endTimeTemplate
+- startDate
+- endDate
+- status
+- approvalStatus
+- createdAt
+- updatedAt
