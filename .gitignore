@@ -24,6 +24,7 @@ build/
 
 # Firebase
 .firebase/
+serviceAccount.json
 
 # Misc
 coverage/
