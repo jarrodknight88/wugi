@@ -1,21 +1,82 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { signOut } from "firebase/auth"
-import { auth } from "@/lib/firebase"
+import { collection, getDocs } from "firebase/firestore"
+import { auth, db } from "@/lib/firebase"
 import { useAuth } from "@/hooks/useAuth"
+
+type VenueStatus = "pending" | "approved" | "rejected"
+
+type Analytics = {
+  total: number
+  pending: number
+  approved: number
+  rejected: number
+}
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [analytics, setAnalytics] = useState<Analytics>({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+  })
+  const [loadingAnalytics, setLoadingAnalytics] = useState(true)
+  const [error, setError] = useState("")
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!authLoading && !user) {
       router.replace("/login")
     }
-  }, [loading, router, user])
+  }, [authLoading, router, user])
+
+  useEffect(() => {
+    if (!user) {
+      return
+    }
+
+    async function loadAnalytics() {
+      setLoadingAnalytics(true)
+      setError("")
+
+      try {
+        const snapshot = await getDocs(collection(db, "venues"))
+        const nextAnalytics: Analytics = {
+          total: snapshot.size,
+          pending: 0,
+          approved: 0,
+          rejected: 0,
+        }
+
+        snapshot.forEach((venueDoc) => {
+          const data = venueDoc.data()
+          const status = data.status as VenueStatus | undefined
+
+          if (status === "pending") {
+            nextAnalytics.pending += 1
+          } else if (status === "approved") {
+            nextAnalytics.approved += 1
+          } else if (status === "rejected") {
+            nextAnalytics.rejected += 1
+          }
+        })
+
+        setAnalytics(nextAnalytics)
+      } catch {
+        setError("Could not load dashboard analytics. Please try again.")
+      } finally {
+        setLoadingAnalytics(false)
+      }
+    }
+
+    loadAnalytics()
+  }, [user])
 
   async function handleLogout() {
     setIsLoggingOut(true)
@@ -23,7 +84,7 @@ export default function DashboardPage() {
     router.replace("/login")
   }
 
-  if (loading) {
+  if (authLoading) {
     return <main className="min-h-screen p-6">Checking authentication...</main>
   }
 
@@ -33,15 +94,61 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen p-6">
-      <div className="mx-auto flex max-w-3xl items-center justify-between">
-        <h1 className="text-3xl font-bold">Wugi Admin Dashboard</h1>
-        <button
-          onClick={handleLogout}
-          disabled={isLoggingOut}
-          className="rounded border border-neutral-300 px-4 py-2 text-sm"
-        >
-          {isLoggingOut ? "Logging out..." : "Logout"}
-        </button>
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Wugi Admin Dashboard</h1>
+          <button
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="rounded border border-neutral-300 px-4 py-2 text-sm"
+          >
+            {isLoggingOut ? "Logging out..." : "Logout"}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-neutral-600">
+            Overview of venue approvals in Firestore.
+          </p>
+          <Link
+            href="/dashboard/venues"
+            className="rounded bg-black px-4 py-2 text-sm text-white"
+          >
+            Manage Venue Queue
+          </Link>
+        </div>
+
+        {error ? (
+          <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>
+        ) : null}
+
+        {loadingAnalytics ? (
+          <div className="rounded border border-neutral-300 p-4">
+            Loading analytics...
+          </div>
+        ) : (
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <article className="rounded border border-neutral-300 p-4">
+              <p className="text-sm text-neutral-600">Total Venues</p>
+              <p className="mt-2 text-3xl font-semibold">{analytics.total}</p>
+            </article>
+
+            <article className="rounded border border-neutral-300 p-4">
+              <p className="text-sm text-neutral-600">Pending Venues</p>
+              <p className="mt-2 text-3xl font-semibold">{analytics.pending}</p>
+            </article>
+
+            <article className="rounded border border-neutral-300 p-4">
+              <p className="text-sm text-neutral-600">Approved Venues</p>
+              <p className="mt-2 text-3xl font-semibold">{analytics.approved}</p>
+            </article>
+
+            <article className="rounded border border-neutral-300 p-4">
+              <p className="text-sm text-neutral-600">Rejected Venues</p>
+              <p className="mt-2 text-3xl font-semibold">{analytics.rejected}</p>
+            </article>
+          </section>
+        )}
       </div>
     </main>
   )
