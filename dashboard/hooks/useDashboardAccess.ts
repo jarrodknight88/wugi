@@ -5,7 +5,7 @@ import { doc, onSnapshot } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuth } from "@/hooks/useAuth"
 
-const DASHBOARD_ROLES = ["admin", "owner"]
+const DASHBOARD_ROLES = ["super_admin", "moderator", "support"]
 
 type UseDashboardAccessResult = {
   hasDashboardAccess: boolean
