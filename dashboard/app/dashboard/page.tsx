@@ -7,6 +7,7 @@ import { signOut } from "firebase/auth"
 import { collection, getDocs } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { useAuth } from "@/hooks/useAuth"
+import { useDashboardAccess } from "@/hooks/useDashboardAccess"
 
 type VenueStatus = "pending" | "approved" | "rejected"
 
@@ -20,6 +21,7 @@ type Analytics = {
 export default function DashboardPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const { hasDashboardAccess, hasUserDocument, loading: accessLoading } = useDashboardAccess()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [analytics, setAnalytics] = useState<Analytics>({
     total: 0,
@@ -35,6 +37,12 @@ export default function DashboardPage() {
       router.replace("/login")
     }
   }, [authLoading, router, user])
+
+  useEffect(() => {
+    if (!accessLoading && hasUserDocument && !hasDashboardAccess) {
+      router.replace("/unauthorized")
+    }
+  }, [accessLoading, hasDashboardAccess, hasUserDocument, router])
 
   useEffect(() => {
     if (!user) {
