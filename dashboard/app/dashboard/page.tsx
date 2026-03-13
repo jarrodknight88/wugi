@@ -106,16 +106,24 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-neutral-600">
             Overview of venue approvals in Firestore.
           </p>
-          <Link
-            href="/dashboard/venues"
-            className="rounded bg-black px-4 py-2 text-sm text-white"
-          >
-            Manage Venue Queue
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/dashboard/venues"
+              className="rounded bg-black px-4 py-2 text-sm text-white"
+            >
+              Manage Venue Queue
+            </Link>
+            <Link
+              href="/dashboard/events"
+              className="rounded border border-neutral-300 px-4 py-2 text-sm"
+            >
+              Manage Event Queue
+            </Link>
+          </div>
         </div>
 
         {error ? (
