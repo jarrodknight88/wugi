@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore"
 import { createUserWithEmailAndPassword } from "firebase/auth"
 import { auth, db } from "@/lib/firebase"
+import { logAudit } from "@/lib/auditLog"
 import { useAuth } from "@/hooks/useAuth"
 import { useDashboardAccess } from "@/hooks/useDashboardAccess"
 
@@ -102,6 +103,16 @@ export default function UsersPage() {
         createdAt: now,
       })
 
+      if (user) {
+        await logAudit({
+          adminId: user.uid,
+          adminEmail: user.email ?? "",
+          action: "created_user",
+          targetId: credential.user.uid,
+          targetName: email,
+        })
+      }
+
       setUsers((prev) => [
         ...prev,
         {
@@ -128,6 +139,18 @@ export default function UsersPage() {
       await updateDoc(doc(db, "users", userId), {
         active: !currentlyActive,
       })
+
+      const targetUser = users.find((u) => u.id === userId)
+      if (user) {
+        await logAudit({
+          adminId: user.uid,
+          adminEmail: user.email ?? "",
+          action: currentlyActive ? "deactivated_user" : "activated_user",
+          targetId: userId,
+          targetName: targetUser?.email ?? userId,
+        })
+      }
+
       setUsers((prev) =>
         prev.map((u) =>
           u.id === userId ? { ...u, active: !currentlyActive } : u

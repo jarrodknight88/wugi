@@ -11,6 +11,7 @@ import {
   where,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { logAudit } from "@/lib/auditLog"
 import { useAuth } from "@/hooks/useAuth"
 import { useDashboardAccess } from "@/hooks/useDashboardAccess"
 
@@ -96,8 +97,19 @@ export default function EventsApprovalPage() {
       const eventRef = doc(db, "events", eventId)
       await updateDoc(eventRef, { status: nextStatus })
 
+      const event = events.find((e) => e.id === eventId)
+      if (user) {
+        await logAudit({
+          adminId: user.uid,
+          adminEmail: user.email ?? "",
+          action: nextStatus === "approved" ? "approved_event" : "rejected_event",
+          targetId: eventId,
+          targetName: event?.title ?? eventId,
+        })
+      }
+
       setEvents((currentEvents) =>
-        currentEvents.filter((event) => event.id !== eventId)
+        currentEvents.filter((e) => e.id !== eventId)
       )
     } catch {
       setError("Could not update event status. Please try again.")
