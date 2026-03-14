@@ -10,6 +10,7 @@ const DASHBOARD_ROLES = ["super_admin", "moderator", "support"]
 type UseDashboardAccessResult = {
   hasDashboardAccess: boolean
   hasUserDocument: boolean
+  role: string | null
   loading: boolean
 }
 
@@ -68,6 +69,7 @@ export function useDashboardAccess(): UseDashboardAccessResult {
   return {
     hasDashboardAccess: !loading && hasUserDocument && role !== null && DASHBOARD_ROLES.includes(role),
     hasUserDocument: !loading && hasUserDocument,
+    role: !loading ? role : null,
     loading,
   }
 }
