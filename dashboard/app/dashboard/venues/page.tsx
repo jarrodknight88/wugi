@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   collection,
   doc,
-  getDocs,
+  onSnapshot,
   query,
   updateDoc,
   where,
@@ -42,17 +42,17 @@ export default function VenuesApprovalPage() {
       return
     }
 
-    async function loadPendingVenues() {
-      setLoadingVenues(true)
-      setError("")
+    setLoadingVenues(true)
+    setError("")
 
-      try {
-        const venuesQuery = query(
-          collection(db, "venues"),
-          where("status", "==", "pending")
-        )
-        const snapshot = await getDocs(venuesQuery)
+    const venuesQuery = query(
+      collection(db, "venues"),
+      where("status", "==", "pending")
+    )
 
+    const unsubscribe = onSnapshot(
+      venuesQuery,
+      (snapshot) => {
         const pendingVenues: Venue[] = snapshot.docs.map((venueDoc) => {
           const data = venueDoc.data()
 
@@ -64,19 +64,20 @@ export default function VenuesApprovalPage() {
               typeof data.category === "string"
                 ? data.category
                 : "Uncategorized",
-            status: data.status === "pending" ? "pending" : "pending",
+            status: "pending",
           }
         })
 
         setVenues(pendingVenues)
-      } catch {
+        setLoadingVenues(false)
+      },
+      () => {
         setError("Could not load pending venues. Please try again.")
-      } finally {
         setLoadingVenues(false)
       }
-    }
+    )
 
-    loadPendingVenues()
+    return unsubscribe
   }, [user])
 
   async function updateVenueStatus(venueId: string, nextStatus: VenueStatus) {

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   collection,
   doc,
-  getDocs,
+  onSnapshot,
   query,
   updateDoc,
   where,
@@ -50,17 +50,17 @@ export default function EventsApprovalPage() {
       return
     }
 
-    async function loadPendingEvents() {
-      setLoadingEvents(true)
-      setError("")
+    setLoadingEvents(true)
+    setError("")
 
-      try {
-        const eventsQuery = query(
-          collection(db, "events"),
-          where("status", "==", "pending")
-        )
-        const snapshot = await getDocs(eventsQuery)
+    const eventsQuery = query(
+      collection(db, "events"),
+      where("status", "==", "pending")
+    )
 
+    const unsubscribe = onSnapshot(
+      eventsQuery,
+      (snapshot) => {
         const pendingEvents: EventItem[] = snapshot.docs.map((eventDoc) => {
           const data = eventDoc.data()
 
@@ -77,14 +77,15 @@ export default function EventsApprovalPage() {
         })
 
         setEvents(pendingEvents)
-      } catch {
+        setLoadingEvents(false)
+      },
+      () => {
         setError("Could not load pending events. Please try again.")
-      } finally {
         setLoadingEvents(false)
       }
-    }
+    )
 
-    loadPendingEvents()
+    return unsubscribe
   }, [user])
 
   async function updateEventStatus(eventId: string, nextStatus: EventStatus) {
