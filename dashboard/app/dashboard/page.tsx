@@ -131,6 +131,12 @@ export default function DashboardPage() {
             >
               Manage Event Queue
             </Link>
+            <Link
+              href="/dashboard/users"
+              className="rounded border border-neutral-300 px-4 py-2 text-sm"
+            >
+              Manage Users
+            </Link>
           </div>
         </div>
 
