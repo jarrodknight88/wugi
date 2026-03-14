@@ -39,6 +39,7 @@ export default function UsersPage() {
   const [creating, setCreating] = useState(false)
 
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [changingRoleId, setChangingRoleId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -136,6 +137,21 @@ export default function UsersPage() {
       setError("Could not update user status. Please try again.")
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  async function changeRole(userId: string, nextRole: string) {
+    setChangingRoleId(userId)
+    setError("")
+    try {
+      await updateDoc(doc(db, "users", userId), { role: nextRole })
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, role: nextRole } : u))
+      )
+    } catch {
+      setError("Could not change user role. Please try again.")
+    } finally {
+      setChangingRoleId(null)
     }
   }
 
@@ -246,6 +262,8 @@ export default function UsersPage() {
               <tbody>
                 {users.map((u) => {
                   const isToggling = togglingId === u.id
+                  const isChangingRole = changingRoleId === u.id
+                  const isSelf = u.id === user?.uid
                   return (
                     <tr
                       key={u.id}
@@ -258,21 +276,39 @@ export default function UsersPage() {
                       </td>
                       <td className="px-4 py-3">{u.createdAt}</td>
                       <td className="px-4 py-3">
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => toggleActive(u.id, u.active)}
-                            disabled={isToggling}
-                            className={`rounded px-3 py-1 text-sm text-white disabled:opacity-60 ${
-                              u.active ? "bg-red-600" : "bg-green-600"
-                            }`}
-                          >
-                            {isToggling
-                              ? "Saving..."
-                              : u.active
-                                ? "Deactivate"
-                                : "Activate"}
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {isSuperAdmin && !isSelf && (
+                            <button
+                              onClick={() => toggleActive(u.id, u.active)}
+                              disabled={isToggling}
+                              className={`rounded px-3 py-1 text-sm text-white disabled:opacity-60 ${
+                                u.active ? "bg-red-600" : "bg-green-600"
+                              }`}
+                            >
+                              {isToggling
+                                ? "Saving..."
+                                : u.active
+                                  ? "Deactivate"
+                                  : "Activate"}
+                            </button>
+                          )}
+                          {isSuperAdmin &&
+                            !isSelf &&
+                            (u.role === "moderator" ||
+                              u.role === "support") && (
+                              <select
+                                value={u.role}
+                                disabled={isChangingRole}
+                                onChange={(e) =>
+                                  changeRole(u.id, e.target.value)
+                                }
+                                className="rounded border border-neutral-300 px-2 py-1 text-sm disabled:opacity-60"
+                              >
+                                <option value="moderator">Moderator</option>
+                                <option value="support">Support</option>
+                              </select>
+                            )}
+                        </div>
                       </td>
                     </tr>
                   )
