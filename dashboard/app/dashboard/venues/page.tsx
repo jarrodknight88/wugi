@@ -11,6 +11,7 @@ import {
   where,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { logAudit } from "@/lib/auditLog"
 import { useAuth } from "@/hooks/useAuth"
 
 type VenueStatus = "pending" | "approved" | "rejected"
@@ -88,9 +89,19 @@ export default function VenuesApprovalPage() {
       const venueRef = doc(db, "venues", venueId)
       await updateDoc(venueRef, { status: nextStatus })
 
-      // Remove the item from the queue once it is approved/rejected.
+      const venue = venues.find((v) => v.id === venueId)
+      if (user) {
+        await logAudit({
+          adminId: user.uid,
+          adminEmail: user.email ?? "",
+          action: nextStatus === "approved" ? "approved_venue" : "rejected_venue",
+          targetId: venueId,
+          targetName: venue?.name ?? venueId,
+        })
+      }
+
       setVenues((currentVenues) =>
-        currentVenues.filter((venue) => venue.id !== venueId)
+        currentVenues.filter((v) => v.id !== venueId)
       )
     } catch {
       setError("Could not update venue status. Please try again.")

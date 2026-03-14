@@ -138,6 +138,12 @@ export default function DashboardPage() {
             >
               Manage Users
             </Link>
+            <Link
+              href="/dashboard/audit"
+              className="rounded border border-neutral-300 px-4 py-2 text-sm"
+            >
+              Audit Logs
+            </Link>
           </div>
         </div>
 
