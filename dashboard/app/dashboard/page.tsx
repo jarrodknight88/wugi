@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { signOut } from "firebase/auth"
-import { collection, getDocs } from "firebase/firestore"
+import { collection, onSnapshot } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { useAuth } from "@/hooks/useAuth"
 import { useDashboardAccess } from "@/hooks/useDashboardAccess"
@@ -49,12 +49,12 @@ export default function DashboardPage() {
       return
     }
 
-    async function loadAnalytics() {
-      setLoadingAnalytics(true)
-      setError("")
+    setLoadingAnalytics(true)
+    setError("")
 
-      try {
-        const snapshot = await getDocs(collection(db, "venues"))
+    const unsubscribe = onSnapshot(
+      collection(db, "venues"),
+      (snapshot) => {
         const nextAnalytics: Analytics = {
           total: snapshot.size,
           pending: 0,
@@ -76,14 +76,15 @@ export default function DashboardPage() {
         })
 
         setAnalytics(nextAnalytics)
-      } catch {
+        setLoadingAnalytics(false)
+      },
+      () => {
         setError("Could not load dashboard analytics. Please try again.")
-      } finally {
         setLoadingAnalytics(false)
       }
-    }
+    )
 
-    loadAnalytics()
+    return unsubscribe
   }, [user])
 
   async function handleLogout() {
