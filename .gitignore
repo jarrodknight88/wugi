@@ -27,4 +27,6 @@ build/
 serviceAccount.json
 
 # Misc
+coverage/
+push.sh
 coverage/serviceAccount.json
