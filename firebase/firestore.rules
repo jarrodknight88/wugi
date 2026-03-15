@@ -3,14 +3,51 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Allow public reads (for venue discovery, events, etc.)
-    match /{document=**} {
-      allow read: if true;
+    // Helper: get the requesting user's document
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Allow writes only for authenticated users
+    function isSuperAdmin() {
+      return request.auth != null && userDoc().role == 'super_admin';
+    }
+
+    function isModerator() {
+      return request.auth != null && userDoc().role == 'moderator';
+    }
+
+    function isSuperAdminOrModerator() {
+      return isSuperAdmin() || isModerator();
+    }
+
+    // 1. users collection: read own doc only; super_admin can create/update
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if isSuperAdmin();
+    }
+
+    // 2. venues collection: authenticated read; super_admin or moderator can write
+    match /venues/{venueId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isSuperAdminOrModerator();
+    }
+
+    // 3. events collection: same as venues
+    match /events/{eventId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isSuperAdminOrModerator();
+    }
+
+    // 4. auditLogs collection: super_admin/moderator read only, no client writes
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdminOrModerator();
+      allow write: if false;
+    }
+
+    // 5. All other collections: authenticated read only, no client writes
     match /{document=**} {
-      allow write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
   }
