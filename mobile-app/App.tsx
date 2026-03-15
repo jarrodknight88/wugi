@@ -1,3 +1,5 @@
+import EventProfileTest from './src/screens/EventProfileTest';
+
 import React, { useRef, useState } from 'react';
 import {
   StatusBar,
@@ -61,7 +63,12 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
 }
 
 // ── Main App ──────────────────────────────────────────────────────────
+// Temporarily show EventProfileTest as default screen
 export default function App() {
+  return <EventProfileTest />;
+}
+
+function _OriginalApp() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState('Home');
 
