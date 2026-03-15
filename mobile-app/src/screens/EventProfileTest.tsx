@@ -13,8 +13,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const FLYER_WIDTH = SCREEN_WIDTH - 32;
 const FLYER_HEIGHT = FLYER_WIDTH * 1.25;
 
-const FLYER_URI =
-  'https://www.figma.com/api/mcp/asset/0d494620-5c6b-4499-93c0-99d9f8b53f59';
+const flyerImage = require('../../assets/flyer-taco.jpg');
 
 const VENUE = {
   name: 'The Ivy Buckhead',
@@ -27,7 +26,7 @@ const PILLS = [
   { label: '21+' },
 ];
 
-// ── Venue Info Block (shared) ─────────────────────────────────────────
+// ── Venue Info Block ──────────────────────────────────────────────────
 function VenueInfo() {
   return (
     <View style={styles.venueRow}>
@@ -45,7 +44,7 @@ function OptionA() {
   return (
     <View style={styles.optionContainer}>
       <Text style={styles.optionLabel}>Option A — Dark Pills</Text>
-      <Image source={{ uri: FLYER_URI }} style={styles.flyer} resizeMode="cover" />
+      <Image source={flyerImage} style={styles.flyer} resizeMode="cover" />
       <View style={styles.pillRow}>
         {PILLS.map((p) => (
           <View key={p.label} style={styles.darkPill}>
@@ -63,10 +62,16 @@ function OptionB() {
   return (
     <View style={styles.optionContainer}>
       <Text style={styles.optionLabel}>Option B — Dark Strip</Text>
-      <Image source={{ uri: FLYER_URI }} style={styles.flyer} resizeMode="cover" />
+      <Image source={flyerImage} style={styles.flyerNoBottomRadius} resizeMode="cover" />
       <View style={styles.darkStrip}>
-        {PILLS.map((p) => (
-          <View key={p.label} style={styles.stripColumn}>
+        {PILLS.map((p, i) => (
+          <View
+            key={p.label}
+            style={[
+              styles.stripColumn,
+              i < PILLS.length - 1 && styles.stripColumnBorder,
+            ]}
+          >
             <Text style={styles.stripText}>{p.label}</Text>
           </View>
         ))}
@@ -82,7 +87,7 @@ function OptionHybrid() {
     <View style={styles.optionContainer}>
       <Text style={styles.optionLabel}>Hybrid — Frosted Glass Pills</Text>
       <View style={styles.flyerWrapper}>
-        <Image source={{ uri: FLYER_URI }} style={styles.flyer} resizeMode="cover" />
+        <Image source={flyerImage} style={styles.flyer} resizeMode="cover" />
         <View style={styles.frostedOverlay}>
           {PILLS.map((p) => (
             <View key={p.label} style={styles.frostedPill}>
@@ -147,6 +152,14 @@ const styles = StyleSheet.create({
     height: FLYER_HEIGHT,
     borderRadius: 16,
   },
+  flyerNoBottomRadius: {
+    width: FLYER_WIDTH,
+    height: FLYER_HEIGHT,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
   flyerWrapper: {
     position: 'relative',
   },
@@ -177,16 +190,16 @@ const styles = StyleSheet.create({
   darkStrip: {
     backgroundColor: '#111',
     flexDirection: 'row',
-    borderRadius: 12,
-    marginTop: 0,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
     overflow: 'hidden',
   },
   stripColumn: {
     flex: 1,
     alignItems: 'center',
     paddingVertical: 14,
+  },
+  stripColumnBorder: {
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: '#333',
   },
@@ -200,7 +213,7 @@ const styles = StyleSheet.create({
   // ── Hybrid: Frosted glass pills ──
   frostedOverlay: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 14,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -230,11 +243,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   venueLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#333',
-    marginRight: 10,
+    marginRight: 12,
   },
   venueText: {
     flex: 1,
