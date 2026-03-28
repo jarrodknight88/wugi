@@ -30,3 +30,4 @@ serviceAccount.json
 coverage/
 push.sh
 coverage/serviceAccount.json
+service-account.json

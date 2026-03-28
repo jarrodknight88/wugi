@@ -1,7 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────
-// Wugi — App.tsx
-// Entry point only. All logic lives in src/.
+// Wugi — firebase.ts
+// Uses @react-native-firebase — the native SDK for React Native.
+// Auto-initializes from GoogleService-Info.plist — no initializeApp() needed.
 // ─────────────────────────────────────────────────────────────────────
-import { RootNavigator } from './src/navigation/RootNavigator';
+import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 
-export default RootNavigator;
+export { firestore, auth };
