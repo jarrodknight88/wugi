@@ -1,0 +1,672 @@
+/**
+ * Wugi Firebase Seed Script — Full Atlanta Data
+ *
+ * Usage:
+ *   cd ~/Documents/GitHub/wugi/mobile-app
+ *   node scripts/seedAtlanta.js
+ *
+ * Requires:
+ *   - firebase-admin installed: npm install firebase-admin
+ *   - Service account key at: scripts/serviceAccount.json
+ *     Get from: Firebase Console → wugi-prod → Project Settings → Service Accounts → Generate new private key
+ */
+
+const admin = require('firebase-admin');
+const serviceAccount = require('./serviceAccount.json');
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  projectId: 'wugi-prod',
+});
+
+const db = admin.firestore();
+
+const img = (seed, w = 800, h = 600) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
+const ts  = () => admin.firestore.FieldValue.serverTimestamp();
+
+// ── VENUES ────────────────────────────────────────────────────────────
+// All venues require: status, vibes[] — used by Firestore queries
+const venues = [
+
+  // ── Your existing venues (with status + vibes added) ─────────────
+  {
+    id: 'nite-owl',
+    name: 'Nite Owl Kitchen & Cocktails',
+    category: 'Bar · Kitchen · Late Night',
+    address: '6 Olive Street, Avondale Estates, GA 30002',
+    phone: '(678) 925-4418',
+    website: 'https://niteowlatl.com',
+    instagram: '@niteowlatl',
+    attributes: ['Open Late', 'Kid Friendly', 'Pet Friendly', 'Happy Hour'],
+    about: 'Avondale Estates neighborhood gem serving elevated bar food and creative cocktails. Known for their legendary late-night happy hour and welcoming community vibe.',
+    media: [img('niteowl1'), img('niteowl2'), img('niteowl3')],
+    menuDescription: 'Elevated bar food, craft cocktails, happy hour specials',
+    location: { latitude: 33.7701, longitude: -84.2699 },
+    vibes: ['Divey', 'Late Night'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'skylounge-atl',
+    name: 'SkyLounge ATL',
+    category: 'Rooftop Bar · Lounge',
+    address: '3390 Peachtree Rd NE, Atlanta, GA 30326',
+    phone: '(404) 555-0101',
+    website: 'https://skyloungedatl.com',
+    instagram: '@skyloungedatl',
+    attributes: ['Rooftop', 'Bottle Service', 'Dress Code', 'Open Late'],
+    about: "Atlanta's premier rooftop lounge with panoramic city views. Bottle service, craft cocktails, and the best skyline in the city.",
+    media: [img('skylounge1'), img('skylounge2'), img('skylounge3')],
+    menuDescription: 'Craft cocktails, small plates, bottle service packages',
+    location: { latitude: 33.8468, longitude: -84.3618 },
+    vibes: ['Boujee', 'Rooftop'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'tongue-groove',
+    name: 'Tongue & Groove',
+    category: 'Nightclub · Live Music',
+    address: '565 Main Street NE, Atlanta, GA 30324',
+    phone: '(404) 261-2325',
+    website: 'https://tongueandgrooveatl.com',
+    instagram: '@tonguegrooveatl',
+    attributes: ['Nightclub', 'Live Music', 'Dress Code', '21+'],
+    about: "Atlanta's iconic nightclub in a stunning 10,000 sq ft space. World-class DJs, live performances, and VIP bottle service every weekend.",
+    media: [img('tongue1'), img('tongue2'), img('tongue3')],
+    menuDescription: 'Full bar, bottle service, VIP packages',
+    location: { latitude: 33.8095, longitude: -84.3677 },
+    vibes: ['High Energy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'stats-brewpub',
+    name: 'Stats Brewpub',
+    category: 'Sports Bar · Brewpub',
+    address: '300 Marietta St NW, Atlanta, GA 30313',
+    phone: '(404) 885-1472',
+    website: 'https://statsatlanta.com',
+    instagram: '@statsatl',
+    attributes: ['Sports Bar', 'Craft Beer', 'All Ages', 'Happy Hour'],
+    about: 'Sports bar meets craft brewery in the heart of downtown Atlanta. 22 screens, 40+ taps, and a menu that goes way beyond bar food.',
+    media: [img('stats1'), img('stats2'), img('stats3')],
+    menuDescription: 'Craft beers, burgers, wings, brunch on weekends',
+    location: { latitude: 33.7583, longitude: -84.3950 },
+    vibes: ['Divey', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+  {
+    id: 'ivy-buckhead',
+    name: 'Ivy Buckhead',
+    category: 'Upscale Lounge · Cocktail Bar',
+    address: '48 Irby Ave NW, Atlanta, GA 30305',
+    phone: '(404) 816-4690',
+    website: 'https://ivybuckhead.com',
+    instagram: '@ivybuckhead',
+    attributes: ['Upscale', 'Cocktail Bar', 'Dress Code', 'Reservations'],
+    about: "Buckhead's most sophisticated cocktail lounge. Curated spirits, handcrafted cocktails, and an intimate atmosphere perfect for special occasions.",
+    media: [img('ivy1'), img('ivy2'), img('ivy3')],
+    menuDescription: 'Handcrafted cocktails, wine, small plates',
+    location: { latitude: 33.8387, longitude: -84.3800 },
+    vibes: ['Boujee', 'Speakeasy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'opera-atlanta',
+    name: 'Opera Atlanta',
+    category: 'Nightclub · EDM',
+    address: '1150 Crescent Ave NE, Atlanta, GA 30309',
+    phone: '(404) 874-3006',
+    website: 'https://operaatlanta.com',
+    instagram: '@operaatl',
+    attributes: ['Nightclub', 'EDM', 'Bottle Service', '18+'],
+    about: "Atlanta's largest and most celebrated nightclub. World-renowned DJs, state-of-the-art sound, and an unforgettable experience in a breathtaking venue.",
+    media: [img('opera1'), img('opera2'), img('opera3')],
+    menuDescription: 'Full bar, VIP tables, bottle service',
+    location: { latitude: 33.7972, longitude: -84.3840 },
+    vibes: ['High Energy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'ponce-city-market',
+    name: 'Ponce City Market',
+    category: 'Food Hall · Rooftop',
+    address: '675 Ponce De Leon Ave NE, Atlanta, GA 30308',
+    phone: '(404) 900-7900',
+    website: 'https://poncecitymarket.com',
+    instagram: '@poncecitymarket',
+    attributes: ['Food Hall', 'Rooftop', 'All Ages', 'Outdoor'],
+    about: "Historic Sears building transformed into Atlanta's premier food and beverage destination. Rooftop bar, dozens of dining options, and stunning skyline views.",
+    media: [img('ponce1'), img('ponce2'), img('ponce3')],
+    menuDescription: 'Diverse food hall vendors, rooftop cocktails',
+    location: { latitude: 33.7725, longitude: -84.3653 },
+    vibes: ['Rooftop', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+  {
+    id: 'elleven45-lounge',
+    name: 'Elleven45 Lounge',
+    category: 'Upscale Lounge · Hip Hop',
+    address: '1145 Crescent Ave NE, Atlanta, GA 30309',
+    phone: '(404) 724-9495',
+    website: 'https://elleven45.com',
+    instagram: '@elleven45atl',
+    attributes: ['Hip Hop', 'Bottle Service', 'Dress Code', '21+'],
+    about: "Midtown's hottest hip-hop and R&B lounge. Celebrity sightings, top-tier DJs, and a VIP experience that defines Atlanta nightlife.",
+    media: [img('elleven1'), img('elleven2'), img('elleven3')],
+    menuDescription: 'Premium bottles, craft cocktails, VIP sections',
+    location: { latitude: 33.7962, longitude: -84.3838 },
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'clermont-lounge',
+    name: 'Clermont Lounge',
+    category: 'Dive Bar · Entertainment',
+    address: '789 Ponce de Leon Ave NE, Atlanta, GA 30306',
+    phone: '(404) 874-4783',
+    website: 'https://clermontlounge.net',
+    instagram: '@clermontlounge',
+    attributes: ['Dive Bar', 'Late Night', 'Cash Only', 'Iconic'],
+    about: "Atlanta's most legendary dive bar. An institution since 1965 — unpretentious, unapologetic, and utterly unforgettable.",
+    media: [img('clermont1'), img('clermont2'), img('clermont3')],
+    menuDescription: 'Cold beer, well drinks, cash only',
+    location: { latitude: 33.7717, longitude: -84.3638 },
+    vibes: ['Divey', 'Late Night'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+  {
+    id: 'st-regis-bar',
+    name: 'The Roof at St. Regis',
+    category: 'Hotel Bar · Rooftop',
+    address: '88 W Paces Ferry Rd NW, Atlanta, GA 30305',
+    phone: '(404) 563-7900',
+    website: 'https://stregisatlanta.com',
+    instagram: '@stregisatlanta',
+    attributes: ['Rooftop', 'Luxury', 'Hotel Bar', 'Dress Code'],
+    about: 'The pinnacle of Atlanta rooftop dining and cocktails. Perched atop the St. Regis hotel in Buckhead with unparalleled views and impeccable service.',
+    media: [img('stregis1'), img('stregis2'), img('stregis3')],
+    menuDescription: 'Luxury cocktails, champagne, fine dining small plates',
+    location: { latitude: 33.8472, longitude: -84.3871 },
+    vibes: ['Boujee', 'Rooftop'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'darwin-cocktails',
+    name: "Darwin's on Spring",
+    category: 'Cocktail Bar · Speakeasy',
+    address: '195 Spring St NW, Atlanta, GA 30303',
+    phone: '(404) 835-8080',
+    website: 'https://darwinsonspring.com',
+    instagram: '@darwinsonspring',
+    attributes: ['Craft Cocktails', 'Speakeasy', 'Happy Hour', 'Small Plates'],
+    about: 'Hidden gem craft cocktail bar in downtown Atlanta. Award-winning bartenders, seasonal menus, and an intimate atmosphere that rewards discovery.',
+    media: [img('darwin1'), img('darwin2'), img('darwin3')],
+    menuDescription: 'Artisanal cocktails, curated spirits, charcuterie',
+    location: { latitude: 33.7606, longitude: -84.3938 },
+    vibes: ['Speakeasy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+
+  // ── Your 7 requested venues ────────────────────────────────────────
+  {
+    id: 'teranga-city',
+    name: 'Teranga City',
+    category: 'Afrobeats Lounge · Restaurant',
+    address: '349 Decatur St SE, Atlanta, GA 30312',
+    phone: '(404) 555-0201',
+    website: 'https://terangacity.com',
+    instagram: '@terangacityatl',
+    attributes: ['Afrobeats', 'African Cuisine', 'Live DJ', '21+', 'Dress Code'],
+    about: "Atlanta's premier West African dining and nightlife experience. Authentic Senegalese cuisine, Afrobeats, and Afro-house music in an immersive cultural atmosphere.",
+    media: [img('teranga1'), img('teranga2'), img('teranga3')],
+    menuDescription: 'Authentic West African cuisine, signature cocktails, champagne',
+    location: { latitude: 33.7480, longitude: -84.3760 },
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'revel-atl',
+    name: 'Revel',
+    category: 'Nightclub · Event Venue',
+    address: '2265 Mill Lake Rd, Buford, GA 30519',
+    phone: '(770) 555-0202',
+    website: 'https://revelatl.com',
+    instagram: '@revelatl',
+    attributes: ['Nightclub', 'Live Events', 'Bottle Service', '18+', 'Multiple Rooms'],
+    about: "One of Atlanta's largest entertainment complexes. Multiple rooms, world-class production, and an electric atmosphere that draws the biggest names in music and nightlife.",
+    media: [img('revel1'), img('revel2'), img('revel3')],
+    menuDescription: 'Full bar, VIP bottle service, premium packages',
+    location: { latitude: 34.1198, longitude: -84.0035 },
+    vibes: ['High Energy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'vision-atl',
+    name: 'Vision',
+    category: 'Nightclub · Lounge',
+    address: '3571 Chamblee Tucker Rd, Atlanta, GA 30341',
+    phone: '(770) 555-0203',
+    website: 'https://visionatl.com',
+    instagram: '@visionatl',
+    attributes: ['Nightclub', 'Hip Hop', 'R&B', 'Bottle Service', '21+'],
+    about: "Atlanta's go-to destination for hip-hop and R&B nightlife. High energy atmosphere, top Atlanta DJs, and a crowd that knows how to party.",
+    media: [img('vision1'), img('vision2'), img('vision3')],
+    menuDescription: 'Premium bottles, craft cocktails, VIP sections',
+    location: { latitude: 33.8853, longitude: -84.2827 },
+    vibes: ['High Energy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'gold-room-atl',
+    name: 'Gold Room',
+    category: 'Upscale Nightclub',
+    address: '2416 Piedmont Rd NE, Atlanta, GA 30324',
+    phone: '(404) 555-0204',
+    website: 'https://goldroomatl.com',
+    instagram: '@goldroomatl',
+    attributes: ['Upscale', 'Hip Hop', 'Bottle Service', '21+', 'Celebrity Friendly'],
+    about: "Atlanta's most prestigious hip-hop nightclub. Where Atlanta's elite come to celebrate. Known for celebrity appearances, top-shelf bottles, and an unforgettable experience.",
+    media: [img('goldroom1'), img('goldroom2'), img('goldroom3')],
+    menuDescription: 'Premium bottles, champagne, VIP table service',
+    location: { latitude: 33.8320, longitude: -84.3610 },
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'v12-atl',
+    name: 'V12',
+    category: 'Lounge · Nightclub',
+    address: '1065 Peachtree St NE, Atlanta, GA 30309',
+    phone: '(404) 555-0205',
+    website: 'https://v12atl.com',
+    instagram: '@v12atl',
+    attributes: ['Lounge', 'Bottle Service', 'Hip Hop', '21+', 'Dress Code'],
+    about: "Midtown's sleek, high-energy lounge and nightclub. Premium sound system, stylish crowd, and the kind of nights that become stories.",
+    media: [img('v121'), img('v122'), img('v123')],
+    menuDescription: 'Premium bottles, signature cocktails, VIP service',
+    location: { latitude: 33.7885, longitude: -84.3842 },
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+  {
+    id: 'sovereign-sweets',
+    name: 'Sovereign Sweets',
+    category: 'Dessert Bar · Late Night',
+    address: '675 Ponce De Leon Ave NE, Atlanta, GA 30308',
+    phone: '(404) 555-0206',
+    website: 'https://sovereignsweets.com',
+    instagram: '@sovereignsweets',
+    attributes: ['Desserts', 'Late Night', 'Cocktails', 'All Ages', 'Trendy'],
+    about: "Atlanta's most indulgent late-night dessert experience. Gourmet desserts, dessert cocktails, and sweet bites until the early hours. The perfect ending to any night out.",
+    media: [img('sovereign1'), img('sovereign2'), img('sovereign3')],
+    menuDescription: 'Gourmet desserts, dessert cocktails, sweet bites',
+    location: { latitude: 33.7725, longitude: -84.3653 },
+    vibes: ['Boujee', 'Late Night'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+];
+
+// ── EVENTS ────────────────────────────────────────────────────────────
+// All events require: status: 'approved', vibes[]
+const events = [
+  {
+    id: 'euphoria-fridays',
+    title: 'Euphoria Fridays',
+    venue: 'SkyLounge ATL',
+    venueId: 'skylounge-atl',
+    date: 'FRI APR 4',
+    time: '10 PM',
+    age: '21+',
+    about: 'The most immersive Friday night rooftop experience in Atlanta. World-class DJs, bottle service, and panoramic city views.',
+    media: [
+      { type: 'photo', uri: img('euphoria1', 800, 1000) },
+      { type: 'photo', uri: img('euphoria2', 800, 1000) },
+    ],
+    vibes: ['Boujee', 'Rooftop'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'bottle-wars-sundays',
+    title: 'Bottle Wars Sundays',
+    venue: 'Nite Owl Kitchen & Cocktails',
+    venueId: 'nite-owl',
+    date: 'SUN APR 6',
+    time: '8 PM',
+    age: '21+',
+    about: "Atlanta's most legendary Sunday night experience. Tables compete for the best presentation, the crowd votes, and everyone wins.",
+    media: [{ type: 'photo', uri: img('bottlewars1', 800, 1000) }],
+    vibes: ['Divey', 'Late Night'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'atl-rooftop-social',
+    title: 'ATL Rooftop Social',
+    venue: 'Ponce City Market',
+    venueId: 'ponce-city-market',
+    date: 'SAT APR 5',
+    time: '7 PM',
+    age: '21+',
+    about: "Atlanta's premier rooftop social mixer. Meet Atlanta's most interesting people with drinks in hand and the city below.",
+    media: [{ type: 'photo', uri: img('rooftopsocial1', 800, 1000) }],
+    vibes: ['Rooftop', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'ladies-night-ivy',
+    title: 'Ladies Night',
+    venue: 'Ivy Buckhead',
+    venueId: 'ivy-buckhead',
+    date: 'FRI APR 4',
+    time: '9 PM',
+    age: '21+',
+    about: "Ladies get in free before 11PM with complimentary welcome cocktails. ATL's most anticipated weekly ladies night.",
+    media: [{ type: 'photo', uri: img('ladiesnite1', 800, 1000) }],
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+  {
+    id: 'opera-saturdays',
+    title: 'Opera Saturdays',
+    venue: 'Opera Atlanta',
+    venueId: 'opera-atlanta',
+    date: 'SAT APR 5',
+    time: '10 PM',
+    age: '18+',
+    about: "The biggest Saturday night in Atlanta. International DJs, 3 rooms of music, and 2,000+ of Atlanta's finest.",
+    media: [{ type: 'photo', uri: img('opera1', 800, 1000) }],
+    vibes: ['High Energy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'hip-hop-fridays-elleven',
+    title: 'Hip Hop Fridays',
+    venue: 'Elleven45 Lounge',
+    venueId: 'elleven45-lounge',
+    date: 'FRI APR 4',
+    time: '9 PM',
+    age: '21+',
+    about: "Midtown's hottest hip-hop and R&B night. Celebrity appearances, top ATL DJs, and a crowd that sets the standard.",
+    media: [{ type: 'photo', uri: img('hiphopfriday1', 800, 1000) }],
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'speakeasy-thursdays',
+    title: 'Speakeasy Thursdays',
+    venue: "Darwin's on Spring",
+    venueId: 'darwin-cocktails',
+    date: 'THU APR 3',
+    time: '8 PM',
+    age: '21+',
+    about: "Secret menu, live jazz, and craft cocktails made with prohibition-era techniques. Atlanta's most intimate Thursday night experience.",
+    media: [{ type: 'photo', uri: img('speakeasy1', 800, 1000) }],
+    vibes: ['Speakeasy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+  {
+    id: 'teranga-afrobeats',
+    title: 'Afrobeats Saturdays',
+    venue: 'Teranga City',
+    venueId: 'teranga-city',
+    date: 'SAT APR 5',
+    time: '9 PM',
+    age: '21+',
+    about: "Atlanta's hottest Afrobeats and Afro-house night. Authentic West African cuisine, premium bottles, and a cultural experience unlike anything in the city.",
+    media: [
+      { type: 'photo', uri: img('teranga_ev1', 800, 1000) },
+      { type: 'photo', uri: img('teranga_ev2', 800, 1000) },
+    ],
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'gold-room-fridays',
+    title: 'Gold Room Fridays',
+    venue: 'Gold Room',
+    venueId: 'gold-room-atl',
+    date: 'FRI APR 4',
+    time: '10 PM',
+    age: '21+',
+    about: "Atlanta's most exclusive Friday night. Where the city's elite celebrate. Premium bottles, celebrity appearances, and an atmosphere that defines luxury nightlife.",
+    media: [
+      { type: 'photo', uri: img('goldroom_ev1', 800, 1000) },
+      { type: 'photo', uri: img('goldroom_ev2', 800, 1000) },
+    ],
+    vibes: ['Boujee', 'High Energy'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'revel-saturdays',
+    title: 'Revel Saturdays',
+    venue: 'Revel',
+    venueId: 'revel-atl',
+    date: 'SAT APR 5',
+    time: '10 PM',
+    age: '18+',
+    about: "The biggest Saturday night production in the Atlanta metro. Multiple rooms, world-class DJs, and a crowd of thousands. This is what nightlife looks like.",
+    media: [
+      { type: 'photo', uri: img('revel_ev1', 800, 1000) },
+      { type: 'photo', uri: img('revel_ev2', 800, 1000) },
+    ],
+    vibes: ['High Energy', 'Boujee'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: true,
+  },
+  {
+    id: 'sovereign-late-night',
+    title: 'Midnight Sweets',
+    venue: 'Sovereign Sweets',
+    venueId: 'sovereign-sweets',
+    date: 'FRI & SAT',
+    time: '11 PM',
+    age: 'All Ages',
+    about: "The perfect cap to your night out. Gourmet desserts, dessert cocktails, and indulgent bites until 3am. Atlanta's sweetest late-night tradition.",
+    media: [
+      { type: 'photo', uri: img('sovereign_ev1', 800, 1000) },
+    ],
+    vibes: ['Boujee', 'Late Night'],
+    status: 'approved',
+    isActive: true,
+    isFeatured: false,
+  },
+];
+
+// ── DEALS ─────────────────────────────────────────────────────────────
+const deals = [
+  {
+    id: 'nite-owl-happy-hour',
+    title: 'Half Off Bottles',
+    venueId: 'nite-owl',
+    venueName: 'Nite Owl Kitchen & Cocktails',
+    detail: 'Before 9 PM tonight',
+    image: img('deal1'),
+    vibes: ['Divey', 'Late Night'],
+    isActive: true,
+  },
+  {
+    id: 'ivy-ladies-free',
+    title: 'Ladies Drink Free',
+    venueId: 'ivy-buckhead',
+    venueName: 'Ivy Buckhead',
+    detail: 'Before 11 PM Fridays',
+    image: img('deal2'),
+    vibes: ['Boujee', 'High Energy'],
+    isActive: true,
+  },
+  {
+    id: 'skylounge-happy-hour',
+    title: '2-for-1 Cocktails',
+    venueId: 'skylounge-atl',
+    venueName: 'SkyLounge ATL',
+    detail: 'Happy Hour 4–7 PM',
+    image: img('deal3'),
+    vibes: ['Boujee', 'Rooftop'],
+    isActive: true,
+  },
+  {
+    id: 'stats-brunch-deal',
+    title: 'Bottomless Mimosas $25',
+    venueId: 'stats-brewpub',
+    venueName: 'Stats Brewpub',
+    detail: 'Every Sunday 11AM–3PM',
+    image: img('deal4'),
+    vibes: ['Divey', 'High Energy'],
+    isActive: true,
+  },
+  {
+    id: 'clermont-cheap-beer',
+    title: '$3 Beers All Night',
+    venueId: 'clermont-lounge',
+    venueName: 'Clermont Lounge',
+    detail: 'Every night, cash only',
+    image: img('deal5'),
+    vibes: ['Divey', 'Late Night'],
+    isActive: true,
+  },
+  {
+    id: 'gold-room-vip',
+    title: 'Free VIP Upgrade',
+    venueId: 'gold-room-atl',
+    venueName: 'Gold Room',
+    detail: 'With table reservation this weekend',
+    image: img('deal6'),
+    vibes: ['Boujee', 'High Energy'],
+    isActive: true,
+  },
+  {
+    id: 'teranga-dinner-deal',
+    title: 'Dinner + Bottle Package',
+    venueId: 'teranga-city',
+    venueName: 'Teranga City',
+    detail: '$150 per couple · Sat nights',
+    image: img('deal7'),
+    vibes: ['Boujee', 'High Energy'],
+    isActive: true,
+  },
+];
+
+// ── Seed config ────────────────────────────────────────────────────────
+const config = {
+  features: {
+    storiesEnabled: true,
+    storiesMinPosts: 3,
+    storyAdFrequency: 4,
+    storyAdsEnabled: true,
+  },
+  ticketing: {
+    serviceFeePercent: 0.12,
+    serviceFeeMin: 1.99,
+    serviceFeeMax: 75.00,
+    chargebackFee: 15.00,
+    chargebackResponsibility: 'venue',
+    payoutHoldPercent: 0.05,
+    payoutHoldDays: 7,
+  },
+};
+
+// ── Run seed ───────────────────────────────────────────────────────────
+async function seed() {
+  console.log('🌱 Starting Wugi Atlanta seed...\n');
+
+  console.log(`📍 Seeding ${venues.length} venues...`);
+  for (const venue of venues) {
+    const { id, ...data } = venue;
+    await db.collection('venues').doc(id).set({
+      ...data,
+      createdAt: ts(),
+      updatedAt: ts(),
+    }, { merge: true });
+    console.log(`  ✅ ${venue.name}`);
+  }
+
+  console.log(`\n🎉 Seeding ${events.length} events...`);
+  for (const event of events) {
+    const { id, ...data } = event;
+    await db.collection('events').doc(id).set({
+      ...data,
+      createdAt: ts(),
+      updatedAt: ts(),
+    }, { merge: true });
+    console.log(`  ✅ ${event.title}`);
+  }
+
+  console.log(`\n💰 Seeding ${deals.length} deals...`);
+  for (const deal of deals) {
+    const { id, ...data } = deal;
+    await db.collection('deals').doc(id).set({
+      ...data,
+      createdAt: ts(),
+      updatedAt: ts(),
+    }, { merge: true });
+    console.log(`  ✅ ${deal.title}`);
+  }
+
+  console.log('\n⚙️  Seeding config...');
+  for (const [key, value] of Object.entries(config)) {
+    await db.collection('config').doc(key).set(value, { merge: true });
+    console.log(`  ✅ config/${key}`);
+  }
+
+  console.log('\n🎊 Seed complete!');
+  console.log(`   ${venues.length} venues`);
+  console.log(`   ${events.length} events`);
+  console.log(`   ${deals.length} deals`);
+  process.exit(0);
+}
+
+seed().catch((err) => {
+  console.error('❌ Seed failed:', err);
+  process.exit(1);
+});

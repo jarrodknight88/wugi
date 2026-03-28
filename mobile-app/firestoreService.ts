@@ -53,12 +53,66 @@ export type FSVenue = {
   phone: string;
   website: string;
   instagram: string;
+  instagramSource?: string;
+  instagramInferred?: boolean;
   attributes: string[];
   vibes: string[];
   about: string;
   media: string[];
-  status: string;
+
+  // Status model:
+  //   pending_review — confidence < 80, needs manual approval, visible in app
+  //   unclaimed      — confidence >= 80, live in app with "Claim this venue" CTA
+  //   approved       — venue claimed and verified, full profile
+  //   closed         — permanently closed, shows closure banner, NOT in discovery
+  //   disabled       — hidden completely (duplicates, bad data)
+  status: 'unclaimed' | 'approved' | 'pending_review' | 'closed' | 'disabled';
+
+  isClaimed: boolean;
+  claimedBy?: string | null;
+  claimedAt?: any;
+
+  // Closed venue fields
+  closedAt?: any;
+  closedReason?: string;
+  replacedBy?: string;         // docId of venue that replaced this one
+  previousVenue?: string;      // docId of venue this replaced
+  previousVenueName?: string;
+
+  // Neighborhood — used for Discover neighborhood filter
+  neighborhood?: string;
+  neighborhoodSlug?: string;
+  neighborhoodBounds?: Record<string, number>;
+
+  // Hours
+  hours?: string[];
+  hoursVisible?: boolean;
+  specialHours?: {
+    date: string;
+    label: string;
+    hours: string | null;
+    isClosed: boolean;
+  }[];
+
+  // Parking
+  parking?: Record<string, boolean>;
+
+  // Meta
+  rating?: number | null;
+  priceLevel?: string;
+  googlePlaceId?: string;
+  location?: { latitude: number; longitude: number };
+
+  // Confidence scoring
+  confidence?: {
+    overall: number;
+    breakdown: Record<string, { score: number; visible: boolean; source: string }>;
+  };
+
+  isActive?: boolean;
+  isFeatured?: boolean;
   createdAt: any;
+  updatedAt?: any;
 };
 
 export type FSDeal = {
@@ -79,7 +133,7 @@ export async function upsertUserProfile(
   displayName?: string
 ): Promise<void> {
   try {
-    const ref = doc(collection(db, 'users'), uid);
+    const ref  = doc(collection(db, 'users'), uid);
     const snap = await getDoc(ref);
     if (!snap.exists()) {
       await setDoc(ref, {
@@ -112,7 +166,7 @@ export async function saveUserVibes(uid: string, vibes: string[]): Promise<void>
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   try {
-    const ref = doc(collection(db, 'users'), uid);
+    const ref  = doc(collection(db, 'users'), uid);
     const snap = await getDoc(ref);
     if (!snap.exists()) return null;
     return { uid, ...snap.data() } as UserProfile;
@@ -184,28 +238,35 @@ export async function getEventById(eventId: string): Promise<FSEvent | null> {
 }
 
 // ── Venues ────────────────────────────────────────────────────────────
+// Shows: approved + unclaimed + pending_review
+// Hidden: closed (shows banner on profile) + disabled (hidden entirely)
 export async function getApprovedVenues(
   userVibes?: string[],
   max: number = 20
 ): Promise<FSVenue[]> {
   try {
-    let q;
-    if (userVibes && userVibes.length > 0) {
-      q = query(
-        collection(db, 'venues'),
-        where('status', '==', 'approved'),
-        where('vibes', 'array-contains-any', userVibes),
-        limit(max)
-      );
-    } else {
-      q = query(
-        collection(db, 'venues'),
-        where('status', '==', 'approved'),
-        limit(max)
-      );
-    }
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as FSVenue));
+    const [approvedSnap, unclaimedSnap, pendingSnap] = await Promise.all([
+      getDocs(query(collection(db, 'venues'), where('status', '==', 'approved'),       limit(max))),
+      getDocs(query(collection(db, 'venues'), where('status', '==', 'unclaimed'),      limit(max))),
+      getDocs(query(collection(db, 'venues'), where('status', '==', 'pending_review'), limit(max))),
+    ]);
+
+    const seen    = new Set<string>();
+    const results: FSVenue[] = [];
+
+    [...approvedSnap.docs, ...unclaimedSnap.docs, ...pendingSnap.docs].forEach(d => {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        const data = { id: d.id, ...d.data() } as FSVenue;
+        if (!userVibes || userVibes.length === 0) {
+          results.push(data);
+        } else if ((data.vibes || []).some(v => userVibes.includes(v))) {
+          results.push(data);
+        }
+      }
+    });
+
+    return results.slice(0, max);
   } catch (e) {
     console.log('getApprovedVenues error:', e);
     return [];
@@ -220,6 +281,39 @@ export async function getVenueById(venueId: string): Promise<FSVenue | null> {
   } catch (e) {
     console.log('getVenueById error:', e);
     return null;
+  }
+}
+
+// ── Venues by Neighborhood ────────────────────────────────────────────
+export async function getVenuesByNeighborhood(
+  neighborhoodSlug: string,
+  max: number = 30
+): Promise<FSVenue[]> {
+  try {
+    const statuses = ['approved', 'unclaimed', 'pending_review'];
+    const snaps    = await Promise.all(
+      statuses.map(status =>
+        getDocs(query(
+          collection(db, 'venues'),
+          where('neighborhoodSlug', '==', neighborhoodSlug),
+          where('status', '==', status),
+          limit(max)
+        ))
+      )
+    );
+
+    const seen    = new Set<string>();
+    const results: FSVenue[] = [];
+    snaps.flatMap(s => s.docs).forEach(d => {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        results.push({ id: d.id, ...d.data() } as FSVenue);
+      }
+    });
+    return results.slice(0, max);
+  } catch (e) {
+    console.log('getVenuesByNeighborhood error:', e);
+    return [];
   }
 }
 

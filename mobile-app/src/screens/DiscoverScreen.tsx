@@ -1,61 +1,74 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — DiscoverScreen
+// Wired to Firestore — falls back to mock if empty/error
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, ScrollView,
-  SafeAreaView, TextInput, Dimensions, StyleSheet,
+  SafeAreaView, TextInput, Dimensions, ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData } from '../types';
-import { EVENTS, VENUES } from '../constants/mockData';
-import { DISCOVER_VIBES } from '../constants/mockData';
+import type { EventData, VenueData, FSEvent, FSVenue } from '../types';
+import { EVENTS, VENUES, makeGallery } from '../constants/mockData';
 import { SearchIcon, StarIcon, ChevronRightIcon } from '../components/icons';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// ── Converters ────────────────────────────────────────────────────────
+function toEventData(e: FSEvent): EventData {
+  return {
+    id: e.id, title: e.title, venue: e.venue,
+    date: e.date, time: e.time, age: e.age, about: e.about || '',
+    media: e.media || [],
+    gallery: makeGallery(e.id, e.title, e.venue, e.date, ['gp1','gp2','gp3','gp4']),
+  };
+}
+
+function toVenueData(v: FSVenue): VenueData {
+  return {
+    id: v.id, name: v.name, category: v.category || '',
+    address: v.address || '', phone: v.phone || '',
+    website: v.website || '', instagram: v.instagram || '',
+    attributes: v.attributes || [], about: v.about || '',
+    media: v.media || [],
+    menuDescription: v.about || '', menuAttributes: v.attributes || [],
+    bestSellers: [], upcomingEvents: [], galleries: [],
+  };
+}
+
+// ── Types ─────────────────────────────────────────────────────────────
 type DiscoverItem =
   | { kind: 'event'; data: EventData; image: string }
   | { kind: 'venue'; data: VenueData; image: string }
-  | { kind: 'food'; name: string; venue: string; image: string; rating: number }
-  | { kind: 'deal'; title: string; venueName: string; detail: string; image: string };
+  | { kind: 'deal';  title: string; venueName: string; detail: string; image: string };
 
-const ALL_RESULTS: DiscoverItem[] = [
-  { kind: 'event',  data: EVENTS[0],  image: 'https://picsum.photos/seed/ev1a/800/600'    },
-  { kind: 'venue',  data: VENUES[0],  image: 'https://picsum.photos/seed/venue1/800/600'  },
-  { kind: 'event',  data: EVENTS[1],  image: 'https://picsum.photos/seed/ev2a/800/600'    },
-  { kind: 'food',   name: 'Wagyu Sliders',    venue: 'Nite Owl Kitchen',  image: 'https://picsum.photos/seed/food2/800/600',  rating: 4.8 },
-  { kind: 'deal',   title: 'Half Off Bottles', venueName: 'Nite Owl Kitchen', detail: 'Before 9 PM', image: 'https://picsum.photos/seed/deal1/800/600' },
-  { kind: 'venue',  data: VENUES[1],  image: 'https://picsum.photos/seed/fv1/800/600'     },
-  { kind: 'event',  data: EVENTS[2],  image: 'https://picsum.photos/seed/ev3a/800/600'    },
-  { kind: 'food',   name: 'Sky Martini',      venue: 'SkyLounge ATL',    image: 'https://picsum.photos/seed/food4/800/600',  rating: 4.9 },
-  { kind: 'deal',   title: 'Ladies Drink Free', venueName: 'Tongue & Groove', detail: 'Before 11 PM Fridays', image: 'https://picsum.photos/seed/deal2/800/600' },
-  { kind: 'venue',  data: VENUES[2],  image: 'https://picsum.photos/seed/fv2/800/600'     },
-  { kind: 'event',  data: EVENTS[3],  image: 'https://picsum.photos/seed/ev4a/800/600'    },
-  { kind: 'food',   name: 'Truffle Fries',    venue: 'SkyLounge ATL',    image: 'https://picsum.photos/seed/food5/800/600',  rating: 4.6 },
+const CATEGORIES = ['All', 'Events', 'Venues', 'Deals'];
+const DISCOVER_VIBES = [
+  { label: 'Boujee',      accent: '#9b59b6' },
+  { label: 'Divey',       accent: '#e67e22' },
+  { label: 'Speakeasy',   accent: '#95a5a6' },
+  { label: 'High Energy', accent: '#e74c3c' },
+  { label: 'Rooftop',     accent: '#3498db' },
+  { label: 'Late Night',  accent: '#2980b9' },
 ];
 
 const getItemName = (item: DiscoverItem) => {
   if (item.kind === 'event') return item.data.title;
   if (item.kind === 'venue') return item.data.name;
-  if (item.kind === 'food')  return item.name;
   return item.title;
 };
 const getItemSub = (item: DiscoverItem) => {
   if (item.kind === 'event') return `${item.data.venue} · ${item.data.date}`;
   if (item.kind === 'venue') return item.data.category;
-  if (item.kind === 'food')  return item.venue;
   return item.venueName;
 };
 const getItemTag = (item: DiscoverItem) => {
   if (item.kind === 'event') return { label: 'Event', color: '#2a7a5a' };
   if (item.kind === 'venue') return { label: 'Venue', color: '#3498db' };
-  if (item.kind === 'food')  return { label: 'Food',  color: '#e67e22' };
   return { label: 'Deal', color: '#e74c3c' };
 };
-
-const CATEGORIES = ['All', 'Events', 'Venues', 'Food', 'Deals'];
 
 type Props = {
   theme: Theme;
@@ -69,18 +82,98 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
   const [activeVibe,     setActiveVibe]     = useState<string | null>(null);
   const [viewMode,       setViewMode]       = useState<'list' | 'grid'>('list');
   const [showMap,        setShowMap]        = useState(false);
+  const [allResults,     setAllResults]     = useState<DiscoverItem[]>([]);
+  const [loading,        setLoading]        = useState(true);
 
-  const filtered = ALL_RESULTS.filter(item => {
+  // ── Fetch from Firestore ──────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
+          await import('../../firestoreService');
+
+        const [liveEvents, liveVenues, liveDeals] = await Promise.all([
+          getApprovedEvents([], 30),
+          getApprovedVenues([], 30),
+          getActiveDeals([], 10),
+        ]);
+
+        if (cancelled) return;
+
+        const results: DiscoverItem[] = [];
+
+        const events = liveEvents.length > 0 ? liveEvents : EVENTS.map(e => ({
+          id: e.id, title: e.title, venue: e.venue, venueId: '',
+          date: e.date, time: e.time, age: e.age, about: e.about,
+          vibes: ['Boujee'], media: e.media || [], status: 'approved', createdAt: null,
+        }));
+
+        const venues = liveVenues.length > 0 ? liveVenues : VENUES.map(v => ({
+          id: v.id, name: v.name, category: v.category, address: v.address,
+          phone: v.phone, website: v.website, instagram: v.instagram,
+          attributes: v.attributes || [], vibes: ['Boujee'], about: v.about,
+          media: v.media || [], status: 'approved', createdAt: null,
+        }));
+
+        events.forEach(e => results.push({
+          kind: 'event',
+          data: toEventData(e),
+          image: (e.media || [])[0]?.uri || `https://picsum.photos/seed/${e.id}/400/400`,
+        }));
+
+        venues.forEach(v => results.push({
+          kind: 'venue',
+          data: toVenueData(v),
+          image: (v.media || [])[0] || `https://picsum.photos/seed/${v.id}/400/400`,
+        }));
+
+        liveDeals.forEach(d => results.push({
+          kind: 'deal',
+          title: d.title,
+          venueName: d.venueName,
+          detail: d.detail,
+          image: d.image || `https://picsum.photos/seed/${d.id}/400/400`,
+        }));
+
+        setAllResults(results);
+      } catch (e) {
+        console.log('DiscoverScreen: fetch failed, using mock', e);
+        if (cancelled) return;
+        const results: DiscoverItem[] = [];
+        EVENTS.forEach(ev => results.push({ kind: 'event', data: ev, image: (ev.media || [])[0]?.uri || 'https://picsum.photos/seed/ev/400/400' }));
+        VENUES.forEach(v  => results.push({ kind: 'venue', data: v,  image: (v.media  || [])[0]   || 'https://picsum.photos/seed/vn/400/400' }));
+        setAllResults(results);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    const timeout = setTimeout(() => { if (!cancelled) setLoading(false); }, 8000);
+    load();
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, []);
+
+  // ── Filter ────────────────────────────────────────────────────────
+  const filtered = allResults.filter(item => {
     const matchCat =
       activeCategory === 'All' ||
       (activeCategory === 'Events' && item.kind === 'event') ||
       (activeCategory === 'Venues' && item.kind === 'venue') ||
-      (activeCategory === 'Food'   && item.kind === 'food')  ||
       (activeCategory === 'Deals'  && item.kind === 'deal');
-    const name       = getItemName(item).toLowerCase();
-    const sub        = getItemSub(item).toLowerCase();
+
+    const name = getItemName(item).toLowerCase();
+    const sub  = getItemSub(item).toLowerCase();
     const matchSearch = search === '' || name.includes(search.toLowerCase()) || sub.includes(search.toLowerCase());
-    return matchCat && matchSearch;
+
+    const matchVibe = !activeVibe || (() => {
+      if (item.kind === 'event') return item.data.about?.toLowerCase().includes(activeVibe.toLowerCase());
+      if (item.kind === 'venue') return item.data.attributes?.some(a => a.toLowerCase().includes(activeVibe.toLowerCase())) || item.data.category?.toLowerCase().includes(activeVibe.toLowerCase());
+      return true;
+    })();
+
+    return matchCat && matchSearch && matchVibe;
   });
 
   const handleItemPress = (item: DiscoverItem) => {
@@ -105,12 +198,6 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
             <View style={{ backgroundColor: tag.color + '22', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
               <Text style={{ color: tag.color, fontSize: 10, fontWeight: '700' }}>{tag.label.toUpperCase()}</Text>
             </View>
-            {item.kind === 'food' && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                <StarIcon color="#f5a623"/>
-                <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '600' }}>{item.rating}</Text>
-              </View>
-            )}
           </View>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700', marginBottom: 3 }} numberOfLines={1}>{getItemName(item)}</Text>
           <Text style={{ color: theme.subtext, fontSize: 12 }} numberOfLines={1}>{getItemSub(item)}</Text>
@@ -143,6 +230,14 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
     );
   };
 
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.accent} size="large"/>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <SafeAreaView style={{ backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.divider, paddingBottom: 12 }}>
@@ -155,7 +250,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
             <SearchIcon color={theme.subtext}/>
             <TextInput
-              placeholder="Search events, venues, food..."
+              placeholder="Search events, venues, deals..."
               placeholderTextColor={theme.subtext}
               value={search}
               onChangeText={setSearch}
@@ -226,18 +321,6 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
         {showMap ? (
           <View style={{ marginHorizontal: 16, borderRadius: 16, overflow: 'hidden', height: SCREEN_HEIGHT * 0.55 }}>
             <Image source={{ uri: 'https://picsum.photos/seed/mapview/800/600' }} style={{ width: '100%', height: '100%' }} resizeMode="cover"/>
-            {[
-              { x: '30%', y: '40%', name: 'Nite Owl',  color: '#2a7a5a' },
-              { x: '55%', y: '30%', name: 'SkyLounge', color: '#3498db' },
-              { x: '70%', y: '55%', name: 'T&G',       color: '#e74c3c' },
-            ].map((pin, i) => (
-              <View key={i} style={{ position: 'absolute', left: pin.x as any, top: pin.y as any }}>
-                <View style={{ backgroundColor: pin.color, borderRadius: 16, paddingHorizontal: 8, paddingVertical: 4 }}>
-                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{pin.name}</Text>
-                </View>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: pin.color, alignSelf: 'center', marginTop: 2 }}/>
-              </View>
-            ))}
           </View>
         ) : viewMode === 'list' ? (
           <View style={{ paddingHorizontal: 16 }}>
