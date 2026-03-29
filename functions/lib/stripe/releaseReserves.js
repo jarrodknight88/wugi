@@ -41,6 +41,7 @@ exports.releaseReserves = void 0;
 // (48–72h post-event) and transfers the held 5% to the venue.
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
+const logger = __importStar(require("firebase-functions/logger"));
 const admin = __importStar(require("firebase-admin"));
 const stripeUtils_1 = require("./stripeUtils");
 const db = admin.firestore();
@@ -56,10 +57,10 @@ exports.releaseReserves = functions.pubsub
         .where('status', '==', 'confirmed') // don't release on disputed orders
         .get();
     if (readyOrders.empty) {
-        functions.logger.info('No reserves to release');
+        logger.info('No reserves to release');
         return;
     }
-    functions.logger.info(`Releasing reserves for ${readyOrders.size} orders`);
+    logger.info(`Releasing reserves for ${readyOrders.size} orders`);
     // Group by venue to batch transfers
     const venueGroups = new Map();
     for (const orderDoc of readyOrders.docs) {
@@ -81,7 +82,7 @@ exports.releaseReserves = functions.pubsub
     // Execute reserve releases per venue
     for (const [venueId, group] of venueGroups) {
         if (!group.stripeConnectAccountId) {
-            functions.logger.warn(`Venue ${venueId} has no Connect account — skipping reserve release`);
+            logger.warn(`Venue ${venueId} has no Connect account — skipping reserve release`);
             continue;
         }
         if (group.totalReserve <= 0)
@@ -116,14 +117,14 @@ exports.releaseReserves = functions.pubsub
                 }
             }
             await batch.commit();
-            functions.logger.info(`Reserve released for venue ${venueId}`, {
+            logger.info(`Reserve released for venue ${venueId}`, {
                 amount: group.totalReserve,
                 transferId: transfer.id,
                 orders: group.orders.length,
             });
         }
         catch (err) {
-            functions.logger.error(`Reserve release failed for venue ${venueId}`, err);
+            logger.error(`Reserve release failed for venue ${venueId}`, err);
         }
     }
 });

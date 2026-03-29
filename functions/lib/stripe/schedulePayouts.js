@@ -41,6 +41,7 @@ exports.schedulePayouts = void 0;
 // Stripe Connect transfers to venue accounts.
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
+const logger = __importStar(require("firebase-functions/logger"));
 const admin = __importStar(require("firebase-admin"));
 const stripeUtils_1 = require("./stripeUtils");
 const db = admin.firestore();
@@ -55,16 +56,16 @@ exports.schedulePayouts = functions.pubsub
         .where('scheduledFor', '<=', now)
         .get();
     if (duePayouts.empty) {
-        functions.logger.info('No payouts due');
+        logger.info('No payouts due');
         return;
     }
-    functions.logger.info(`Processing ${duePayouts.size} payouts`);
+    logger.info(`Processing ${duePayouts.size} payouts`);
     for (const payoutDoc of duePayouts.docs) {
         const payout = payoutDoc.data();
         const payoutRef = payoutDoc.ref;
         // Skip if venue doesn't have a Connect account
         if (!payout.stripeConnectAccountId) {
-            functions.logger.warn(`Payout ${payoutDoc.id} — no Connect account, skipping`);
+            logger.warn(`Payout ${payoutDoc.id} — no Connect account, skipping`);
             await payoutRef.update({
                 status: 'failed',
                 failureReason: 'Venue has not completed Stripe Connect onboarding',
@@ -108,14 +109,14 @@ exports.schedulePayouts = functions.pubsub
                 });
             }
             await batch.commit();
-            functions.logger.info(`Payout ${payoutDoc.id} executed`, {
+            logger.info(`Payout ${payoutDoc.id} executed`, {
                 transferId: transfer.id,
                 amount: payout.netAmount,
                 venueId: payout.venueId,
             });
         }
         catch (err) {
-            functions.logger.error(`Payout ${payoutDoc.id} failed`, err);
+            logger.error(`Payout ${payoutDoc.id} failed`, err);
             await payoutRef.update({
                 status: 'failed',
                 failureReason: err.message,

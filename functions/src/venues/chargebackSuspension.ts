@@ -6,6 +6,7 @@
 // triggers account suspension.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
+import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 
 const db = admin.firestore();
@@ -60,7 +61,7 @@ export const onVenueChargebackUpdate = functions.firestore
         updatedAt:           admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
-      functions.logger.warn(`Venue ${venueId} suspended`, {
+      logger.warn(`Venue ${venueId} suspended`, {
         outstandingBalance,
         chargebackId: change.after.id,
       });

@@ -41,6 +41,7 @@ exports.onTicketTypeSold = void 0;
 // sold/remaining counts and flips status to 'sold_out' if needed.
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
+const logger = __importStar(require("firebase-functions/logger"));
 const admin = __importStar(require("firebase-admin"));
 const db = admin.firestore();
 exports.onTicketTypeSold = functions.firestore
@@ -70,7 +71,7 @@ exports.onTicketTypeSold = functions.firestore
         // Flip to sold_out if no remaining capacity
         if (newRemaining <= 0 && ticketType.status === 'on_sale') {
             updates.status = 'sold_out';
-            functions.logger.info(`Ticket type ${ticketTypeId} for event ${eventId} is now sold out`);
+            logger.info(`Ticket type ${ticketTypeId} for event ${eventId} is now sold out`);
         }
         tx.update(ticketTypeRef, updates);
     });

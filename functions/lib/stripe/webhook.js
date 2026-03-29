@@ -47,23 +47,24 @@ exports.stripeWebhook = void 0;
 //   transfer.failed               → alert admin, retry logic
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
+const logger = __importStar(require("firebase-functions/logger"));
 const admin = __importStar(require("firebase-admin"));
 const stripeUtils_1 = require("./stripeUtils");
 const db = admin.firestore();
 exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
     // ── Verify webhook signature ────────────────────────────────────────
     const sig = req.headers['stripe-signature'];
-    const secret = functions.config().stripe.webhook_secret;
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
     let event;
     try {
         event = stripeUtils_1.stripe.webhooks.constructEvent(req.rawBody, sig, secret);
     }
     catch (err) {
-        functions.logger.error('Webhook signature verification failed', err.message);
+        logger.error('Webhook signature verification failed', err.message);
         res.status(400).send(`Webhook Error: ${err.message}`);
         return;
     }
-    functions.logger.info(`Stripe event received: ${event.type}`, { id: event.id });
+    logger.info(`Stripe event received: ${event.type}`, { id: event.id });
     try {
         switch (event.type) {
             case 'payment_intent.succeeded':
@@ -88,12 +89,12 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
                 await handleTransferFailed(event.data.object);
                 break;
             default:
-                functions.logger.info(`Unhandled event type: ${event.type}`);
+                logger.info(`Unhandled event type: ${event.type}`);
         }
         res.json({ received: true });
     }
     catch (err) {
-        functions.logger.error(`Error handling ${event.type}`, err);
+        logger.error(`Error handling ${event.type}`, err);
         res.status(500).send(`Handler Error: ${err.message}`);
     }
 });
@@ -107,7 +108,7 @@ async function handlePaymentSuccess(paymentIntent) {
         .limit(1)
         .get();
     if (!existingOrder.empty) {
-        functions.logger.info(`Order already exists for PI ${paymentIntent.id} — skipping`);
+        logger.info(`Order already exists for PI ${paymentIntent.id} — skipping`);
         return;
     }
     // Parse metadata from payment intent
@@ -116,7 +117,7 @@ async function handlePaymentSuccess(paymentIntent) {
     const venueId = meta.venueId;
     const itemsJson = meta.items; // JSON string of cart items
     if (!userId || !eventId || !venueId || !itemsJson) {
-        functions.logger.error('Missing required metadata on payment intent', meta);
+        logger.error('Missing required metadata on payment intent', meta);
         return;
     }
     const items = JSON.parse(itemsJson);
@@ -268,7 +269,7 @@ async function handlePaymentSuccess(paymentIntent) {
     }
     await writeBatch.commit();
     await passBatch.commit();
-    functions.logger.info(`Order ${orderId} created with ${passIds.length} passes`);
+    logger.info(`Order ${orderId} created with ${passIds.length} passes`);
 }
 // ── Payment failed ────────────────────────────────────────────────────
 async function handlePaymentFailed(paymentIntent) {
@@ -282,7 +283,7 @@ async function handlePaymentFailed(paymentIntent) {
             status: 'cancelled',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        functions.logger.info(`Order ${existingOrder.docs[0].id} marked cancelled`);
+        logger.info(`Order ${existingOrder.docs[0].id} marked cancelled`);
     }
 }
 // ── Dispute created → create chargeback doc ───────────────────────────
@@ -296,7 +297,7 @@ async function handleDisputeCreated(dispute) {
         ? charge.payment_intent
         : charge.payment_intent?.id;
     if (!piId) {
-        functions.logger.error(`No payment intent on charge ${chargeId}`);
+        logger.error(`No payment intent on charge ${chargeId}`);
         return;
     }
     const orderSnap = await db
@@ -305,7 +306,7 @@ async function handleDisputeCreated(dispute) {
         .limit(1)
         .get();
     if (orderSnap.empty) {
-        functions.logger.error(`No order found for payment intent ${piId}`);
+        logger.error(`No order found for payment intent ${piId}`);
         return;
     }
     const orderDoc = orderSnap.docs[0];
@@ -354,7 +355,7 @@ async function handleDisputeCreated(dispute) {
         chargebackCount: admin.firestore.FieldValue.increment(1),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    functions.logger.info(`Chargeback created for order ${orderId}`, {
+    logger.info(`Chargeback created for order ${orderId}`, {
         disputeId: dispute.id,
         amount: dispute.amount,
         scanEvidenceAttached,
@@ -430,11 +431,11 @@ async function handleDisputeClosed(dispute) {
             venueUpdates.payoutPreEvent = false;
             venueUpdates.payoutDelayHours = 48;
             venueUpdates.payoutSchedule = 'post_event';
-            functions.logger.warn(`Venue ${chargebackData.venueId} demoted from Tier 5 — chargeback rate ${chargebackRate}`);
+            logger.warn(`Venue ${chargebackData.venueId} demoted from Tier 5 — chargeback rate ${chargebackRate}`);
         }
     }
     await venueDoc.ref.update(venueUpdates);
-    functions.logger.info(`Dispute ${dispute.id} closed — ${outcome}`, {
+    logger.info(`Dispute ${dispute.id} closed — ${outcome}`, {
         venueId: chargebackData.venueId,
         totalVenueOwes,
         venueBalanceDebited,

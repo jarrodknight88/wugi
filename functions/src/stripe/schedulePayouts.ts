@@ -5,6 +5,7 @@
 // Stripe Connect transfers to venue accounts.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
+import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { stripe } from './stripeUtils';
 
@@ -23,11 +24,11 @@ export const schedulePayouts = functions.pubsub
       .get();
 
     if (duePayouts.empty) {
-      functions.logger.info('No payouts due');
+      logger.info('No payouts due');
       return;
     }
 
-    functions.logger.info(`Processing ${duePayouts.size} payouts`);
+    logger.info(`Processing ${duePayouts.size} payouts`);
 
     for (const payoutDoc of duePayouts.docs) {
       const payout    = payoutDoc.data();
@@ -35,7 +36,7 @@ export const schedulePayouts = functions.pubsub
 
       // Skip if venue doesn't have a Connect account
       if (!payout.stripeConnectAccountId) {
-        functions.logger.warn(`Payout ${payoutDoc.id} — no Connect account, skipping`);
+        logger.warn(`Payout ${payoutDoc.id} — no Connect account, skipping`);
         await payoutRef.update({
           status:        'failed',
           failureReason: 'Venue has not completed Stripe Connect onboarding',
@@ -84,14 +85,14 @@ export const schedulePayouts = functions.pubsub
         }
         await batch.commit();
 
-        functions.logger.info(`Payout ${payoutDoc.id} executed`, {
+        logger.info(`Payout ${payoutDoc.id} executed`, {
           transferId: transfer.id,
           amount:     payout.netAmount,
           venueId:    payout.venueId,
         });
 
       } catch (err: any) {
-        functions.logger.error(`Payout ${payoutDoc.id} failed`, err);
+        logger.error(`Payout ${payoutDoc.id} failed`, err);
 
         await payoutRef.update({
           status:        'failed',

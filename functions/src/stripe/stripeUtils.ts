@@ -2,10 +2,9 @@
 // Wugi — Stripe utilities
 // ─────────────────────────────────────────────────────────────────────
 import Stripe from 'stripe';
-import * as functions from 'firebase-functions';
 
 export const stripe = new Stripe(
-  functions.config().stripe.secret_key,
+  process.env.STRIPE_SECRET_KEY!,
   { apiVersion: '2023-10-16' }
 );
 
@@ -22,8 +21,7 @@ export function calculateBookingFee(
   const percent = overrides?.feePercent ?? 0.12;
   const min     = overrides?.feeMin     ?? 199;    // $1.99
   const max     = overrides?.feeMax     ?? 10000;  // $100.00
-
-  const fee = Math.round(subtotalCents * percent);
+  const fee     = Math.round(subtotalCents * percent);
   return Math.min(max, Math.max(min, fee));
 }
 
@@ -38,11 +36,11 @@ export function calculateReserve(
 // ── Payout delay from tier ────────────────────────────────────────────
 export function getPayoutDelayHours(tier: number): number {
   const delays: Record<number, number> = {
-    1: 168, // 7 days
+    1: 168,
     2: 72,
     3: 48,
     4: 24,
-    5: 0,   // daily batch / pre-event
+    5: 0,
   };
   return delays[tier] ?? 168;
 }

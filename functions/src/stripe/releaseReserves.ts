@@ -5,6 +5,7 @@
 // (48–72h post-event) and transfers the held 5% to the venue.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
+import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { stripe } from './stripeUtils';
 
@@ -24,11 +25,11 @@ export const releaseReserves = functions.pubsub
       .get();
 
     if (readyOrders.empty) {
-      functions.logger.info('No reserves to release');
+      logger.info('No reserves to release');
       return;
     }
 
-    functions.logger.info(`Releasing reserves for ${readyOrders.size} orders`);
+    logger.info(`Releasing reserves for ${readyOrders.size} orders`);
 
     // Group by venue to batch transfers
     const venueGroups = new Map<string, {
@@ -60,7 +61,7 @@ export const releaseReserves = functions.pubsub
     // Execute reserve releases per venue
     for (const [venueId, group] of venueGroups) {
       if (!group.stripeConnectAccountId) {
-        functions.logger.warn(`Venue ${venueId} has no Connect account — skipping reserve release`);
+        logger.warn(`Venue ${venueId} has no Connect account — skipping reserve release`);
         continue;
       }
 
@@ -101,14 +102,14 @@ export const releaseReserves = functions.pubsub
 
         await batch.commit();
 
-        functions.logger.info(`Reserve released for venue ${venueId}`, {
+        logger.info(`Reserve released for venue ${venueId}`, {
           amount:     group.totalReserve,
           transferId: transfer.id,
           orders:     group.orders.length,
         });
 
       } catch (err: any) {
-        functions.logger.error(`Reserve release failed for venue ${venueId}`, err);
+        logger.error(`Reserve release failed for venue ${venueId}`, err);
       }
     }
   });

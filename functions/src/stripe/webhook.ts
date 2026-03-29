@@ -11,28 +11,29 @@
 //   transfer.failed               → alert admin, retry logic
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
+import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { stripe, generateTicketNumber, calculateReserve } from './stripeUtils';
 
 const db = admin.firestore();
 
-export const stripeWebhook = functions.https.onRequest(async (req, res) => {
+export const stripeWebhook = functions.https.onRequest(async (req: any, res: any) => {
   // ── Verify webhook signature ────────────────────────────────────────
   const sig     = req.headers['stripe-signature'] as string;
-  const secret  = functions.config().stripe.webhook_secret;
+  const secret  = process.env.STRIPE_WEBHOOK_SECRET!;
 
   let event: Stripe.Event;
 
   try {
     event = stripe.webhooks.constructEvent(req.rawBody, sig, secret);
   } catch (err: any) {
-    functions.logger.error('Webhook signature verification failed', err.message);
+    logger.error('Webhook signature verification failed', err.message);
     res.status(400).send(`Webhook Error: ${err.message}`);
     return;
   }
 
-  functions.logger.info(`Stripe event received: ${event.type}`, { id: event.id });
+  logger.info(`Stripe event received: ${event.type}`, { id: event.id });
 
   try {
     switch (event.type) {
@@ -65,12 +66,12 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
         break;
 
       default:
-        functions.logger.info(`Unhandled event type: ${event.type}`);
+        logger.info(`Unhandled event type: ${event.type}`);
     }
 
     res.json({ received: true });
   } catch (err: any) {
-    functions.logger.error(`Error handling ${event.type}`, err);
+    logger.error(`Error handling ${event.type}`, err);
     res.status(500).send(`Handler Error: ${err.message}`);
   }
 });
@@ -87,7 +88,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     .get();
 
   if (!existingOrder.empty) {
-    functions.logger.info(`Order already exists for PI ${paymentIntent.id} — skipping`);
+    logger.info(`Order already exists for PI ${paymentIntent.id} — skipping`);
     return;
   }
 
@@ -98,7 +99,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   const itemsJson = meta.items; // JSON string of cart items
 
   if (!userId || !eventId || !venueId || !itemsJson) {
-    functions.logger.error('Missing required metadata on payment intent', meta);
+    logger.error('Missing required metadata on payment intent', meta);
     return;
   }
 
@@ -279,7 +280,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   await writeBatch.commit();
   await passBatch.commit();
 
-  functions.logger.info(`Order ${orderId} created with ${passIds.length} passes`);
+  logger.info(`Order ${orderId} created with ${passIds.length} passes`);
 }
 
 // ── Payment failed ────────────────────────────────────────────────────
@@ -295,7 +296,7 @@ async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
       status:    'cancelled',
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    functions.logger.info(`Order ${existingOrder.docs[0].id} marked cancelled`);
+    logger.info(`Order ${existingOrder.docs[0].id} marked cancelled`);
   }
 }
 
@@ -312,7 +313,7 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
     : charge.payment_intent?.id;
 
   if (!piId) {
-    functions.logger.error(`No payment intent on charge ${chargeId}`);
+    logger.error(`No payment intent on charge ${chargeId}`);
     return;
   }
 
@@ -323,7 +324,7 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
     .get();
 
   if (orderSnap.empty) {
-    functions.logger.error(`No order found for payment intent ${piId}`);
+    logger.error(`No order found for payment intent ${piId}`);
     return;
   }
 
@@ -382,7 +383,7 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
     updatedAt:       admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  functions.logger.info(`Chargeback created for order ${orderId}`, {
+  logger.info(`Chargeback created for order ${orderId}`, {
     disputeId: dispute.id,
     amount:    dispute.amount,
     scanEvidenceAttached,
@@ -471,7 +472,7 @@ async function handleDisputeClosed(dispute: Stripe.Dispute) {
       venueUpdates.payoutPreEvent    = false;
       venueUpdates.payoutDelayHours  = 48;
       venueUpdates.payoutSchedule    = 'post_event';
-      functions.logger.warn(
+      logger.warn(
         `Venue ${chargebackData.venueId} demoted from Tier 5 — chargeback rate ${chargebackRate}`
       );
     }
@@ -479,7 +480,7 @@ async function handleDisputeClosed(dispute: Stripe.Dispute) {
 
   await venueDoc.ref.update(venueUpdates);
 
-  functions.logger.info(`Dispute ${dispute.id} closed — ${outcome}`, {
+  logger.info(`Dispute ${dispute.id} closed — ${outcome}`, {
     venueId:            chargebackData.venueId,
     totalVenueOwes,
     venueBalanceDebited,

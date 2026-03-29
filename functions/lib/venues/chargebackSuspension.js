@@ -42,6 +42,7 @@ exports.onVenueChargebackUpdate = void 0;
 // triggers account suspension.
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
+const logger = __importStar(require("firebase-functions/logger"));
 const admin = __importStar(require("firebase-admin"));
 const db = admin.firestore();
 // Suspend venue if outstanding chargeback balance > $50
@@ -82,7 +83,7 @@ exports.onVenueChargebackUpdate = functions.firestore
             suspendedVenueCount: admin.firestore.FieldValue.increment(1),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
-        functions.logger.warn(`Venue ${venueId} suspended`, {
+        logger.warn(`Venue ${venueId} suspended`, {
             outstandingBalance,
             chargebackId: change.after.id,
         });
