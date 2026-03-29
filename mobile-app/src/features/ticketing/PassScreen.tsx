@@ -74,6 +74,23 @@ export function PassScreen({ orderId, theme, onClose, onAddToWallet }: Props) {
   useEffect(() => {
     const load = async () => {
       try {
+        // Dev mode — show placeholder pass for dev orders
+        if (orderId.startsWith('dev_order_')) {
+          setPasses([{
+            id: orderId,
+            ticketNumber: 'WG-DEV-' + orderId.slice(-6).toUpperCase(),
+            eventName: 'Test Event',
+            venueName: 'Test Venue',
+            eventDate: 'Tonight',
+            eventTime: '9 PM',
+            ticketTypeName: 'General Admission',
+            holderName: 'Dev User',
+            scanStatus: 'valid',
+          }]);
+          setLoading(false);
+          return;
+        }
+
         const { getFirestore, collection, getDocs, query, where } =
           await import('@react-native-firebase/firestore');
         const db   = getFirestore();
@@ -81,17 +98,32 @@ export function PassScreen({ orderId, theme, onClose, onAddToWallet }: Props) {
           query(collection(db, 'passes'), where('orderId', '==', orderId))
         );
         const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() } as Pass));
-        setPasses(loaded);
+
+        // If no passes found, show placeholder
+        if (loaded.length === 0) {
+          setPasses([{
+            id: orderId,
+            ticketNumber: 'WG-' + orderId.slice(-8).toUpperCase(),
+            eventName: 'Your Event',
+            venueName: 'Venue',
+            eventDate: 'Tonight',
+            eventTime: '9 PM',
+            ticketTypeName: 'General Admission',
+            holderName: 'Guest',
+            scanStatus: 'valid',
+          }]);
+        } else {
+          setPasses(loaded);
+        }
       } catch (e) {
         console.log('PassScreen: load error', e);
-        // Show dev placeholder if load fails
         setPasses([{
           id: orderId,
           ticketNumber: 'WG-' + orderId.slice(-8).toUpperCase(),
-          eventName: 'Event',
+          eventName: 'Your Event',
           venueName: 'Venue',
-          eventDate: 'TBD',
-          eventTime: 'TBD',
+          eventDate: 'Tonight',
+          eventTime: '9 PM',
           ticketTypeName: 'General Admission',
           holderName: 'Guest',
           scanStatus: 'valid',

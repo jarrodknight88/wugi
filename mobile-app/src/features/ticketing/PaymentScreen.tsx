@@ -31,9 +31,17 @@ export function PaymentScreen({
   selection, userId, userEmail, userName,
   theme, onBack, onSuccess,
 }: Props) {
-  const [phone,     setPhone]     = useState('');
-  const [loading,   setLoading]   = useState(false);
+  const [phone,       setPhone]       = useState('');
+  const [loading,     setLoading]     = useState(false);
   const [feeExpanded, setFeeExpanded] = useState(false);
+
+  // ── Phone number formatter (US format) ───────────────────────────
+  const formatPhone = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 10);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  };
 
   const handlePay = async () => {
     setLoading(true);
@@ -159,10 +167,11 @@ export function PaymentScreen({
             <Text style={{ color: theme.subtext, fontSize: 11, marginBottom: 3 }}>Phone (for pass delivery)</Text>
             <TextInput
               value={phone}
-              onChangeText={setPhone}
-              placeholder="+1 (404) 555-0100"
+              onChangeText={text => setPhone(formatPhone(text))}
+              placeholder="(404) 555-0100"
               placeholderTextColor={theme.subtext}
-              keyboardType="phone-pad"
+              keyboardType="number-pad"
+              maxLength={14}
               style={{ color: theme.text, fontSize: 14, fontWeight: '500', padding: 0 }}
             />
           </View>
