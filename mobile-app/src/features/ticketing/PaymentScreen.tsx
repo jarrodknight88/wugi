@@ -2,7 +2,7 @@
 // Wugi — PaymentScreen
 // Stripe Payment Sheet with Apple Pay, saved cards, Face ID
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   SafeAreaView, ActivityIndicator, Alert, TextInput,
@@ -42,44 +42,26 @@ export function PaymentScreen({
 
     setLoading(true);
 
-    try {
-      // ── Step 1: Create payment intent on backend ────────────────────
-      // In production this calls a Cloud Function to create a
-      // Stripe PaymentIntent and returns the client secret.
-      // The PaymentIntent metadata contains the cart items for
-      // the webhook to process.
-      //
-      // For now we create the payment intent directly via Stripe API
-      // (move to Cloud Function before production for security).
-
-      const { initStripe, useStripe } = await import('@stripe/stripe-react-native');
-
-      // ── Step 2: Present Stripe Payment Sheet ────────────────────────
-      // This handles Apple Pay, saved cards, and Face ID natively.
-      // The payment sheet is configured server-side.
-
+    // ── DEV MODE: Simulate payment until Stripe SDK is integrated ─────
+    // TODO before launch: Install @stripe/stripe-react-native, wire up
+    // Stripe Payment Sheet with the createPaymentIntent Cloud Function.
+    // See docs/launch-checklist.md → Stripe section.
+    setTimeout(() => {
+      setLoading(false);
       Alert.alert(
-        'Payment Sheet',
-        'Stripe Payment Sheet integration requires a backend endpoint to create PaymentIntents. ' +
-        'Set up the Cloud Function endpoint and add your Stripe publishable key to complete this step.\n\n' +
-        `Order summary:\n${selection.quantity}× ${selection.ticketType.name}\n` +
-        `Total: ${centsToDisplay(selection.total)} + tax`,
+        `Confirm ${selection.ticketType.isFree ? 'Reservation' : 'Purchase'}`,
+        `${selection.quantity}× ${selection.ticketType.name}\n` +
+        `${selection.ticketType.isFree ? 'FREE' : centsToDisplay(selection.total) + ' + tax'}\n\n` +
+        `${selection.eventName}\n${selection.venueName}`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Simulate Success (Dev)',
-            onPress: () => {
-              // Simulate successful payment for UI development
-              onSuccess('dev_order_' + Date.now());
-            },
+            text: selection.ticketType.isFree ? 'Reserve' : 'Confirm (Dev)',
+            onPress: () => onSuccess('dev_order_' + Date.now()),
           },
         ]
       );
-    } catch (e: any) {
-      Alert.alert('Payment failed', e.message);
-    } finally {
-      setLoading(false);
-    }
+    }, 800);
   };
 
   return (
