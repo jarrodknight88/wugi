@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — VenueScreen
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, ScrollView,
   FlatList, SafeAreaView, Dimensions,
@@ -13,20 +13,61 @@ import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+type ActiveTicketEvent = {
+  id: string;
+  name: string;
+  date: string;
+  time: string;
+};
+
 type Props = {
   venue: VenueData;
   onBack: () => void;
   onEventPress: (event: EventData) => void;
   onMapPress: () => void;
   onGalleryPress: (gallery: GalleryData) => void;
+  onGetTickets?: (event: ActiveTicketEvent) => void;
   theme: Theme;
 };
 
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, theme }: Props) {
+export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onGetTickets, theme }: Props) {
   const [selectedThumb, setSelectedThumb] = useState(0);
+  const [activeTicketEvent, setActiveTicketEvent] = useState<ActiveTicketEvent | null>(null);
   const THUMB_SIZE  = 60;
   const THUMB_TOTAL = venue.media.length * (THUMB_SIZE + 8) + 24;
 
+  // Look up active ticket events for this venue
+  useEffect(() => {
+    const lookup = async () => {
+      try {
+        const { getFirestore, collection, getDocs, query, where } =
+          await import('@react-native-firebase/firestore');
+        const db   = getFirestore();
+        const snap = await getDocs(
+          query(
+            collection(db, 'events'),
+            where('venueId', '==', venue.id),
+            where('hasTickets', '==', true),
+            where('status', '==', 'approved'),
+          )
+        );
+        if (!snap.empty) {
+          const ev = snap.docs[0].data();
+          setActiveTicketEvent({
+            id:   snap.docs[0].id,
+            name: ev.name ?? ev.title ?? venue.name,
+            date: ev.date ?? '',
+            time: ev.time ?? '',
+          });
+        }
+      } catch (e) {
+        // No active ticket events — CTA stays hidden
+      }
+    };
+    lookup();
+  }, [venue.id]);
+
+  const showTicketCTA = onGetTickets && activeTicketEvent;
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -186,8 +227,20 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             </TouchableOpacity>
           )}
         />
-        <View style={{ height: 40 }}/>
+        <View style={{ height: showTicketCTA ? 100 : 40 }}/>
       </ScrollView>
+
+      {/* Conditional Get Tickets CTA */}
+      {showTicketCTA && (
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}>
+          <TouchableOpacity
+            onPress={() => onGetTickets!(activeTicketEvent!)}
+            style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center' }}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 }}>Get Tickets</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }

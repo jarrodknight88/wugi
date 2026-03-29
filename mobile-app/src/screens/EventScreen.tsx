@@ -24,10 +24,11 @@ type Props = {
   onMapPress: () => void;
   onGalleryPress: (gallery: GalleryData) => void;
   onFavoriteToggle: (item: FavoriteItem) => void;
+  onGetTickets?: () => void;
   theme: Theme;
 };
 
-export function EventScreen({ event, onBack, onVenuePress, onMapPress, onGalleryPress, theme }: Props) {
+export function EventScreen({ event, onBack, onVenuePress, onMapPress, onGalleryPress, onGetTickets, theme }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const venue = getVenueByName(event.venue);
@@ -116,6 +117,7 @@ export function EventScreen({ event, onBack, onVenuePress, onMapPress, onGallery
           phone={venue?.phone || ''}
           website={venue?.website || ''}
           instagram={venue?.instagram || ''}
+          logoUrl={(venue as any)?.logoUrl || ''}
           onAddressPress={onMapPress}
           onVenuePress={onVenuePress}
           theme={theme}
@@ -183,9 +185,14 @@ export function EventScreen({ event, onBack, onVenuePress, onMapPress, onGallery
 
       {/* Sticky CTA */}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}>
-        <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginBottom: 10 }}>
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 }}>Get Tickets</Text>
-        </TouchableOpacity>
+        {onGetTickets && event.hasTickets === true && (
+          <TouchableOpacity
+            style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginBottom: 10 }}
+            onPress={onGetTickets}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 }}>Get Tickets</Text>
+          </TouchableOpacity>
+        )}
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <TouchableOpacity style={{ flex: 1, borderRadius: 12, paddingVertical: 12, borderWidth: 1.5, borderColor: theme.border, backgroundColor: theme.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <CalendarIcon color={theme.subtext}/>

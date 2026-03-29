@@ -24,6 +24,7 @@ function toEventData(e: FSEvent): EventData {
     id: e.id, title: e.title, venue: e.venue,
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
+    hasTickets: (e as any).hasTickets === true,
     gallery: makeGallery(e.id, e.title, e.venue, e.date,
       ['gp1','gp2','gp3','gp4','gp5','gp6','gp7','gp8']),
   };

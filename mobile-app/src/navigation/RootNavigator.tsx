@@ -1,8 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — RootNavigator
 // Wrapped with FirebaseProvider. Consumes auth + vibes from context.
+//
+// Key architecture:
+// - Tab screens always stay MOUNTED (display:none when stack is open)
+//   This preserves Discover search state when navigating back
+// - Stack screens render on top via absolute positioning
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { View, useColorScheme } from 'react-native';
 import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
@@ -24,8 +29,13 @@ import { PhotoViewer }      from '../screens/PhotoViewer';
 import { MapScreen }        from '../screens/MapScreen';
 
 // Features
-import { CameraScreen }   from '../features/stories/CameraScreen';
-import { MyPassesScreen } from '../features/ticketing/PassScreens';
+import { CameraScreen }          from '../features/stories/CameraScreen';
+import { MyPassesScreen }        from '../features/ticketing/PassScreens';
+import { TicketSelectionScreen } from '../features/ticketing/TicketSelectionScreen';
+import { PaymentScreen }         from '../features/ticketing/PaymentScreen';
+import { PassScreen }            from '../features/ticketing/PassScreen';
+import { ScanScreen }            from '../features/ticketing/ScanScreen';
+import type { TicketSelection }  from '../features/ticketing/TicketSelectionScreen';
 
 // Components
 import { TabBar } from '../components/TabBar';
@@ -34,7 +44,7 @@ import { TabBar } from '../components/TabBar';
 function Navigator() {
   const scheme = useColorScheme();
   const theme  = scheme === 'dark' ? COLORS.dark : COLORS.light;
-  const { userVibes } = useFirebase();
+  const { userVibes, user } = useFirebase();
 
   const [appPhase,  setAppPhase]  = useState<'splash' | 'onboarding' | 'main'>('splash');
   const [activeTab, setActiveTab] = useState('home');
@@ -42,12 +52,13 @@ function Navigator() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
 
   const push = (entry: NavEntry) => setStack(prev => [...prev, entry]);
-  const pop  = () => setStack(prev => prev.length > 1 ? prev.slice(0, -1) : []);
+  // Pop one screen — if stack becomes empty, tabs are revealed
+  const pop  = () => setStack(prev => prev.slice(0, -1));
 
-  const navigateToEvent   = (event: EventData)     => push({ screen: 'event', event });
-  const navigateToVenue   = (venue: VenueData)     => push({ screen: 'venue', venue });
+  const navigateToEvent   = (event: EventData)    => push({ screen: 'event', event });
+  const navigateToVenue   = (venue: VenueData)    => push({ screen: 'venue', venue });
   const navigateToMap     = (address: string, venueName: string) => push({ screen: 'map', address, venueName });
-  const navigateToGallery = (gallery: GalleryData)  => push({ screen: 'gallery', gallery });
+  const navigateToGallery = (gallery: GalleryData) => push({ screen: 'gallery', gallery });
   const navigateToPhoto   = (photos: GalleryPhoto[], initialIndex: number, gallery: GalleryData) =>
     push({ screen: 'photo', photos, initialIndex, galleryTitle: gallery.title, venue: gallery.venue, date: gallery.date });
 
@@ -60,52 +71,140 @@ function Navigator() {
   if (appPhase === 'splash')     return <SplashScreen     onFinish={() => setAppPhase('onboarding')}/>;
   if (appPhase === 'onboarding') return <OnboardingScreen onFinish={() => setAppPhase('main')}/>;
 
-  // ── Stack screens ────────────────────────────────────────────────────
-  const current = stack.length > 0 ? stack[stack.length - 1] : null;
-  if (current) {
+  // ── Current stack screen ─────────────────────────────────────────────
+  const current      = stack.length > 0 ? stack[stack.length - 1] : null;
+  const stackVisible = current !== null;
+
+  // ── Render the current stack screen ──────────────────────────────────
+  const renderStackScreen = () => {
+    if (!current) return null;
+
     if (current.screen === 'camera')  return <CameraScreen   onClose={pop} theme={theme}/>;
     if (current.screen === 'passes')  return <MyPassesScreen onBack={pop}  theme={theme}/>;
     if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} theme={theme}/>;
     if (current.screen === 'gallery') return <GalleryScreen  gallery={current.gallery} onBack={pop} onPhotoPress={index => navigateToPhoto(current.gallery.photos, index, current.gallery)} theme={theme}/>;
     if (current.screen === 'map')     return <MapScreen      address={current.address} venueName={current.venueName} onBack={pop} theme={theme}/>;
+
+    if (current.screen === 'ticketSelection') return (
+      <TicketSelectionScreen
+        eventId={current.eventId}
+        eventName={current.eventName}
+        venueName={current.venueName}
+        eventDate={current.eventDate}
+        eventTime={current.eventTime}
+        theme={theme}
+        onBack={pop}
+        onContinue={(selection: TicketSelection) => push({ screen: 'payment', selection })}
+      />
+    );
+
+    if (current.screen === 'payment') return (
+      <PaymentScreen
+        selection={current.selection}
+        userId={user?.uid ?? ''}
+        userEmail={user?.email ?? ''}
+        userName={user?.displayName ?? 'Guest'}
+        theme={theme}
+        onBack={pop}
+        onSuccess={(orderId: string) => {
+          setStack(prev => [...prev.slice(0, -1), { screen: 'pass', orderId }]);
+        }}
+      />
+    );
+
+    if (current.screen === 'pass') return (
+      <PassScreen
+        orderId={current.orderId}
+        theme={theme}
+        onClose={() => {
+          setStack(prev => prev.filter(e =>
+            e.screen !== 'pass' &&
+            e.screen !== 'payment' &&
+            e.screen !== 'ticketSelection'
+          ));
+        }}
+      />
+    );
+
+    if (current.screen === 'scan') return (
+      <ScanScreen
+        eventId={current.eventId}
+        eventName={current.eventName}
+        venueName={current.venueName}
+        eventDate={current.eventDate}
+        eventTime={current.eventTime}
+        userId={user?.uid ?? ''}
+        theme={theme}
+        onBack={pop}
+      />
+    );
+
     if (current.screen === 'event') {
       const venue = getVenueByName(current.event.venue);
-      return <EventScreen
-        event={current.event}
-        onBack={pop}
-        onVenuePress={() => venue && navigateToVenue(venue)}
-        onMapPress={() => navigateToMap(venue?.address || '', current.event.venue)}
-        onGalleryPress={navigateToGallery}
-        onFavoriteToggle={toggleFavorite}
-        theme={theme}
-      />;
+      return (
+        <EventScreen
+          event={current.event}
+          onBack={pop}
+          onVenuePress={() => venue && navigateToVenue(venue)}
+          onMapPress={() => navigateToMap(venue?.address || '', current.event.venue)}
+          onGalleryPress={navigateToGallery}
+          onFavoriteToggle={toggleFavorite}
+          onGetTickets={current.event.hasTickets === true ? () => push({
+            screen:    'ticketSelection',
+            eventId:   current.event.id ?? '',
+            eventName: current.event.title,
+            venueName: current.event.venue,
+            eventDate: current.event.date,
+            eventTime: current.event.time,
+          }) : undefined}
+          theme={theme}
+        />
+      );
     }
-    if (current.screen === 'venue') return <VenueScreen
-      venue={current.venue}
-      onBack={pop}
-      onEventPress={navigateToEvent}
-      onMapPress={() => navigateToMap(current.venue.address, current.venue.name)}
-      onGalleryPress={navigateToGallery}
-      theme={theme}
-    />;
-  }
 
-  // ── Tab screens ──────────────────────────────────────────────────────
-  const renderTab = () => {
-    switch (activeTab) {
-      case 'home':      return <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>;
-      case 'forYou':    return <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite}/>;
-      case 'discover':  return <DiscoverScreen  theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue}/>;
-      case 'favorites': return <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead}/>;
-      case 'account':   return <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>;
-      default:          return <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>;
-    }
+    if (current.screen === 'venue') return (
+      <VenueScreen
+        venue={current.venue}
+        onBack={pop}
+        onEventPress={navigateToEvent}
+        onMapPress={() => navigateToMap(current.venue.address, current.venue.name)}
+        onGalleryPress={navigateToGallery}
+        onGetTickets={(activeEvent) => push({
+          screen:    'ticketSelection',
+          eventId:   activeEvent.id,
+          eventName: activeEvent.name,
+          venueName: current.venue.name,
+          eventDate: activeEvent.date,
+          eventTime: activeEvent.time,
+        })}
+        theme={theme}
+      />
+    );
+
+    return null;
   };
 
+  // ── Tab screens — always mounted, hidden when stack is open ──────────
+  // This preserves state (e.g. Discover search results) when navigating
+  // to an event/venue and pressing back
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {renderTab()}
-      <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
+      {/* Tabs — always mounted, hidden behind stack */}
+      <View style={{ flex: 1, display: stackVisible ? 'none' : 'flex' }}>
+        {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
+        {activeTab === 'discover'  && <DiscoverScreen  theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue}/>}
+        {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite}/>}
+        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead}/>}
+        {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}
+        <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
+      </View>
+
+      {/* Stack — renders on top when present */}
+      {stackVisible && (
+        <View style={{ flex: 1 }}>
+          {renderStackScreen()}
+        </View>
+      )}
     </View>
   );
 }

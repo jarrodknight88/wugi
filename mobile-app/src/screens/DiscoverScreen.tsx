@@ -8,6 +8,7 @@ import {
   SafeAreaView, TextInput, Dimensions, ActivityIndicator,
   StyleSheet,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FSEvent, FSVenue } from '../types';
@@ -22,6 +23,7 @@ function toEventData(e: FSEvent): EventData {
     id: e.id, title: e.title, venue: e.venue,
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
+    hasTickets: (e as any).hasTickets === true,
     gallery: makeGallery(e.id, e.title, e.venue, e.date, ['gp1','gp2','gp3','gp4']),
   };
 }
@@ -55,14 +57,14 @@ const DISCOVER_VIBES = [
 ];
 
 const getItemName = (item: DiscoverItem) => {
-  if (item.kind === 'event') return item.data.title;
-  if (item.kind === 'venue') return item.data.name;
-  return item.title;
+  if (item.kind === 'event') return item.data.title ?? '';
+  if (item.kind === 'venue') return item.data.name ?? '';
+  return item.title ?? '';
 };
 const getItemSub = (item: DiscoverItem) => {
-  if (item.kind === 'event') return `${item.data.venue} · ${item.data.date}`;
-  if (item.kind === 'venue') return item.data.category;
-  return item.venueName;
+  if (item.kind === 'event') return `${item.data.venue ?? ''} · ${item.data.date ?? ''}`;
+  if (item.kind === 'venue') return item.data.category ?? '';
+  return item.venueName ?? '';
 };
 const getItemTag = (item: DiscoverItem) => {
   if (item.kind === 'event') return { label: 'Event', color: '#2a7a5a' };
@@ -84,6 +86,40 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
   const [showMap,        setShowMap]        = useState(false);
   const [allResults,     setAllResults]     = useState<DiscoverItem[]>([]);
   const [loading,        setLoading]        = useState(true);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [searchFocused,  setSearchFocused]  = useState(false);
+
+  const RECENT_KEY = 'wugi_recent_searches';
+  const MAX_RECENT = 8;
+
+  // Load recent searches on mount
+  useEffect(() => {
+    AsyncStorage.getItem(RECENT_KEY)
+      .then(v => { if (v) setRecentSearches(JSON.parse(v)); })
+      .catch(() => {});
+  }, []);
+
+  const saveSearch = async (term: string) => {
+    if (!term.trim()) return;
+    const updated = [term, ...recentSearches.filter(s => s !== term)].slice(0, MAX_RECENT);
+    setRecentSearches(updated);
+    await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated)).catch(() => {});
+  };
+
+  const clearRecentSearches = async () => {
+    setRecentSearches([]);
+    await AsyncStorage.removeItem(RECENT_KEY).catch(() => {});
+  };
+
+  const handleSearchSubmit = () => {
+    if (search.trim()) saveSearch(search.trim());
+  };
+
+  const handleRecentPress = (term: string) => {
+    setSearch(term);
+    setSearchFocused(false);
+    saveSearch(term);
+  };
 
   // ── Fetch from Firestore ──────────────────────────────────────────
   useEffect(() => {
@@ -247,13 +283,16 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
           <View style={{ width: 36 }}/>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, gap: 10 }}>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: searchFocused ? theme.accent : theme.border, paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
             <SearchIcon color={theme.subtext}/>
             <TextInput
               placeholder="Search events, venues, deals..."
               placeholderTextColor={theme.subtext}
               value={search}
               onChangeText={setSearch}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+              onSubmitEditing={handleSearchSubmit}
               style={{ flex: 1, color: theme.text, fontSize: 14, padding: 0 }}
               returnKeyType="search"
             />
@@ -274,6 +313,40 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
             </Svg>
           </TouchableOpacity>
         </View>
+
+        {/* Recent searches dropdown */}
+        {searchFocused && search.length === 0 && recentSearches.length > 0 && (
+          <View style={{ marginHorizontal: 16, marginTop: 6, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, overflow: 'hidden', zIndex: 100 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+              <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 }}>RECENT SEARCHES</Text>
+              <TouchableOpacity onPress={clearRecentSearches}>
+                <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '600' }}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+            {recentSearches.map((term, i) => (
+              <TouchableOpacity
+                key={i}
+                onPress={() => handleRecentPress(term)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}
+              >
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round"/>
+                </Svg>
+                <Text style={{ color: theme.text, fontSize: 13, flex: 1 }}>{term}</Text>
+                <TouchableOpacity onPress={() => {
+                  const updated = recentSearches.filter(s => s !== term);
+                  setRecentSearches(updated);
+                  AsyncStorage.setItem(RECENT_KEY, JSON.stringify(updated)).catch(() => {});
+                }}>
+                  <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                    <Path d="M18 6L6 18M6 6l12 12" stroke={theme.subtext} strokeWidth={2} strokeLinecap="round"/>
+                  </Svg>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[0]}>

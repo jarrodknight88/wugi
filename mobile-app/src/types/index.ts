@@ -29,6 +29,7 @@ export type EventData = {
   about: string;
   media: { type: string; uri: string }[];
   gallery: GalleryData;
+  hasTickets?: boolean;
 };
 
 // ── Venue ─────────────────────────────────────────────────────────────
@@ -89,7 +90,11 @@ export type NavEntry =
   | { screen: 'gallery'; gallery: GalleryData }
   | { screen: 'photo'; photos: GalleryPhoto[]; initialIndex: number; galleryTitle: string; venue: string; date: string }
   | { screen: 'passes' }
-  | { screen: 'camera' };
+  | { screen: 'camera' }
+  | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
+  | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }
+  | { screen: 'pass'; orderId: string }
+  | { screen: 'scan'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {
