@@ -101,9 +101,9 @@ function Navigator() {
     if (current.screen === 'payment') return (
       <PaymentScreen
         selection={current.selection}
-        userId={user?.uid ?? ''}
+        userId={user?.uid ?? null}
         userEmail={user?.email ?? ''}
-        userName={user?.displayName ?? 'Guest'}
+        userName={user?.displayName ?? ''}
         theme={theme}
         onBack={pop}
         onSuccess={(orderId: string) => {

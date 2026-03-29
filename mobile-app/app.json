@@ -35,7 +35,8 @@
             "buildReactNativeFromSource": true
           }
         }
-      ]
+      ],
+      "@stripe/stripe-react-native"
     ],
     "extra": {
       "eas": {
