@@ -190,46 +190,66 @@ function calculateConfidence(fields) {
 }
 
 // ── SerpAPI Instagram lookup ──────────────────────────────────────────
-async function lookupInstagramViaSerpAPI(venueName) {
+// Strategy: Try multiple targeted queries in order of specificity.
+// Query 1: "Venue Name" restaurant OR lounge OR bar ATL instagram
+// Query 2: "Venue Name" ATL site:instagram.com (fallback)
+// This matches your suggestion: "Nite Owl restaurant logo atl" style
+async function lookupInstagramViaSerpAPI(venueName, category = '') {
   if (!SERPKEY) return null;
-  try {
-    const query = encodeURIComponent(`${venueName} Atlanta site:instagram.com`);
-    const url   = `https://serpapi.com/search.json?q=${query}&api_key=${SERPKEY}&num=5&gl=us&hl=en`;
-    const res   = await fetch(url);
 
-    if (!res.ok) {
-      console.log(`     ⚠️  SerpAPI ${res.status}`);
-      return null;
+  // Determine venue type keywords from category or name
+  const nameLower = venueName.toLowerCase();
+  let typeKeyword = 'restaurant OR lounge OR bar OR nightclub';
+  if (nameLower.includes('lounge'))     typeKeyword = 'lounge nightlife Atlanta';
+  else if (nameLower.includes('bar'))   typeKeyword = 'bar Atlanta';
+  else if (nameLower.includes('kitchen') || nameLower.includes('grill') || nameLower.includes('bistro')) typeKeyword = 'restaurant Atlanta';
+  else if (nameLower.includes('club') || nameLower.includes('night')) typeKeyword = 'nightclub Atlanta';
+  else if (nameLower.includes('rooftop')) typeKeyword = 'rooftop bar Atlanta';
+  else if (category) typeKeyword = `${category} Atlanta`;
+
+  // Two query strategies — try both, use first match
+  const queries = [
+    // Query 1: venue name + type + city + instagram (most specific)
+    `"${venueName}" ${typeKeyword} instagram`,
+    // Query 2: classic site: search (fallback)
+    `${venueName} Atlanta site:instagram.com`,
+  ];
+
+  for (const queryRaw of queries) {
+    try {
+      const query = encodeURIComponent(queryRaw);
+      const url   = `https://serpapi.com/search.json?q=${query}&api_key=${SERPKEY}&num=5&gl=us&hl=en`;
+      const res   = await fetch(url);
+      if (!res.ok) continue;
+
+      const data    = await res.json();
+      const results = data.organic_results || [];
+
+      for (const result of results) {
+        const link = result.link || '';
+        const match = link.match(/instagram\.com\/([a-zA-Z0-9._]{2,30})\/?$/);
+        if (!match) continue;
+
+        const handle = match[1];
+        // Skip Instagram UI pages
+        if (['p','explore','accounts','stories','reels','tv','reel','direct'].includes(handle)) continue;
+
+        const nameClean   = venueName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const handleClean = handle.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const nameFirst   = venueName.toLowerCase().split(' ')[0].replace(/[^a-z]/g, '');
+
+        // Confidence: high if strong name match, medium if partial
+        const isHighMatch = handleClean.includes(nameClean) || nameClean.includes(handleClean);
+        const isMidMatch  = handleClean.includes(nameFirst) || (nameFirst.length > 3 && handleClean.includes(nameFirst.slice(0, 4)));
+        const confidence  = isHighMatch ? 'high' : isMidMatch ? 'medium' : 'medium';
+
+        return { handle: `@${handle}`, confidence, source: 'serpapi', inferred: false };
+      }
+    } catch (e) {
+      console.log(`     ⚠️  SerpAPI error: ${e.message}`);
     }
-
-    const data    = await res.json();
-    const results = data.organic_results || [];
-
-    for (const result of results) {
-      const link = result.link || '';
-      const match = link.match(/instagram\.com\/([a-zA-Z0-9._]{2,30})\/?$/);
-      if (!match) continue;
-
-      const handle = match[1];
-      if (['p','explore','accounts','stories','reels','tv','reel','direct'].includes(handle)) continue;
-
-      const nameClean   = venueName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const handleClean = handle.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const nameFirst   = venueName.toLowerCase().split(' ')[0].replace(/[^a-z]/g, '');
-
-      const confidence = (handleClean.includes(nameClean) || nameClean.includes(handleClean))
-        ? 'high'
-        : (handleClean.includes(nameFirst) || nameFirst.length > 3 && handleClean.includes(nameFirst.slice(0, 4)))
-        ? 'medium'
-        : 'medium';
-
-      return { handle: `@${handle}`, confidence, source: 'serpapi', inferred: false };
-    }
-    return null;
-  } catch (e) {
-    console.log(`     ⚠️  SerpAPI error: ${e.message}`);
-    return null;
   }
+  return null;
 }
 
 // ── Name inference fallback ───────────────────────────────────────────
@@ -247,8 +267,8 @@ function inferInstagramFromName(venueName) {
   };
 }
 
-async function getInstagram(venueName) {
-  const serpResult = await lookupInstagramViaSerpAPI(venueName);
+async function getInstagram(venueName, category = '') {
+  const serpResult = await lookupInstagramViaSerpAPI(venueName, category);
   if (serpResult) return serpResult;
   return inferInstagramFromName(venueName);
 }
@@ -494,7 +514,7 @@ async function runInstagramOnly() {
 
     try {
       serpCalls++;
-      const result = await lookupInstagramViaSerpAPI(venue.name);
+      const result = await lookupInstagramViaSerpAPI(venue.name, venue.category || '');
 
       if (result) {
         await db.collection('venues').doc(venue.docId).update({
