@@ -40,7 +40,17 @@ function fetchProfilePic(handle) {
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
           const match = data.match(/<meta property="og:image" content="([^"]+)"/);
-          resolve(match ? match[1] : null);
+          if (match && match[1]) {
+            // Decode HTML entities (og:image URLs contain &amp; instead of &)
+            const url = match[1]
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"');
+            resolve(url);
+          } else {
+            resolve(null);
+          }
         });
       }
     );
