@@ -120,6 +120,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           phone={venue.phone}
           website={venue.website}
           instagram={venue.instagram}
+          logoUrl={(venue as any).logoUrl || ''}
           onAddressPress={onMapPress}
           theme={theme}
         />

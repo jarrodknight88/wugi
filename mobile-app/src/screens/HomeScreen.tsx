@@ -34,6 +34,7 @@ function toVenueData(v: FSVenue): VenueData {
   return {
     id: v.id, name: v.name, category: v.category || '',
     address: v.address || '', phone: v.phone || '',
+    logoUrl: (v as any).logoUrl || '',
     website: v.website || '', instagram: v.instagram || '',
     attributes: v.attributes || [], about: v.about || '',
     media: v.media || [],

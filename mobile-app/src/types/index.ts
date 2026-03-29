@@ -41,6 +41,7 @@ export type VenueData = {
   phone: string;
   website: string;
   instagram: string;
+  logoUrl?: string;
   attributes: string[];
   about: string;
   media: string[];
