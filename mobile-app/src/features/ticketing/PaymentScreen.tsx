@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   SafeAreaView, ActivityIndicator, Alert, TextInput,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import type { Theme } from '../../constants/colors';
 import type { TicketSelection } from './TicketSelectionScreen';
@@ -35,17 +36,9 @@ export function PaymentScreen({
   const [feeExpanded, setFeeExpanded] = useState(false);
 
   const handlePay = async () => {
-    if (!phone.trim()) {
-      Alert.alert('Phone required', 'We need your phone number to deliver your pass.');
-      return;
-    }
-
     setLoading(true);
 
     // ── DEV MODE: Simulate payment until Stripe SDK is integrated ─────
-    // TODO before launch: Install @stripe/stripe-react-native, wire up
-    // Stripe Payment Sheet with the createPaymentIntent Cloud Function.
-    // See docs/launch-checklist.md → Stripe section.
     setTimeout(() => {
       setLoading(false);
       Alert.alert(
@@ -65,7 +58,10 @@ export function PaymentScreen({
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: theme.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       {/* Header */}
       <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8 }}>
@@ -76,7 +72,11 @@ export function PaymentScreen({
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 160 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 16, paddingBottom: 200 }}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* Order summary card */}
         <View style={{ backgroundColor: theme.card, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, marginBottom: 20 }}>
@@ -209,6 +209,6 @@ export function PaymentScreen({
           </TouchableOpacity>
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
