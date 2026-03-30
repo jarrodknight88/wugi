@@ -94,7 +94,7 @@ export type NavEntry =
   | { screen: 'camera' }
   | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }
-  | { screen: 'pass'; orderId: string }
+  | { screen: 'pass'; orderId: string; isGuest?: boolean }
   | { screen: 'scan'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────

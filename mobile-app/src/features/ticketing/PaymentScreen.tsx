@@ -24,7 +24,7 @@ type Props = {
   userName:   string;
   theme:      Theme;
   onBack:     () => void;
-  onSuccess:  (orderId: string) => void;
+  onSuccess:  (orderId: string, isGuest: boolean) => void;
 };
 
 function centsToDisplay(cents: number): string {
@@ -120,7 +120,7 @@ export function PaymentScreen({
       // Use the paymentIntentId as the order reference for now.
       // The webhook fires async and creates the order doc in Firestore.
       const piId = clientSecret.split('_secret_')[0];
-      onSuccess(piId);
+      onSuccess(piId, isGuest);
 
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Something went wrong. Please try again.');

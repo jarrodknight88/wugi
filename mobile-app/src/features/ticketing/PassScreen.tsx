@@ -25,12 +25,14 @@ type Pass = {
 
 type Props = {
   orderId: string;
+  isGuest: boolean;
   theme: Theme;
   onClose: () => void;
+  onSignUp?: () => void;
   onAddToWallet?: () => void;
 };
 
-export function PassScreen({ orderId, theme, onClose }: Props) {
+export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props) {
   const [passes,    setPasses]    = useState<Pass[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [activePass, setActivePass] = useState(0);
@@ -213,6 +215,28 @@ export function PassScreen({ orderId, theme, onClose }: Props) {
           </Svg>
           <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Share pass</Text>
         </TouchableOpacity>
+
+        {/* Guest account creation prompt */}
+        {isGuest && onSignUp && (
+          <View style={{ marginTop: 20, backgroundColor: theme.card, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <Text style={{ fontSize: 22 }}>🎟️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>Save your passes</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>Create an account to access all your tickets in one place</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              onPress={onSignUp}
+              style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Create a free account</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center' }}>
+              <Text style={{ color: theme.subtext, fontSize: 12 }}>No thanks, I'll find it in my email</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <Text style={{ color: theme.subtext, fontSize: 10, textAlign: 'center', marginTop: 16 }}>
           Present QR code at the door for entry

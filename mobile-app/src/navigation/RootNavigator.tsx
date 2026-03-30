@@ -106,8 +106,8 @@ function Navigator() {
         userName={user?.displayName ?? ''}
         theme={theme}
         onBack={pop}
-        onSuccess={(orderId: string) => {
-          setStack(prev => [...prev.slice(0, -1), { screen: 'pass', orderId }]);
+        onSuccess={(orderId: string, isGuest: boolean) => {
+          setStack(prev => [...prev.slice(0, -1), { screen: 'pass', orderId, isGuest }]);
         }}
       />
     );
@@ -115,7 +115,13 @@ function Navigator() {
     if (current.screen === 'pass') return (
       <PassScreen
         orderId={current.orderId}
+        isGuest={current.isGuest ?? false}
         theme={theme}
+        onSignUp={() => {
+          // Clear ticketing stack and go to account tab
+          setStack([]);
+          setActiveTab('account');
+        }}
         onClose={() => {
           setStack(prev => prev.filter(e =>
             e.screen !== 'pass' &&
