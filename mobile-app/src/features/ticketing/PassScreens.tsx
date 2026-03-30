@@ -5,7 +5,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, ScrollView,
-  SafeAreaView, Animated, StyleSheet, Share, Dimensions,
+  SafeAreaView, Animated, StyleSheet, Share, Dimensions, ActivityIndicator,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
@@ -241,7 +241,49 @@ type MyPassesProps = {
 
 export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
   const [selectedPass, setSelectedPass] = useState<PassData | null>(null);
-  const [passes] = useState<PassData[]>(MOCK_PASSES);
+  const [passes,       setPasses]       = useState<PassData[]>([]);
+  const [loading,      setLoading]      = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { getAuth }                                    = await import('@react-native-firebase/auth');
+        const { getFirestore, collection, getDocs, query, where, orderBy } = await import('@react-native-firebase/firestore');
+        const userId = getAuth().currentUser?.uid;
+        if (!userId) { setLoading(false); return; }
+
+        const db   = getFirestore();
+        const snap = await getDocs(
+          query(collection(db, 'passes'), where('userId', '==', userId))
+        );
+
+        const loaded: PassData[] = snap.docs.map(d => {
+          const data = d.data();
+          return {
+            passId:       d.id,
+            passNumber:   1,
+            totalPasses:  1,
+            ticketType:   data.ticketTypeName?.toLowerCase().includes('vip') ? 'vip' : 'general',
+            eventTitle:   data.eventName   ?? 'Event',
+            venueName:    data.venueName   ?? '',
+            date:         data.eventDate   ?? '',
+            time:         data.eventTime   ?? '',
+            holderName:   data.holderName  ?? '',
+            ticketNumber: data.ticketNumber ?? d.id.slice(-8).toUpperCase(),
+            status:       data.scanStatus === 'scanned' ? 'scanned' : 'valid',
+            qrValue:      d.id,
+          } as PassData;
+        });
+
+        setPasses(loaded);
+      } catch (e) {
+        console.log('MyPassesScreen load error:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   if (selectedPass) {
     return (
@@ -250,6 +292,15 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
         onBack={() => setSelectedPass(null)}
         onTransfer={passId => console.log('Transfer pass:', passId)}
       />
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.accent} size="large"/>
+        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12 }}>Loading passes...</Text>
+      </View>
     );
   }
 
@@ -266,7 +317,17 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, gap: 12 }}>
-        <Text style={{ color: theme.subtext, fontSize: 13, marginBottom: 4 }}>{passes.length} passes</Text>
+        {passes.length === 0 ? (
+          <View style={{ alignItems: 'center', paddingTop: 60 }}>
+            <Text style={{ fontSize: 48, marginBottom: 16 }}>🎟️</Text>
+            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700', marginBottom: 8 }}>No tickets yet</Text>
+            <Text style={{ color: theme.subtext, fontSize: 14, textAlign: 'center' }}>
+              Tickets you purchase will appear here
+            </Text>
+          </View>
+        ) : (
+          <>
+            <Text style={{ color: theme.subtext, fontSize: 13, marginBottom: 4 }}>{passes.length} pass{passes.length !== 1 ? 'es' : ''}</Text>
         {passes.map(pass => {
           const ticketType = TICKET_TYPES[pass.ticketType];
           return (
@@ -311,6 +372,8 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
             </TouchableOpacity>
           );
         })}
+          </>
+        )}
       </ScrollView>
     </View>
   );
