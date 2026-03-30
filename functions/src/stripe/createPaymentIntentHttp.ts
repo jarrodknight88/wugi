@@ -53,6 +53,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
 
     // Get or create Stripe customer for authenticated users
     let stripeCustomerId: string | undefined;
+    let ephemeralKey: string | undefined;
     if (userId) {
       const userDoc = await db.collection('users').doc(userId).get();
       stripeCustomerId = userDoc.data()?.stripeCustomerId;
@@ -62,6 +63,12 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
         await db.collection('users').doc(userId).update({ stripeCustomerId,
           updatedAt: admin.firestore.FieldValue.serverTimestamp() });
       }
+      // Create ephemeral key so Payment Sheet can show saved cards
+      const ek = await stripe.ephemeralKeys.create(
+        { customer: stripeCustomerId },
+        { apiVersion: '2023-10-16' }
+      );
+      ephemeralKey = ek.secret;
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
@@ -99,9 +106,10 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
 
     res.json({
       result: {
-        clientSecret:   paymentIntent.client_secret,
-        publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
-        customerId:     stripeCustomerId ?? null,
+        clientSecret:        paymentIntent.client_secret,
+        publishableKey:      process.env.STRIPE_PUBLISHABLE_KEY,
+        customerId:          stripeCustomerId ?? null,
+        customerEphemeralKey: ephemeralKey ?? null,
         subtotal, bookingFee, total,
         isGuest: !userId,
       },

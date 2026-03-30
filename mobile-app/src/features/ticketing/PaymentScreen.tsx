@@ -79,13 +79,14 @@ export function PaymentScreen({
       }
 
       const json = await response.json();
-      const { clientSecret, publishableKey, customerId } = json.result ?? json;
+      const { clientSecret, customerId, customerEphemeralKey } = json.result ?? json;
 
       // ── Step 2: Init Stripe Payment Sheet ──────────────────────────
       const { error: initError } = await initPaymentSheet({
-        merchantDisplayName:       'Wugi',
-        paymentIntentClientSecret: clientSecret,
-        customerId:                customerId ?? undefined,
+        merchantDisplayName:        'Wugi',
+        paymentIntentClientSecret:  clientSecret,
+        customerId:                 customerId ?? undefined,
+        customerEphemeralKeySecret: customerEphemeralKey ?? undefined,
         applePay: {
           merchantCountryCode: 'US',
         },
@@ -96,6 +97,7 @@ export function PaymentScreen({
         },
         allowsDelayedPaymentMethods: false,
         returnURL: 'wugi://payment-complete',
+        savePaymentMethodOptInBehavior: 'enabled',
       });
 
       if (initError) {
