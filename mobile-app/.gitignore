@@ -38,6 +38,7 @@ yarn-error.*
 
 # generated native folders
 /ios
+!/ios/Podfile
 /android
 scripts/.env
 scripts/serviceAccount.json
