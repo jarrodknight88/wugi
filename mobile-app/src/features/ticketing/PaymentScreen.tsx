@@ -96,8 +96,8 @@ export function PaymentScreen({
           phone: phone || undefined,
         },
         allowsDelayedPaymentMethods: false,
-        returnURL: 'wugi://payment-complete',
-        savePaymentMethodOptInBehavior: 'enabled',
+        returnURL:        'wugi://payment-complete',
+        setupFutureUsage: userId ? 'OnSession' : undefined,
       });
 
       if (initError) {

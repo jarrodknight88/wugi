@@ -74,7 +74,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     const paymentIntent = await stripe.paymentIntents.create({
       amount:   total,
       currency: 'usd',
-      setup_future_usage: userId ? 'off_session' as const : undefined,
+      setup_future_usage: userId ? 'on_session' as const : undefined,
       customer: stripeCustomerId,
       metadata: {
         eventId, ticketTypeId, quantity: String(quantity),
