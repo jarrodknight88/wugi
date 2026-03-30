@@ -12,7 +12,10 @@ import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import type { TicketSelection } from './TicketSelectionScreen';
 import { BackIcon } from '../../components/icons';
-import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
+
+// Cloud Function URL
+const CREATE_PAYMENT_INTENT_URL =
+  'https://us-central1-wugi-prod.cloudfunctions.net/createPaymentIntentHttp';
 
 type Props = {
   selection:  TicketSelection;
@@ -54,19 +57,29 @@ export function PaymentScreen({
     setLoading(true);
     try {
       // ── Step 1: Create PaymentIntent via Cloud Function ─────────────
-      const functions = getFunctions();
-      const createPI  = httpsCallable(functions, 'createPaymentIntent');
-      const result    = await createPI({
-        eventId:      selection.eventId,
-        ticketTypeId: selection.ticketType.id,
-        quantity:     selection.quantity,
-        userId:       userId ?? undefined,
-        guestName:    isGuest ? guestName.trim()  : undefined,
-        guestEmail:   isGuest ? guestEmail.trim() : undefined,
-        guestPhone:   phone.trim() || undefined,
-      }) as any;
+      const response = await fetch(CREATE_PAYMENT_INTENT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: {
+            eventId:      selection.eventId,
+            ticketTypeId: selection.ticketType.id,
+            quantity:     selection.quantity,
+            userId:       userId ?? undefined,
+            guestName:    isGuest ? guestName.trim()  : undefined,
+            guestEmail:   isGuest ? guestEmail.trim() : undefined,
+            guestPhone:   phone.trim() || undefined,
+          },
+        }),
+      });
 
-      const { clientSecret, publishableKey, customerId } = result.data;
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error?.message ?? 'Failed to create payment intent');
+      }
+
+      const json = await response.json();
+      const { clientSecret, publishableKey, customerId } = json.result ?? json;
 
       // ── Step 2: Init Stripe Payment Sheet ──────────────────────────
       const { error: initError } = await initPaymentSheet({

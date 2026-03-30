@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.schedulePayouts = exports.createPaymentIntent = exports.stripeWebhook = void 0;
+exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.schedulePayouts = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Cloud Functions Index
 // ─────────────────────────────────────────────────────────────────────
@@ -44,6 +44,8 @@ var webhook_1 = require("./stripe/webhook");
 Object.defineProperty(exports, "stripeWebhook", { enumerable: true, get: function () { return webhook_1.stripeWebhook; } });
 var createPaymentIntent_1 = require("./stripe/createPaymentIntent");
 Object.defineProperty(exports, "createPaymentIntent", { enumerable: true, get: function () { return createPaymentIntent_1.createPaymentIntent; } });
+var createPaymentIntentHttp_1 = require("./stripe/createPaymentIntentHttp");
+Object.defineProperty(exports, "createPaymentIntentHttp", { enumerable: true, get: function () { return createPaymentIntentHttp_1.createPaymentIntentHttp; } });
 var schedulePayouts_1 = require("./stripe/schedulePayouts");
 Object.defineProperty(exports, "schedulePayouts", { enumerable: true, get: function () { return schedulePayouts_1.schedulePayouts; } });
 var releaseReserves_1 = require("./stripe/releaseReserves");
