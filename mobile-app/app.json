@@ -36,7 +36,10 @@
           }
         }
       ],
-      "@stripe/stripe-react-native"
+      ["@stripe/stripe-react-native", {
+        "merchantIdentifier": "merchant.com.wugi.wugi",
+        "enableGooglePay": false
+      }]
     ],
     "extra": {
       "eas": {
