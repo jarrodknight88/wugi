@@ -12,8 +12,8 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
-import { useAuth } from "@/hooks/useAuth"
-import { useDashboardAccess } from "@/hooks/useDashboardAccess"
+import { useAuthContext } from "@/context/AuthContext"
+
 
 type EventStatus = "pending" | "approved" | "rejected"
 
@@ -27,8 +27,8 @@ type EventItem = {
 
 export default function EventsApprovalPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
-  const { hasDashboardAccess, hasUserDocument, loading: accessLoading } = useDashboardAccess()
+  const { user, hasDashboardAccess, hasUserDocument, loading: authLoading } = useAuthContext()
+  const accessLoading = authLoading
   const [events, setEvents] = useState<EventItem[]>([])
   const [loadingEvents, setLoadingEvents] = useState(true)
   const [activeEventId, setActiveEventId] = useState<string | null>(null)
@@ -119,12 +119,19 @@ export default function EventsApprovalPage() {
   }
 
   if (authLoading || accessLoading) {
-    return <main className="min-h-screen p-6">Checking authentication...</main>
+    return (
+      <main className="min-h-screen p-6">
+        <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
+          <div className="h-8 w-48 rounded bg-neutral-200" />
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded border border-neutral-200 p-4 h-16 bg-neutral-100" />
+          ))}
+        </div>
+      </main>
+    )
   }
 
-  if (!user || !hasDashboardAccess) {
-    return null
-  }
+  if (!user || !hasDashboardAccess) return null
 
   return (
     <main className="min-h-screen p-6">

@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation"
 import { signOut } from "firebase/auth"
 import { collection, onSnapshot } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
-import { useAuth } from "@/hooks/useAuth"
-import { useDashboardAccess } from "@/hooks/useDashboardAccess"
+import { useAuthContext } from "@/context/AuthContext"
 
 type VenueStatus = "pending" | "approved" | "rejected"
 
@@ -20,8 +19,8 @@ type Analytics = {
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
-  const { hasDashboardAccess, hasUserDocument, loading: accessLoading } = useDashboardAccess()
+  const { user, hasDashboardAccess, hasUserDocument, loading: authLoading } = useAuthContext()
+  const accessLoading = authLoading
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [analytics, setAnalytics] = useState<Analytics>({
     total: 0,
@@ -94,12 +93,21 @@ export default function DashboardPage() {
   }
 
   if (authLoading) {
-    return <main className="min-h-screen p-6">Checking authentication...</main>
+    return (
+      <main className="min-h-screen p-6">
+        <div className="mx-auto max-w-5xl space-y-6 animate-pulse">
+          <div className="h-9 w-64 rounded bg-neutral-200" />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="rounded border border-neutral-200 p-4 h-24 bg-neutral-100" />
+            ))}
+          </div>
+        </div>
+      </main>
+    )
   }
 
-  if (!user) {
-    return null
-  }
+  if (!user) return null
 
   return (
     <main className="min-h-screen p-6">

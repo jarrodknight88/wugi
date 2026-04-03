@@ -12,8 +12,8 @@ import {
 import { createUserWithEmailAndPassword } from "firebase/auth"
 import { auth, db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
-import { useAuth } from "@/hooks/useAuth"
-import { useDashboardAccess } from "@/hooks/useDashboardAccess"
+import { useAuthContext } from "@/context/AuthContext"
+
 
 type UserItem = {
   id: string
@@ -25,9 +25,8 @@ type UserItem = {
 
 export default function UsersPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
-  const { hasDashboardAccess, hasUserDocument, role, loading: accessLoading } =
-    useDashboardAccess()
+  const { user, hasDashboardAccess, hasUserDocument, role, loading: authLoading } = useAuthContext()
+  const accessLoading = authLoading
   const isSuperAdmin = role === "super_admin"
 
   const [users, setUsers] = useState<UserItem[]>([])
@@ -179,12 +178,19 @@ export default function UsersPage() {
   }
 
   if (authLoading || accessLoading) {
-    return <main className="min-h-screen p-6">Checking authentication...</main>
+    return (
+      <main className="min-h-screen p-6">
+        <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
+          <div className="h-8 w-48 rounded bg-neutral-200" />
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-12 rounded bg-neutral-100" />
+          ))}
+        </div>
+      </main>
+    )
   }
 
-  if (!user || !hasDashboardAccess) {
-    return null
-  }
+  if (!user || !hasDashboardAccess) return null
 
   return (
     <main className="min-h-screen p-6">

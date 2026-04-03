@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
-import { useAuth } from "@/hooks/useAuth"
+import { useAuthContext } from "@/context/AuthContext"
 
 type VenueStatus = "pending" | "approved" | "rejected"
 
@@ -26,7 +26,7 @@ type Venue = {
 
 export default function VenuesApprovalPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
+  const { user, hasDashboardAccess, hasUserDocument, loading: authLoading } = useAuthContext()
   const [venues, setVenues] = useState<Venue[]>([])
   const [loadingVenues, setLoadingVenues] = useState(true)
   const [activeVenueId, setActiveVenueId] = useState<string | null>(null)
@@ -111,12 +111,19 @@ export default function VenuesApprovalPage() {
   }
 
   if (authLoading) {
-    return <main className="min-h-screen p-6">Checking authentication...</main>
+    return (
+      <main className="min-h-screen p-6">
+        <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
+          <div className="h-8 w-48 rounded bg-neutral-200" />
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded border border-neutral-200 p-4 h-24 bg-neutral-100" />
+          ))}
+        </div>
+      </main>
+    )
   }
 
-  if (!user) {
-    return null
-  }
+  if (!user) return null
 
   return (
     <main className="min-h-screen p-6">

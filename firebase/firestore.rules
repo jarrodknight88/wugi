@@ -13,42 +13,63 @@ service cloud.firestore {
 
     // ── Users — auth required, own doc only ──────────────────────────
     match /users/{userId} {
-      allow read:          if isAuth() && request.auth.uid == userId;
+      allow read:           if isAuth() && request.auth.uid == userId;
       allow create, update: if isSuperAdmin();
     }
 
-    // ── Venues — PUBLIC read (unclaimed venues visible to all) ────────
+    // ── Venues — PUBLIC read ──────────────────────────────────────────
     match /venues/{venueId} {
-      allow read:                  if true;
+      allow read:                   if true;
       allow create, update, delete: if isSuperAdminOrModerator();
     }
 
     // ── Events — PUBLIC read ──────────────────────────────────────────
     match /events/{eventId} {
-      allow read:                  if true;
+      allow read:                   if true;
       allow create, update, delete: if isSuperAdminOrModerator();
 
-      // Ticket types subcollection — PUBLIC read
       match /ticketTypes/{ticketTypeId} {
-        allow read:                  if true;
+        allow read:                   if true;
         allow create, update, delete: if isSuperAdminOrModerator();
       }
     }
 
     // ── Orders — auth required, owner or admin ────────────────────────
     match /orders/{orderId} {
-      allow read:   if isAuth() && (request.auth.uid == resource.data.userId || isSuperAdminOrModerator());
-      allow write:  if false; // Only Cloud Functions write orders
+      allow read:  if isAuth() && (request.auth.uid == resource.data.userId || isSuperAdminOrModerator());
+      allow write: if false;
     }
 
-    // ── Passes — auth required, holder or venue staff ─────────────────
+    // ── Passes — auth required, holder or admin ───────────────────────
     match /passes/{passId} {
       allow read:   if isAuth() && (request.auth.uid == resource.data.userId || isSuperAdminOrModerator());
-      allow update: if isAuth() && isSuperAdminOrModerator(); // Scan via Cloud Function
+      allow update: if isAuth() && isSuperAdminOrModerator();
       allow write:  if false;
     }
 
-    // ── Config — PUBLIC read (ticketing fees, feature flags) ──────────
+    // ── Tickets — check-in app uses PIN-based unauthenticated access ──
+    // Read:   anyone with a valid eventId (check-in app validates PIN in app layer)
+    // Update: allow checkedIn + checkedInAt + checkedInBy fields only
+    // Write:  Cloud Functions only (create/delete)
+    match /tickets/{ticketId} {
+      allow read: if true;
+      allow update: if
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['checkedIn', 'checkedInAt', 'checkedInBy']) &&
+        request.resource.data.checkedIn == true;
+      allow create, delete: if false;
+    }
+
+    // ── Event PINs — check-in app reads to validate PIN ──────────────
+    // PINs are short-lived, event-scoped, and rate-limited in the app layer.
+    // We allow read so unauthenticated check-in devices can validate PINs.
+    // Write is admin-only (created via Node script with service account).
+    match /eventPins/{pinId} {
+      allow read:   if true;
+      allow write:  if false;
+    }
+
+    // ── Config — PUBLIC read ──────────────────────────────────────────
     match /config/{configId} {
       allow read:  if true;
       allow write: if isSuperAdmin();

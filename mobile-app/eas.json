@@ -10,6 +10,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "ios": {
         "simulator": false
       }
@@ -22,7 +23,7 @@
     "production": {
       "ios": {
         "appleId": "rodk.music@gmail.com",
-        "ascAppId": "829564750",
+        "ascAppId": "6760943066",
         "appleTeamId": "D9438V8855"
       }
     }

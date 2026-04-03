@@ -1,4 +1,29 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "eventPins",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pin",    "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "eventId",   "order": "ASCENDING" },
+        { "fieldPath": "checkedIn", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "eventId",    "order": "ASCENDING" },
+        { "fieldPath": "holderName", "order": "ASCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

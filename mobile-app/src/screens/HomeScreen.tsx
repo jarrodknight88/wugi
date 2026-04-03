@@ -6,7 +6,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, ScrollView,
   FlatList, SafeAreaView, ActivityIndicator, Dimensions,
-  StyleSheet,
+  StyleSheet, RefreshControl,
 } from 'react-native';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from '../types';
@@ -58,45 +58,50 @@ type Props = {
 };
 
 export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, userVibes, onCameraPress }: Props) {
-  const [events,  setEvents]  = useState<FSEvent[]>([]);
-  const [venues,  setVenues]  = useState<FSVenue[]>([]);
-  const [deals,   setDeals]   = useState<FSDeal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [events,    setEvents]    = useState<FSEvent[]>([]);
+  const [venues,    setVenues]    = useState<FSVenue[]>([]);
+  const [deals,     setDeals]     = useState<FSDeal[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = async () => {
+    try {
+      const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
+        await import('../../firestoreService');
+
+      const [liveEvents, liveVenues, liveDeals] = await Promise.all([
+        getApprovedEvents(userVibes, 20),
+        getApprovedVenues(userVibes, 20),
+        getActiveDeals(userVibes, 5),
+      ]);
+
+      setEvents(liveEvents.length > 0 ? liveEvents : EVENTS.map(mockToFSEvent));
+      setVenues(liveVenues.length > 0 ? liveVenues : VENUES.map(mockToFSVenue));
+      setDeals(liveDeals.length  > 0 ? liveDeals  : DEALS.map(mockToFSDeal));
+    } catch (e) {
+      console.log('HomeScreen: Firestore fetch failed, using mock data', e);
+      setEvents(EVENTS.map(mockToFSEvent));
+      setVenues(VENUES.map(mockToFSVenue));
+      setDeals(DEALS.map(mockToFSDeal));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
-
-    const load = async () => {
-      try {
-        const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
-          await import('../../firestoreService');
-
-        const [liveEvents, liveVenues, liveDeals] = await Promise.all([
-          getApprovedEvents(userVibes, 20),
-          getApprovedVenues(userVibes, 20),
-          getActiveDeals(userVibes, 5),
-        ]);
-
-        if (cancelled) return;
-
-        setEvents(liveEvents.length > 0 ? liveEvents : EVENTS.map(mockToFSEvent));
-        setVenues(liveVenues.length > 0 ? liveVenues : VENUES.map(mockToFSVenue));
-        setDeals(liveDeals.length  > 0 ? liveDeals  : DEALS.map(mockToFSDeal));
-      } catch (e) {
-        console.log('HomeScreen: Firestore fetch failed, using mock data', e);
-        if (cancelled) return;
-        setEvents(EVENTS.map(mockToFSEvent));
-        setVenues(VENUES.map(mockToFSVenue));
-        setDeals(DEALS.map(mockToFSDeal));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    const run = async () => {
+      await loadData();
+      if (!cancelled) setLoading(false);
     };
-
     const timeout = setTimeout(() => { if (!cancelled) setLoading(false); }, 8000);
-    load();
+    run();
     return () => { cancelled = true; clearTimeout(timeout); };
   }, [userVibes]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
   const eventList = events.map(toEventData);
   const venueList = venues.map(toVenueData);
@@ -132,7 +137,17 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
 
       <StoriesBar theme={theme} onAddStory={onCameraPress}/>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accent}
+            colors={[theme.accent]}
+          />
+        }
+      >
         <SectionHeader title="Tonight's Picks" theme={theme} onSeeAll={() => {}}/>
         {featured.length > 0
           ? <FeaturedCarousel theme={theme} onEventPress={onEventPress} events={featured}/>

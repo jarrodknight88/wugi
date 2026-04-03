@@ -6,7 +6,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, ScrollView,
   SafeAreaView, TextInput, Dimensions, ActivityIndicator,
-  StyleSheet,
+  StyleSheet, RefreshControl,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
@@ -87,6 +87,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
   const [showMap,        setShowMap]        = useState(false);
   const [allResults,     setAllResults]     = useState<DiscoverItem[]>([]);
   const [loading,        setLoading]        = useState(true);
+  const [refreshing,     setRefreshing]     = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchFocused,  setSearchFocused]  = useState(false);
 
@@ -123,74 +124,78 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
   };
 
   // ── Fetch from Firestore ──────────────────────────────────────────
+  const loadData = async () => {
+    try {
+      const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
+        await import('../../firestoreService');
+
+      const [liveEvents, liveVenues, liveDeals] = await Promise.all([
+        getApprovedEvents([], 30),
+        getApprovedVenues([], 30),
+        getActiveDeals([], 10),
+      ]);
+
+      const results: DiscoverItem[] = [];
+
+      const events = liveEvents.length > 0 ? liveEvents : EVENTS.map(e => ({
+        id: e.id, title: e.title, venue: e.venue, venueId: '',
+        date: e.date, time: e.time, age: e.age, about: e.about,
+        vibes: ['Boujee'], media: e.media || [], status: 'approved', createdAt: null,
+      }));
+
+      const venues = liveVenues.length > 0 ? liveVenues : VENUES.map(v => ({
+        id: v.id, name: v.name, category: v.category, address: v.address,
+        phone: v.phone, website: v.website, instagram: v.instagram,
+        attributes: v.attributes || [], vibes: ['Boujee'], about: v.about,
+        media: v.media || [], status: 'approved', createdAt: null,
+      }));
+
+      events.forEach(e => results.push({
+        kind: 'event',
+        data: toEventData(e),
+        image: (e.media || [])[0]?.uri || `https://picsum.photos/seed/${e.id}/400/400`,
+      }));
+
+      venues.forEach(v => results.push({
+        kind: 'venue',
+        data: toVenueData(v),
+        image: (v.media || [])[0] || `https://picsum.photos/seed/${v.id}/400/400`,
+      }));
+
+      liveDeals.forEach(d => results.push({
+        kind: 'deal',
+        title: d.title,
+        venueName: d.venueName,
+        detail: d.detail,
+        image: d.image || `https://picsum.photos/seed/${d.id}/400/400`,
+      }));
+
+      setAllResults(results);
+    } catch (e) {
+      console.log('DiscoverScreen: fetch failed, using mock', e);
+      const results: DiscoverItem[] = [];
+      EVENTS.forEach(ev => results.push({ kind: 'event', data: ev, image: (ev.media || [])[0]?.uri || 'https://picsum.photos/seed/ev/400/400' }));
+      VENUES.forEach(v  => results.push({ kind: 'venue', data: v,  image: (v.media  || [])[0]   || 'https://picsum.photos/seed/vn/400/400' }));
+      setAllResults(results);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
-
-    const load = async () => {
-      try {
-        const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
-          await import('../../firestoreService');
-
-        const [liveEvents, liveVenues, liveDeals] = await Promise.all([
-          getApprovedEvents([], 30),
-          getApprovedVenues([], 30),
-          getActiveDeals([], 10),
-        ]);
-
-        if (cancelled) return;
-
-        const results: DiscoverItem[] = [];
-
-        const events = liveEvents.length > 0 ? liveEvents : EVENTS.map(e => ({
-          id: e.id, title: e.title, venue: e.venue, venueId: '',
-          date: e.date, time: e.time, age: e.age, about: e.about,
-          vibes: ['Boujee'], media: e.media || [], status: 'approved', createdAt: null,
-        }));
-
-        const venues = liveVenues.length > 0 ? liveVenues : VENUES.map(v => ({
-          id: v.id, name: v.name, category: v.category, address: v.address,
-          phone: v.phone, website: v.website, instagram: v.instagram,
-          attributes: v.attributes || [], vibes: ['Boujee'], about: v.about,
-          media: v.media || [], status: 'approved', createdAt: null,
-        }));
-
-        events.forEach(e => results.push({
-          kind: 'event',
-          data: toEventData(e),
-          image: (e.media || [])[0]?.uri || `https://picsum.photos/seed/${e.id}/400/400`,
-        }));
-
-        venues.forEach(v => results.push({
-          kind: 'venue',
-          data: toVenueData(v),
-          image: (v.media || [])[0] || `https://picsum.photos/seed/${v.id}/400/400`,
-        }));
-
-        liveDeals.forEach(d => results.push({
-          kind: 'deal',
-          title: d.title,
-          venueName: d.venueName,
-          detail: d.detail,
-          image: d.image || `https://picsum.photos/seed/${d.id}/400/400`,
-        }));
-
-        setAllResults(results);
-      } catch (e) {
-        console.log('DiscoverScreen: fetch failed, using mock', e);
-        if (cancelled) return;
-        const results: DiscoverItem[] = [];
-        EVENTS.forEach(ev => results.push({ kind: 'event', data: ev, image: (ev.media || [])[0]?.uri || 'https://picsum.photos/seed/ev/400/400' }));
-        VENUES.forEach(v  => results.push({ kind: 'venue', data: v,  image: (v.media  || [])[0]   || 'https://picsum.photos/seed/vn/400/400' }));
-        setAllResults(results);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    const run = async () => {
+      await loadData();
+      if (!cancelled) setLoading(false);
     };
-
     const timeout = setTimeout(() => { if (!cancelled) setLoading(false); }, 8000);
-    load();
+    run();
     return () => { cancelled = true; clearTimeout(timeout); };
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
   // ── Filter ────────────────────────────────────────────────────────
   const filtered = allResults.filter(item => {
@@ -350,7 +355,18 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
 
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[0]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        stickyHeaderIndices={[0]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accent}
+            colors={[theme.accent]}
+          />
+        }
+      >
         {/* Sticky filter bar */}
         <View style={{ backgroundColor: theme.bg, paddingTop: 10, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
