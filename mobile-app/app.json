@@ -27,13 +27,13 @@
     "plugins": [
       "expo-av",
       "@react-native-firebase/app",
-      "./plugins/fix-folly-convert",
       [
         "expo-build-properties",
         {
           "ios": {
             "useFrameworks": "static",
-            "buildReactNativeFromSource": true
+            "buildReactNativeFromSource": true,
+            "extraPodfileContent": "post_integrate do |installer|\n  installer.pods_project.targets.each do |target|\n    target.build_configurations.each do |config|\n      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'\n      if target.name == 'stripe-react-native'\n        rn_path = File.join(File.dirname(__FILE__), '..', 'node_modules', 'react-native')\n        existing = config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']\n        existing = [existing] if existing.is_a?(String)\n        config.build_settings['HEADER_SEARCH_PATHS'] = existing + [\n          File.join(rn_path, 'ReactCommon'),\n          File.join(rn_path, 'ReactCommon', 'react', 'utils', 'platform', 'ios'),\n          File.join(rn_path, 'React')\n        ]\n      end\n    end\n  end\nend"
           }
         }
       ],
