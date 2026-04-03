@@ -17,17 +17,11 @@
     },
     "testflight": {
       "distribution": "store",
-      "autoIncrement": true,
-      "ios": {
-        "bundleIdentifier": "com.wugimedia.wugitest"
-      }
+      "autoIncrement": true
     },
     "production": {
       "distribution": "store",
-      "autoIncrement": true,
-      "ios": {
-        "bundleIdentifier": "com.wugi.wugi"
-      }
+      "autoIncrement": true
     }
   },
   "submit": {
