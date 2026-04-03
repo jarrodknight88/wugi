@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+ios/
+android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+dist/
+# GoogleService-Info.plist — tracked intentionally for EAS builds
+# google-services.json
+.env
+.env.local
+.DS_Store
