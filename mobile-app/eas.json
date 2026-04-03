@@ -15,15 +15,33 @@
         "simulator": false
       }
     },
+    "testflight": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "ios": {
+        "bundleIdentifier": "com.wugimedia.wugitest"
+      }
+    },
     "production": {
-      "autoIncrement": true
+      "distribution": "store",
+      "autoIncrement": true,
+      "ios": {
+        "bundleIdentifier": "com.wugi.wugi"
+      }
     }
   },
   "submit": {
-    "production": {
+    "testflight": {
       "ios": {
         "appleId": "rodk.music@gmail.com",
         "ascAppId": "6760943066",
+        "appleTeamId": "D9438V8855"
+      }
+    },
+    "production": {
+      "ios": {
+        "appleId": "rodk.music@gmail.com",
+        "ascAppId": "829564750",
         "appleTeamId": "D9438V8855"
       }
     }
