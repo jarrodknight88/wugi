@@ -2,12 +2,13 @@
 // Wugi — AccountScreen
 // Wired to Firebase Auth via FirebaseContext
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  SafeAreaView, TextInput, ActivityIndicator, Alert,
+  SafeAreaView, TextInput, ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
+import messaging from '@react-native-firebase/messaging';
 import type { Theme } from '../constants/colors';
 import { useFirebase } from '../context/FirebaseContext';
 import { ChevronRightIcon } from '../components/icons';
@@ -42,6 +43,21 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   const [notifyDeals,     setNotifyDeals]     = useState(true);
   const [notifyGalleries, setNotifyGalleries] = useState(false);
   const [locationEnabled, setLocationEnabled] = useState(true);
+  const [notifPermission, setNotifPermission] = useState<'authorized' | 'denied' | 'unknown'>('unknown');
+
+  // Check notification permission on mount
+  useEffect(() => {
+    messaging().hasPermission().then(status => {
+      if (status === messaging.AuthorizationStatus.AUTHORIZED ||
+          status === messaging.AuthorizationStatus.PROVISIONAL) {
+        setNotifPermission('authorized');
+      } else if (status === messaging.AuthorizationStatus.DENIED) {
+        setNotifPermission('denied');
+      } else {
+        setNotifPermission('unknown');
+      }
+    });
+  }, []);
 
   const selectedVibes = userVibes;
 
@@ -245,9 +261,54 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
         {/* Notifications */}
         <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 16 }}>Notifications</Text>
-          <ToggleRow label="New Events"       subtitle="Get notified when new events are added"  value={notifyEvents}    onToggle={() => setNotifyEvents(p => !p)}/>
-          <ToggleRow label="Deals & Specials" subtitle="Flash deals and happy hour alerts"        value={notifyDeals}    onToggle={() => setNotifyDeals(p => !p)}/>
-          <ToggleRow label="New Galleries"    subtitle="When event photos are published"          value={notifyGalleries} onToggle={() => setNotifyGalleries(p => !p)}/>
+
+          {notifPermission === 'denied' ? (
+            // Denied — show Go to Settings button
+            <View style={{ backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
+              <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600', marginBottom: 4 }}>Notifications are disabled</Text>
+              <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 14, lineHeight: 18 }}>
+                Enable notifications in iOS Settings to get alerts for new events, deals, and galleries.
+              </Text>
+              <TouchableOpacity
+                onPress={() => Linking.openSettings()}
+                style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Open Settings</Text>
+              </TouchableOpacity>
+            </View>
+          ) : notifPermission === 'unknown' ? (
+            // Not yet asked — show Enable button
+            <View style={{ backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
+              <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600', marginBottom: 4 }}>Stay in the loop</Text>
+              <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 14, lineHeight: 18 }}>
+                Get notified about new events, deals, and photo galleries from your favorite Atlanta venues.
+              </Text>
+              <TouchableOpacity
+                onPress={async () => {
+                  const status = await messaging().requestPermission();
+                  if (status === messaging.AuthorizationStatus.AUTHORIZED ||
+                      status === messaging.AuthorizationStatus.PROVISIONAL) {
+                    setNotifPermission('authorized');
+                  } else {
+                    setNotifPermission('denied');
+                  }
+                }}
+                style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Enable Notifications</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            // Authorized — show toggles
+            <>
+              <ToggleRow label="New Events"       subtitle="Get notified when new events are added"  value={notifyEvents}    onToggle={() => setNotifyEvents(p => !p)}/>
+              <ToggleRow label="Deals & Specials" subtitle="Flash deals and happy hour alerts"        value={notifyDeals}     onToggle={() => setNotifyDeals(p => !p)}/>
+              <ToggleRow label="New Galleries"    subtitle="When event photos are published"          value={notifyGalleries} onToggle={() => setNotifyGalleries(p => !p)}/>
+              <TouchableOpacity onPress={() => Linking.openSettings()} style={{ marginTop: 10 }}>
+                <Text style={{ color: theme.subtext, fontSize: 12 }}>Manage in iOS Settings →</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* App Settings */}
