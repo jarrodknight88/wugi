@@ -13,6 +13,7 @@ export { createCheckoutSession }   from './stripe/createCheckoutSession';
 export { schedulePayouts }         from './stripe/schedulePayouts';
 export { sendPushNotification }    from './notifications/sendPushNotification';
 export { onEventPublished }        from './notifications/onEventPublished';
+export { debugFCM }                from './notifications/debugFCM';
 export { releaseReserves } from './stripe/releaseReserves';
 export { onVenueChargebackUpdate } from './venues/chargebackSuspension';
 export { onTicketTypeSold } from './tickets/updateInventory';

@@ -28,29 +28,33 @@ export async function requestNotificationPermission(): Promise<boolean> {
 export async function registerFCMToken(): Promise<void> {
   try {
     const user = auth().currentUser
+    console.log('[FCM] Step 1 - currentUser:', user?.uid || 'NULL')
     if (!user) return
 
     const granted = await requestNotificationPermission()
+    console.log('[FCM] Step 2 - permission granted:', granted)
     if (!granted) return
 
     const token = await messaging().getToken()
+    console.log('[FCM] Step 3 - token:', token ? token.slice(0, 30) + '...' : 'NULL')
     if (!token) return
 
-    // Subscribe to Atlanta broadcast topic
     await messaging().subscribeToTopic('atlanta-events')
+    console.log('[FCM] Step 4 - subscribed to topic')
 
-    // Merge so we don't overwrite other user fields
-    await firestore()
-      .collection('users')
-      .doc(user.uid)
-      .set(
-        { fcmToken: token, fcmUpdatedAt: firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      )
-
-    console.log('FCM token registered:', token.slice(0, 20) + '...')
+    // Call debug function to write token server-side and send test notification
+    const response = await fetch(
+      'https://us-central1-wugi-prod.cloudfunctions.net/debugFCM',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, token }),
+      }
+    )
+    const result = await response.json()
+    console.log('[FCM] Step 5 - debugFCM result:', JSON.stringify(result))
   } catch (e) {
-    console.log('FCM token registration error:', e)
+    console.log('[FCM] ERROR:', e)
   }
 }
 
