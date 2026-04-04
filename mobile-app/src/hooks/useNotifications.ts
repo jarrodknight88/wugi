@@ -39,12 +39,32 @@ export async function registerFCMToken(): Promise<void> {
     // Subscribe to Atlanta broadcast topic
     await messaging().subscribeToTopic('atlanta-events')
 
-    await firestore().collection('users').doc(user.uid).set(
-      { fcmToken: token, fcmUpdatedAt: firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    )
-  } catch (e) {
-    console.log('FCM token registration error:', e)
+    // Use update() so Firestore rules only see fcmToken + fcmUpdatedAt changing
+    await firestore()
+      .collection('users')
+      .doc(user.uid)
+      .update({
+        fcmToken: token,
+        fcmUpdatedAt: firestore.FieldValue.serverTimestamp(),
+      })
+  } catch (e: any) {
+    // If update fails because doc doesn't exist, try set with only these fields
+    if (e?.code === 'firestore/not-found') {
+      try {
+        const user = auth().currentUser
+        if (!user) return
+        const token = await messaging().getToken()
+        if (!token) return
+        await firestore()
+          .collection('users')
+          .doc(user.uid)
+          .set({ fcmToken: token, fcmUpdatedAt: firestore.FieldValue.serverTimestamp() })
+      } catch (e2) {
+        console.log('FCM fallback set error:', e2)
+      }
+    } else {
+      console.log('FCM token registration error:', e)
+    }
   }
 }
 
@@ -52,17 +72,21 @@ export function useNotifications() {
   const handledInitial = useRef(false)
 
   useEffect(() => {
-    // Register token when hook mounts (user must be signed in)
-    registerFCMToken()
+    // Wait for auth state to be confirmed before registering FCM token
+    const unsubscribeAuth = auth().onAuthStateChanged(user => {
+      if (user) {
+        registerFCMToken()
+      }
+    })
 
     // Refresh token if FCM rotates it
     const unsubscribeTokenRefresh = messaging().onTokenRefresh(async token => {
-      const user = auth().currentUser
-      if (!user) return
-      await firestore().collection('users').doc(user.uid).set(
-        { fcmToken: token, fcmUpdatedAt: firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      )
+      const currentUser = auth().currentUser
+      if (!currentUser) return
+      await firestore().collection('users').doc(currentUser.uid).update({
+        fcmToken: token,
+        fcmUpdatedAt: firestore.FieldValue.serverTimestamp(),
+      }).catch(() => {})
     })
 
     // Foreground notification — show an alert
@@ -108,6 +132,7 @@ export function useNotifications() {
     }
 
     return () => {
+      unsubscribeAuth()
       unsubscribeTokenRefresh()
       unsubscribeForeground()
       unsubscribeBackground()
