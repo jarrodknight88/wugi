@@ -14,15 +14,9 @@ service cloud.firestore {
     // ── Users — auth required, own doc only ──────────────────────────
     match /users/{userId} {
       allow read:   if isAuth() && request.auth.uid == userId;
-      allow create: if isSuperAdmin()
-                    || (isAuth()
-                        && request.auth.uid == userId
-                        && request.resource.data.keys().hasOnly(['fcmToken', 'fcmUpdatedAt']));
+      allow create: if isSuperAdmin();
       allow update: if isSuperAdmin()
-                    || (isAuth()
-                        && request.auth.uid == userId
-                        && request.resource.data.diff(resource.data).affectedKeys()
-                            .hasOnly(['fcmToken', 'fcmUpdatedAt']));
+                    || (isAuth() && request.auth.uid == userId);
     }
 
     // ── Venues — PUBLIC read ──────────────────────────────────────────
