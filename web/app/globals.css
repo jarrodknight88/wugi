@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+:root {
+  --green: #2a7a5a;
+  --green-light: #3a9a72;
+}
+
+@theme {
+  --font-sans: var(--font-poppins), sans-serif;
+}

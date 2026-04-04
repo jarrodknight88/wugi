@@ -7,7 +7,7 @@
 //   This preserves Discover search state when navigating back
 // - Stack screens render on top via absolute positioning
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, useColorScheme } from 'react-native';
 import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
@@ -41,7 +41,7 @@ import type { TicketSelection }  from '../features/ticketing/TicketSelectionScre
 import { TabBar } from '../components/TabBar';
 
 // ── Inner navigator — has access to FirebaseContext ───────────────────
-function Navigator() {
+function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (data: Record<string, string>) => void) => void }) {
   const scheme = useColorScheme();
   const theme  = scheme === 'dark' ? COLORS.dark : COLORS.light;
   const { userVibes, user } = useFirebase();
@@ -61,6 +61,35 @@ function Navigator() {
   const navigateToGallery = (gallery: GalleryData) => push({ screen: 'gallery', gallery });
   const navigateToPhoto   = (photos: GalleryPhoto[], initialIndex: number, gallery: GalleryData) =>
     push({ screen: 'photo', photos, initialIndex, galleryTitle: gallery.title, venue: gallery.venue, date: gallery.date });
+
+  // ── Notification deep-link handler ───────────────────────────────────
+  useEffect(() => {
+    if (!onNotificationNavigate) return
+    onNotificationNavigate((data) => {
+      const { screen, eventId } = data
+      if (screen === 'EventDetail' && eventId) {
+        // Navigate to home tab and show event — fetch from Firestore if needed
+        setAppPhase('main')
+        setActiveTab('home')
+        // EventScreen requires a full EventData object; for now push a minimal one
+        // In a future iteration, fetch full event data from Firestore by eventId
+        push({
+          screen: 'event',
+          event: {
+            id: eventId,
+            title: data.eventTitle ?? 'Event',
+            venue: data.venueName ?? '',
+            date: '',
+            time: '',
+            about: '',
+            tags: [],
+            media: [],
+            vibes: [],
+          } as EventData,
+        })
+      }
+    })
+  }, [onNotificationNavigate])
 
   const toggleFavorite   = (item: FavoriteItem) => setFavorites(prev => { const exists = prev.find(f => f.id === item.id); if (exists) return prev.filter(f => f.id !== item.id); return [...prev, { ...item, read: false }]; });
   const removeFavorite   = (id: string) => setFavorites(prev => prev.filter(f => f.id !== id));
@@ -216,10 +245,10 @@ function Navigator() {
 }
 
 // ── Root — FirebaseProvider wraps everything ──────────────────────────
-export function RootNavigator() {
+export function RootNavigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (data: Record<string, string>) => void) => void }) {
   return (
     <FirebaseProvider>
-      <Navigator/>
+      <Navigator onNotificationNavigate={onNotificationNavigate}/>
     </FirebaseProvider>
   );
 }
