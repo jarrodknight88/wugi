@@ -4,7 +4,8 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "postinstall": "node scripts/postinstall.js && node scripts/fix-folly-convert-header.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
