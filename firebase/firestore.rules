@@ -23,6 +23,12 @@ service cloud.firestore {
     match /venues/{venueId} {
       allow read:                   if true;
       allow create, update, delete: if isSuperAdminOrModerator();
+
+      // Table color assignments — public read, admin write
+      match /tableColors/{tableId} {
+        allow read:   if true;
+        allow write:  if isSuperAdminOrModerator();
+      }
     }
 
     // ── Events — PUBLIC read ──────────────────────────────────────────
@@ -81,6 +87,49 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       allow read:  if isSuperAdminOrModerator();
       allow write: if false;
+    }
+
+    // ── Event Galleries — PUBLIC read, photographer write ─────────────
+    // Photographers create galleries and upload photos via Wugi Lens
+    // Consumer app reads galleries and photos publicly
+    match /eventGalleries/{galleryId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        request.auth.uid == resource.data.photographerId
+        || isSuperAdminOrModerator()
+      );
+      allow delete: if isSuperAdminOrModerator();
+
+      match /photos/{photoId} {
+        allow read: if true;
+        allow create: if isAuth();
+        allow update: if isAuth() && (
+          request.auth.uid == resource.data.photographerId
+          || isSuperAdminOrModerator()
+        );
+        allow delete: if isSuperAdminOrModerator();
+      }
+    }
+
+    // ── Wallet Passes — pass update protocol ─────────────────────────
+    match /walletPasses/{passId} {
+      allow read:  if isAuth() && request.auth.uid == resource.data.userId;
+      allow write: if false; // Cloud Functions only
+    }
+
+    // ── Wallet Devices — pass update protocol ────────────────────────
+    match /walletDevices/{deviceId} {
+      allow read, write: if false; // Cloud Functions only via passWebService
+    }
+
+    // ── Transfers — auth required, parties only ───────────────────────
+    match /transfers/{transferId} {
+      allow read: if isAuth() && (
+        request.auth.uid == resource.data.fromUid
+        || isSuperAdminOrModerator()
+      );
+      allow write: if false; // Cloud Functions only
     }
 
     // ── Payouts / Chargebacks — admin only ────────────────────────────

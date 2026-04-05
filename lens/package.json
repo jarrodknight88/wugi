@@ -8,6 +8,7 @@
     "postinstall": "node scripts/postinstall.js && node scripts/fix-folly-convert-header.js"
   },
   "dependencies": {
+    "@babel/core": "^7.29.0",
     "@expo/config-plugins": "^55.0.7",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-firebase/app": "^23.8.8",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "babel-preset-expo": "~54.0.10",
     "typescript": "~5.9.2"
   },
   "private": true

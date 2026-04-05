@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, Image, TouchableOpacity, ScrollView,
-  FlatList, SafeAreaView, StyleSheet, Dimensions,
+  FlatList, SafeAreaView, StyleSheet, Dimensions, ActivityIndicator,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
@@ -14,6 +14,7 @@ import { EVENTS } from '../constants/mockData';
 import { getVenueByName } from '../constants/mockData';
 import { BackIcon, ShareIcon, CalendarIcon, ChevronRightIcon } from '../components/icons';
 import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
+import { useEventGallery } from '../hooks/useEventGallery';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -33,6 +34,10 @@ export function EventScreen({ event, onBack, onVenuePress, onMapPress, onGallery
   const [isMuted, setIsMuted] = useState(true);
   const venue = getVenueByName(event.venue);
   const relatedEvents = EVENTS.filter(e => e.id !== event.id).slice(0, 3);
+
+  // Real-time gallery from Wugi Lens
+  const { gallery: liveGallery, loading: galleryLoading } = useEventGallery(event.id);
+  const activeGallery = liveGallery || event.gallery;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -134,28 +139,40 @@ export function EventScreen({ event, onBack, onVenuePress, onMapPress, onGallery
         <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 16, marginTop: 16 }}/>
         <TouchableOpacity
           style={{ paddingHorizontal: 16, paddingTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}
-          onPress={() => onGalleryPress(event.gallery)}
+          onPress={() => onGalleryPress(activeGallery)}
         >
           <View>
             <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>Gallery</Text>
-            <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>{event.gallery.photos.length} photos</Text>
+            {galleryLoading
+              ? <ActivityIndicator size="small" color={theme.accent} style={{ marginTop: 4 }}/>
+              : <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>
+                  {activeGallery.photos.length > 0 ? `${activeGallery.photos.length} photos` : liveGallery ? 'Live — photos loading' : 'No photos yet'}
+                </Text>
+            }
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>View all</Text>
+            {liveGallery && <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#2a7a5a' }}/>}
+            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>{liveGallery ? 'Live' : 'View all'}</Text>
             <ChevronRightIcon color={theme.accent}/>
           </View>
         </TouchableOpacity>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-          {event.gallery.photos.slice(0, 5).map(photo => (
-            <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(event.gallery)}>
+          {activeGallery.photos.slice(0, 5).map(photo => (
+            <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(activeGallery)}>
               <Image source={{ uri: photo.uri }} style={{ width: 100, height: 100, borderRadius: 10 }} resizeMode="cover"/>
             </TouchableOpacity>
           ))}
-          {event.gallery.photos.length > 5 && (
-            <TouchableOpacity onPress={() => onGalleryPress(event.gallery)} style={{ width: 100, height: 100, borderRadius: 10, backgroundColor: theme.card, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>+{event.gallery.photos.length - 5}</Text>
+          {activeGallery.photos.length > 5 && (
+            <TouchableOpacity onPress={() => onGalleryPress(activeGallery)} style={{ width: 100, height: 100, borderRadius: 10, backgroundColor: theme.card, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>+{activeGallery.photos.length - 5}</Text>
               <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }}>more</Text>
             </TouchableOpacity>
+          )}
+          {activeGallery.photos.length === 0 && !galleryLoading && (
+            <View style={{ width: 200, height: 100, borderRadius: 10, backgroundColor: theme.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.border }}>
+              <Text style={{ fontSize: 24 }}>📷</Text>
+              <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 4 }}>Photos coming soon</Text>
+            </View>
           )}
         </ScrollView>
 
