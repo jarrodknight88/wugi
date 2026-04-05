@@ -59,8 +59,8 @@ export async function getOrCreateGallery(event: LensEvent): Promise<string> {
     updatedAt:      firestore.FieldValue.serverTimestamp(),
   })
 
-  // Link gallery to event
-  await db.collection('events').doc(event.id).update({ galleryId: ref.id })
+  // Note: we skip updating events/{id}.galleryId here since
+  // that requires admin write — gallery is linked via eventId field instead
   return ref.id
 }
 
