@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "Wugi Lens",
+    "slug": "wugi-lens",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#0a0a0a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wugi.lens",
+      "buildNumber": "1",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Wugi Lens uses your camera to capture event photos.",
+        "NSPhotoLibraryUsageDescription": "Wugi Lens accesses your photo library to upload event photos.",
+        "NSPhotoLibraryAddUsageDescription": "Wugi Lens saves photos to your library.",
+        "NSLocalNetworkUsageDescription": "Wugi Lens connects to your camera router on the local network.",
+        "NSBonjourServices": [
+          "_http._tcp"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.wugi.lens",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "@react-native-firebase/app",
+      "expo-image-picker",
+      "expo-camera",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "buildReactNativeFromSource": true
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7b5b61d7-ff5e-4e6e-8b51-867871e66646"
+      }
+    },
+    "owner": "phatbat"
+  }
+}

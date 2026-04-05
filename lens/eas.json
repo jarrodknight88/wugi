@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "testflight": {
+      "distribution": "store",
+      "autoIncrement": true
+    },
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "testflight": {
+      "ios": {
+        "appleId": "rodk.music@gmail.com",
+        "ascAppId": "6761686958",
+        "appleTeamId": "D9438V8855"
+      }
+    }
+  }
+}
