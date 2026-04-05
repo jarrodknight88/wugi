@@ -10,16 +10,14 @@ const db = firestore()
 
 // ── Get active events for today ───────────────────────────────────────
 export async function getActiveEvents(): Promise<LensEvent[]> {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
+  // No orderBy — avoids composite index requirement
   const snap = await db.collection('events')
     .where('status', '==', 'approved')
-    .orderBy('date', 'desc')
     .limit(20)
     .get()
 
-  return snap.docs.map(d => ({
+  // Sort client-side by createdAt descending
+  const docs = snap.docs.map(d => ({
     id:        d.id,
     title:     d.data().title     || 'Untitled Event',
     venueName: d.data().venueName || d.data().venue || '',
@@ -27,7 +25,11 @@ export async function getActiveEvents(): Promise<LensEvent[]> {
     date:      d.data().date      || '',
     status:    'active' as const,
     galleryId: d.data().galleryId || null,
+    _createdAt: d.data().createdAt?.toMillis?.() || 0,
   }))
+
+  docs.sort((a, b) => b._createdAt - a._createdAt)
+  return docs.map(({ _createdAt, ...rest }) => rest)
 }
 
 // ── Create or get gallery for an event ───────────────────────────────
