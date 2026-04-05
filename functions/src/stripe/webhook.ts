@@ -19,7 +19,7 @@ import { sendPurchaseConfirmation } from '../email/emailService';
 
 const db = admin.firestore();
 
-export const stripeWebhook = functions.https.onRequest(async (req: any, res: any) => {
+export const stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY'] }).https.onRequest(async (req: any, res: any) => {
   // ── Verify webhook signature ────────────────────────────────────────
   const sig     = req.headers['stripe-signature'] as string;
   const secret  = process.env.STRIPE_WEBHOOK_SECRET!;

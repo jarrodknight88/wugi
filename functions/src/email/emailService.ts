@@ -6,7 +6,7 @@ import * as functions from 'firebase-functions'
 import { Resend } from 'resend'
 
 function getResend(): Resend {
-  const key = process.env.RESEND_API_KEY || functions.config().resend?.api_key
+  const key = process.env.RESEND_API_KEY
   if (!key) throw new Error('RESEND_API_KEY not set')
   return new Resend(key)
 }

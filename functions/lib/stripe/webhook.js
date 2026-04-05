@@ -52,7 +52,7 @@ const admin = __importStar(require("firebase-admin"));
 const stripeUtils_1 = require("./stripeUtils");
 const emailService_1 = require("../email/emailService");
 const db = admin.firestore();
-exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
+exports.stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY'] }).https.onRequest(async (req, res) => {
     // ── Verify webhook signature ────────────────────────────────────────
     const sig = req.headers['stripe-signature'];
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
