@@ -41,8 +41,6 @@
     },
     "plugins": [
       "@react-native-firebase/app",
-      "expo-image-picker",
-      "expo-camera",
       [
         "expo-build-properties",
         {

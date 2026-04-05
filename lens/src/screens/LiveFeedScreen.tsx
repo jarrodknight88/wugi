@@ -7,7 +7,6 @@ import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
   SafeAreaView, Image, Alert, ActivityIndicator, Dimensions,
 } from 'react-native'
-import * as ImagePicker from 'expo-image-picker'
 import { getOrCreateGallery } from '../lib/firebase'
 import { useUploadQueue } from '../hooks/useUploadQueue'
 import { useRouterSync } from '../hooks/useRouterSync'
@@ -84,21 +83,11 @@ export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
   }, [event])
 
   async function handlePickPhotos() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.9,
-    })
-    if (!result.canceled) {
-      enqueue(result.assets.map(a => a.uri))
-    }
+    Alert.alert('Coming Soon', 'Photo library import will be available in the next update. Use the router sync or camera mode.')
   }
 
   async function handleCamera() {
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.9 })
-    if (!result.canceled) {
-      enqueue([result.assets[0].uri])
-    }
+    Alert.alert('Coming Soon', 'Direct camera capture will be available in the next update. Use router sync for automatic uploads.')
   }
 
   if (initializing) {
