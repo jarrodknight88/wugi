@@ -15,6 +15,7 @@ import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { stripe, generateTicketNumber, calculateReserve } from './stripeUtils';
+import { sendPurchaseConfirmation } from '../email/emailService';
 
 const db = admin.firestore();
 
@@ -281,6 +282,61 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   await passBatch.commit();
 
   logger.info(`Order ${orderId} created with ${passIds.length} passes`);
+
+  // ── Generate Apple Wallet pass ──────────────────────────────────────
+  let passUrl: string | null = null;
+  try {
+    const { buildPassBuffer, storePass } = await import('../passes/generatePass');
+    const crypto = await import('crypto');
+    const authToken = crypto.randomBytes(20).toString('hex');
+    const firstItem = items[0];
+    const passBuffer = await buildPassBuffer({
+      orderId,
+      eventTitle:          eventData?.title      || '',
+      venueName:           venueData.name         || '',
+      eventDate:           eventData?.date         || '',
+      eventTime:           eventData?.time         || '',
+      ticketType:          firstItem?.ticketTypeName || '',
+      quantity:            items.reduce((s, i) => s + i.quantity, 0),
+      buyerName:           meta.buyerName          || '',
+      buyerEmail:          meta.buyerEmail          || '',
+      totalPaid:           total,
+      webServiceURL:       'https://us-central1-wugi-prod.cloudfunctions.net/passWebService',
+      authenticationToken: authToken,
+    });
+    passUrl = await storePass(orderId, passBuffer);
+    await db.collection('walletPasses').doc(orderId).set({
+      orderId, authenticationToken: authToken,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await orderRef.update({ passUrl, authenticationToken: authToken });
+    logger.info('Pass generated for order:', orderId);
+  } catch (passErr) {
+    logger.error('Pass generation failed:', passErr);
+  }
+
+  // ── Send purchase confirmation email ────────────────────────────────
+  const buyerEmail = meta.buyerEmail;
+  if (buyerEmail) {
+    try {
+      const firstItem = items[0];
+      await sendPurchaseConfirmation({
+        to:         buyerEmail,
+        buyerName:  meta.buyerName  || buyerEmail,
+        eventTitle: eventData?.title || '',
+        venueName:  venueData.name   || '',
+        eventDate:  eventData?.date   || '',
+        eventTime:  eventData?.time   || '',
+        ticketType: firstItem?.ticketTypeName || '',
+        quantity:   items.reduce((s, i) => s + i.quantity, 0),
+        totalPaid:  total,
+        orderId,
+        passUrl,
+      });
+    } catch (emailErr) {
+      logger.error('Purchase email failed:', emailErr);
+    }
+  }
 }
 
 // ── Payment failed ────────────────────────────────────────────────────

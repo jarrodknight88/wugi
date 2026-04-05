@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions'
 import * as admin from 'firebase-admin'
 import { buildPassBuffer, storePass } from './generatePass'
+import { sendTransferNotification } from '../email/emailService'
 
 const db = admin.firestore()
 
@@ -71,6 +72,22 @@ export const initiateTransfer = functions.https.onRequest(async (req, res) => {
 
     const claimUrl = `https://wugi.us/tickets/claim/${token}`
     functions.logger.info('Transfer initiated:', transferRef.id, 'to:', toEmail)
+
+    // Send email to recipient
+    try {
+      await sendTransferNotification({
+        to:         toEmail,
+        fromEmail:  order.buyerEmail || 'someone',
+        eventTitle: order.eventTitle || '',
+        venueName:  order.venueName  || '',
+        eventDate:  order.eventDate  || '',
+        ticketType: order.ticketType || '',
+        claimUrl,
+        expiresIn:  '48 hours',
+      })
+    } catch (emailErr) {
+      functions.logger.error('Transfer email failed:', emailErr)
+    }
 
     res.json({ success: true, transferId: transferRef.id, claimUrl, token })
   } catch (e: unknown) {

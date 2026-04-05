@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
+exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Cloud Functions Index
 // ─────────────────────────────────────────────────────────────────────
@@ -65,6 +65,8 @@ Object.defineProperty(exports, "cancelTransfer", { enumerable: true, get: functi
 var passWebService_1 = require("./passes/passWebService");
 Object.defineProperty(exports, "passWebService", { enumerable: true, get: function () { return passWebService_1.passWebService; } });
 Object.defineProperty(exports, "onTableColorChange", { enumerable: true, get: function () { return passWebService_1.onTableColorChange; } });
+var sendEmail_1 = require("./email/sendEmail");
+Object.defineProperty(exports, "sendEmail", { enumerable: true, get: function () { return sendEmail_1.sendEmail; } });
 var releaseReserves_1 = require("./stripe/releaseReserves");
 Object.defineProperty(exports, "releaseReserves", { enumerable: true, get: function () { return releaseReserves_1.releaseReserves; } });
 var chargebackSuspension_1 = require("./venues/chargebackSuspension");

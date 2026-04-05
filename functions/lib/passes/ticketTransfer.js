@@ -42,6 +42,7 @@ exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = void
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const generatePass_1 = require("./generatePass");
+const emailService_1 = require("../email/emailService");
 const db = admin.firestore();
 function generateToken() {
     return Math.random().toString(36).substring(2, 10) +
@@ -104,6 +105,22 @@ exports.initiateTransfer = functions.https.onRequest(async (req, res) => {
         });
         const claimUrl = `https://wugi.us/tickets/claim/${token}`;
         functions.logger.info('Transfer initiated:', transferRef.id, 'to:', toEmail);
+        // Send email to recipient
+        try {
+            await (0, emailService_1.sendTransferNotification)({
+                to: toEmail,
+                fromEmail: order.buyerEmail || 'someone',
+                eventTitle: order.eventTitle || '',
+                venueName: order.venueName || '',
+                eventDate: order.eventDate || '',
+                ticketType: order.ticketType || '',
+                claimUrl,
+                expiresIn: '48 hours',
+            });
+        }
+        catch (emailErr) {
+            functions.logger.error('Transfer email failed:', emailErr);
+        }
         res.json({ success: true, transferId: transferRef.id, claimUrl, token });
     }
     catch (e) {
