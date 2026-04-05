@@ -180,6 +180,12 @@ export default function VenuesApprovalPage() {
                   </div>
 
                   <div className="mt-4 flex gap-2">
+                    <a
+                      href={`/dashboard/venues/${venue.id}/tables`}
+                      className="text-xs px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-medium"
+                    >
+                      Tables
+                    </a>
                     <button
                       onClick={() => updateVenueStatus(venue.id, "approved")}
                       disabled={isUpdating}

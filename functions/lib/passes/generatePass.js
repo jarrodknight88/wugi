@@ -39,6 +39,7 @@ exports.storePass = storePass;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — generatePass
 // Generates an Apple Wallet .pkpass file for a ticket order.
+// Supports dynamic color codes by ticket type and table assignment.
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
@@ -50,7 +51,38 @@ const storage = admin.storage();
 const PASS_TYPE_ID = 'pass.com.wugimedia.wugi';
 const TEAM_ID = 'D9438V88S5';
 const CERTS_DIR = path.join(__dirname, '../../certs');
+// Convert hex color to rgb() string for Apple Wallet
+function hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgb(${r}, ${g}, ${b})`;
+}
+// Default colors per ticket type keyword
+function defaultColorForTicketType(ticketType) {
+    const t = ticketType.toLowerCase();
+    if (t.includes('vip'))
+        return '#7c3aed'; // purple
+    if (t.includes('table'))
+        return '#1d4ed8'; // blue
+    if (t.includes('backstage'))
+        return '#111827'; // near black
+    if (t.includes('comp'))
+        return '#374151'; // slate
+    return '#2a7a5a'; // wugi green (GA default)
+}
 function buildPassJson(data) {
+    const bgHex = data.passColor || defaultColorForTicketType(data.ticketType);
+    const bgRgb = hexToRgb(bgHex);
+    const tableLabel = data.colorLabel || (data.tableNumber ? `Table ${data.tableNumber}` : null);
+    const auxiliaryFields = [
+        { key: 'ticket', label: 'TICKET TYPE', value: data.ticketType },
+        { key: 'qty', label: 'QTY', value: String(data.quantity) },
+    ];
+    if (tableLabel) {
+        auxiliaryFields.push({ key: 'table', label: 'ASSIGNMENT', value: tableLabel });
+    }
     return {
         formatVersion: 1,
         passTypeIdentifier: PASS_TYPE_ID,
@@ -59,8 +91,8 @@ function buildPassJson(data) {
         organizationName: 'Wugi',
         description: data.eventTitle,
         foregroundColor: 'rgb(255, 255, 255)',
-        backgroundColor: 'rgb(42, 122, 90)',
-        labelColor: 'rgb(200, 240, 220)',
+        backgroundColor: bgRgb,
+        labelColor: 'rgb(220, 220, 220)',
         logoText: 'WUGI',
         eventTicket: {
             primaryFields: [{ key: 'event', label: 'EVENT', value: data.eventTitle }],
@@ -69,10 +101,7 @@ function buildPassJson(data) {
                 { key: 'date', label: 'DATE', value: data.eventDate },
                 { key: 'time', label: 'TIME', value: data.eventTime },
             ],
-            auxiliaryFields: [
-                { key: 'ticket', label: 'TICKET TYPE', value: data.ticketType },
-                { key: 'qty', label: 'QTY', value: String(data.quantity) },
-            ],
+            auxiliaryFields,
             backFields: [
                 { key: 'order', label: 'Order ID', value: data.orderId },
                 { key: 'buyer', label: 'Name', value: data.buyerName },
@@ -114,7 +143,6 @@ async function storePass(orderId, passBuffer) {
     await file.makePublic();
     return `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 }
-// HTTP endpoint — called after Stripe checkout
 exports.createPass = functions.https.onRequest(async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -136,10 +164,12 @@ exports.createPass = functions.https.onRequest(async (req, res) => {
         functions.logger.info('Generating pass for order:', data.orderId);
         const passBuffer = await buildPassBuffer(data);
         const passUrl = await storePass(data.orderId, passBuffer);
-        // Save pass URL to order doc if it exists
         try {
             await db.collection('orders').doc(data.orderId).update({
                 passUrl,
+                passColor: data.passColor || null,
+                colorLabel: data.colorLabel || null,
+                tableNumber: data.tableNumber || null,
                 passGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
         }
