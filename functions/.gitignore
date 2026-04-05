@@ -1,3 +1,4 @@
 .env
 .env.wugi-prod
 .env*
+certs/

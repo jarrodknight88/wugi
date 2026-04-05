@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
         eventId,
         ticketTypeId,
         quantity,
-        successUrl: `${origin}/events/success?event=${encodeURIComponent(eventTitle)}`,
+        successUrl: `${origin}/events/success?event=${encodeURIComponent(eventTitle)}&eventId=${encodeURIComponent(eventId)}&ticketType=${encodeURIComponent(ticketName)}&qty=${quantity}&total=${unitPrice * quantity}`,
         cancelUrl: `${origin}/events/${eventId}`,
       }),
     })
