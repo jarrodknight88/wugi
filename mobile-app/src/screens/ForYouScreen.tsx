@@ -1,16 +1,52 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — ForYouScreen
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, Image, TouchableOpacity, SafeAreaView,
-  Animated, PanResponder, StyleSheet, Dimensions,
+  Animated, PanResponder, StyleSheet, Dimensions, ActivityIndicator,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, ForYouCard, FavoriteItem } from '../types';
 import { FOR_YOU_CARDS } from '../constants/mockData';
+import { getForYouFeed, type FSEvent, type FSVenue } from '../../firestoreService';
+
+function fsEventToCard(e: FSEvent): ForYouCard {
+  return {
+    id: e.id, type: 'event',
+    title: e.title, subtitle: `${e.venue} · ${e.date}`,
+    image: e.media?.[0]?.uri || `https://picsum.photos/seed/${e.id}/600/900`,
+    tag: e.vibes?.[0] || 'Event', tagColor: '#2a7a5a',
+    data: {
+      id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+      date: e.date, time: e.time, age: e.age || '21+',
+      about: e.about || '', vibes: e.vibes || [],
+      media: e.media?.map(m => ({ type: m.type as 'image'|'video', uri: m.uri })) || [{ type: 'image', uri: `https://picsum.photos/seed/${e.id}/600/900` }],
+      gallery: { id: e.id, title: e.title, venue: e.venue, date: e.date, coverImage: '', photos: [] },
+      hasTickets: (e as any).hasTickets || false,
+    } as EventData,
+  };
+}
+
+function fsVenueToCard(v: FSVenue): ForYouCard {
+  return {
+    id: v.id, type: 'venue',
+    title: v.name, subtitle: `${v.category || 'Venue'} · ${v.neighborhood || 'Atlanta'}`,
+    image: v.media?.[0] || `https://picsum.photos/seed/${v.id}/600/900`,
+    tag: v.vibes?.[0] || 'Venue', tagColor: '#7c3aed',
+    data: {
+      id: v.id, name: v.name, category: v.category || '',
+      address: v.address || '', phone: v.phone || '',
+      website: v.website || '', instagram: v.instagram || '',
+      about: v.about || '', attributes: v.attributes || [],
+      vibes: v.vibes || [], status: v.status,
+      media: v.media || [], rating: v.rating || null, priceLevel: v.priceLevel || '',
+      isClaimed: v.isClaimed || false, isFeatured: (v as any).isFeatured || false,
+    } as VenueData,
+  };
+}
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -115,9 +151,38 @@ type Props = {
 };
 
 export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteToggle }: Props) {
-  const [cards, setCards]           = useState([...FOR_YOU_CARDS]);
+  const [cards, setCards]           = useState<ForYouCard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDone, setIsDone]         = useState(false);
+  const [loading, setLoading]       = useState(true);
+
+  useEffect(() => {
+    getForYouFeed().then(({ events, venues }) => {
+      if (events.length === 0 && venues.length === 0) {
+        setCards([...FOR_YOU_CARDS]);
+      } else {
+        // Interleave events and venues for variety
+        const built: ForYouCard[] = [];
+        const maxLen = Math.max(events.length, venues.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (events[i])  built.push(fsEventToCard(events[i]));
+          if (venues[i])  built.push(fsVenueToCard(venues[i]));
+        }
+        setCards(built.length > 0 ? built : [...FOR_YOU_CARDS]);
+      }
+    }).catch(() => {
+      setCards([...FOR_YOU_CARDS]);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.accent} size="large"/>
+        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12 }}>Loading for you...</Text>
+      </View>
+    );
+  }
 
   const advance = () => {
     if (currentIndex >= cards.length - 1) setIsDone(true);
@@ -157,7 +222,7 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
         <Text style={{ fontSize: 48, marginBottom: 16 }}>🎉</Text>
         <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 8 }}>You're all caught up!</Text>
         <Text style={{ color: theme.subtext, fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>Check back later for more Atlanta nightlife and dining recommendations.</Text>
-        <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={() => { setCurrentIndex(0); setIsDone(false); setCards([...FOR_YOU_CARDS]); }}>
+        <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={() => { setCurrentIndex(0); setIsDone(false); }}>
           <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Start Over</Text>
         </TouchableOpacity>
       </View>
