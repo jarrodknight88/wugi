@@ -17,9 +17,10 @@ const { width: SW } = Dimensions.get('window')
 const THUMB_SIZE    = (SW - 48) / 3
 
 type Props = {
-  event:   LensEvent
-  onBack:  () => void
-  routerIp: string
+  event:      LensEvent
+  onBack:     () => void
+  onSettings: () => void
+  routerIp:   string
 }
 
 // Status badge colors
@@ -54,7 +55,7 @@ function PhotoThumb({ photo }: { photo: PhotoItem }) {
 // Need StyleSheet import
 import { StyleSheet } from 'react-native'
 
-export function LiveFeedScreen({ event, onBack, routerIp }: Props) {
+export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
   const [galleryId,    setGalleryId]    = useState<string | null>(null)
   const [initializing, setInitializing] = useState(true)
   const [routerEnabled, setRouterEnabled] = useState(false)
@@ -125,7 +126,12 @@ export function LiveFeedScreen({ event, onBack, routerIp }: Props) {
               <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }} numberOfLines={1}>{event.title}</Text>
               <Text style={{ color: '#555', fontSize: 12 }}>{event.venueName}</Text>
             </View>
-            {uploading && <ActivityIndicator color="#2a7a5a" size="small"/>}
+            {uploading
+              ? <ActivityIndicator color="#2a7a5a" size="small"/>
+              : <TouchableOpacity onPress={onSettings} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 18 }}>⚙️</Text>
+                </TouchableOpacity>
+            }
           </View>
         </View>
       </SafeAreaView>
