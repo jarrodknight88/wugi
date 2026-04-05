@@ -16,6 +16,7 @@ export { onEventPublished }        from './notifications/onEventPublished';
 export { debugFCM }                from './notifications/debugFCM';
 export { createPass }              from './passes/generatePass';
 export { initiateTransfer, claimTransfer, cancelTransfer } from './passes/ticketTransfer';
+export { passWebService, onTableColorChange }              from './passes/passWebService';
 export { releaseReserves } from './stripe/releaseReserves';
 export { onVenueChargebackUpdate } from './venues/chargebackSuspension';
 export { onTicketTypeSold } from './tickets/updateInventory';

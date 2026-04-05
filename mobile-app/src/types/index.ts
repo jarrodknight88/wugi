@@ -149,19 +149,30 @@ export type TicketTypeKey =
   | 'early_bird';
 
 export type PassData = {
-  passId: string;
-  eventTitle: string;
-  venueName: string;
-  date: string;
-  time: string;
-  ticketType: TicketTypeKey;
-  holderName: string;
-  orderId: string;
-  role: 'purchaser' | 'guest';
-  status: 'claimed' | 'pending' | 'scanned';
-  totalPasses?: number;
-  passNumber?: number;
-  transferable?: boolean;
+  passId:          string;
+  eventTitle:      string;
+  venueName:       string;
+  date:            string;
+  time:            string;
+  ticketType:      TicketTypeKey;
+  ticketTypeName?: string;
+  holderName:      string;
+  orderId:         string;
+  role?:           'purchaser' | 'guest';
+  status:          'claimed' | 'pending' | 'scanned' | 'valid';
+  totalPasses?:    number;
+  passNumber?:     number;
+  qrValue?:        string;
+  // Color system
+  passColor?:      string | null;   // hex e.g. "#6b21a8"
+  colorLabel?:     string | null;   // e.g. "VIP Table 14"
+  tableNumber?:    number | null;
+  // Apple Wallet
+  passUrl?:        string | null;
+  // Transfer
+  transferPending?:  boolean;
+  transferred?:      boolean;
+  transferId?:       string | null;
 };
 
 // ── Stories ───────────────────────────────────────────────────────────

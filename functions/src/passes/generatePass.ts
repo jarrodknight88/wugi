@@ -1,38 +1,41 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — generatePass
 // Generates an Apple Wallet .pkpass file for a ticket order.
-// Supports dynamic color codes by ticket type and table assignment.
+// Supports dynamic color codes + Pass Update protocol.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions'
 import * as admin from 'firebase-admin'
 import { PKPass } from 'passkit-generator'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as crypto from 'crypto'
 
 const db      = admin.firestore()
 const storage = admin.storage()
 
-const PASS_TYPE_ID = 'pass.com.wugimedia.wugi'
-const TEAM_ID      = 'D9438V88S5'
-const CERTS_DIR    = path.join(__dirname, '../../certs')
+const PASS_TYPE_ID    = 'pass.com.wugimedia.wugi'
+const TEAM_ID         = 'D9438V88S5'
+const CERTS_DIR       = path.join(__dirname, '../../certs')
+const WEB_SERVICE_URL = 'https://us-central1-wugi-prod.cloudfunctions.net/passWebService'
 
 export interface PassData {
-  orderId:      string
-  eventTitle:   string
-  venueName:    string
-  eventDate:    string
-  eventTime:    string
-  ticketType:   string
-  quantity:     number
-  buyerName:    string
-  buyerEmail:   string
-  totalPaid:    number
-  passColor?:   string   // hex e.g. "#6b21a8" — overrides ticket type default
-  colorLabel?:  string   // e.g. "VIP Table 14"
-  tableNumber?: number   // e.g. 14
+  orderId:             string
+  eventTitle:          string
+  venueName:           string
+  eventDate:           string
+  eventTime:           string
+  ticketType:          string
+  quantity:            number
+  buyerName:           string
+  buyerEmail:          string
+  totalPaid:           number
+  passColor?:          string | null
+  colorLabel?:         string | null
+  tableNumber?:        number | null
+  webServiceURL?:      string
+  authenticationToken?: string
 }
 
-// Convert hex color to rgb() string for Apple Wallet
 function hexToRgb(hex: string): string {
   const h = hex.replace('#', '')
   const r = parseInt(h.substring(0, 2), 16)
@@ -41,20 +44,20 @@ function hexToRgb(hex: string): string {
   return `rgb(${r}, ${g}, ${b})`
 }
 
-// Default colors per ticket type keyword
 function defaultColorForTicketType(ticketType: string): string {
   const t = ticketType.toLowerCase()
-  if (t.includes('vip'))       return '#7c3aed'  // purple
-  if (t.includes('table'))     return '#1d4ed8'  // blue
-  if (t.includes('backstage')) return '#111827'  // near black
-  if (t.includes('comp'))      return '#374151'  // slate
-  return '#2a7a5a'                               // wugi green (GA default)
+  if (t.includes('vip'))       return '#7c3aed'
+  if (t.includes('table'))     return '#1d4ed8'
+  if (t.includes('backstage')) return '#111827'
+  if (t.includes('comp'))      return '#374151'
+  return '#2a7a5a'
 }
 
 function buildPassJson(data: PassData): object {
-  const bgHex  = data.passColor || defaultColorForTicketType(data.ticketType)
-  const bgRgb  = hexToRgb(bgHex)
+  const bgHex      = data.passColor || defaultColorForTicketType(data.ticketType)
+  const bgRgb      = hexToRgb(bgHex)
   const tableLabel = data.colorLabel || (data.tableNumber ? `Table ${data.tableNumber}` : null)
+  const authToken  = data.authenticationToken || ''
 
   const auxiliaryFields: object[] = [
     { key: 'ticket', label: 'TICKET TYPE', value: data.ticketType },
@@ -64,7 +67,7 @@ function buildPassJson(data: PassData): object {
     auxiliaryFields.push({ key: 'table', label: 'ASSIGNMENT', value: tableLabel })
   }
 
-  return {
+  const passJson: Record<string, unknown> = {
     formatVersion:      1,
     passTypeIdentifier: PASS_TYPE_ID,
     serialNumber:       data.orderId,
@@ -99,22 +102,47 @@ function buildPassJson(data: PassData): object {
       altText:         `Order: ${data.orderId}`,
     }],
   }
+
+  // Embed web service URL for pass updates (only if we have an auth token)
+  if (authToken) {
+    passJson.webServiceURL       = data.webServiceURL || WEB_SERVICE_URL
+    passJson.authenticationToken = authToken
+  }
+
+  return passJson
 }
 
 export async function buildPassBuffer(data: PassData): Promise<Buffer> {
-  const pass = new PKPass(
-    {
-      'pass.json':   Buffer.from(JSON.stringify(buildPassJson(data))),
-      'icon.png':    fs.readFileSync(path.join(CERTS_DIR, 'icon.png')),
-      'icon@2x.png': fs.readFileSync(path.join(CERTS_DIR, 'icon@2x.png')),
-      'icon@3x.png': fs.readFileSync(path.join(CERTS_DIR, 'icon@3x.png')),
-    },
-    {
-      wwdr:       fs.readFileSync(path.join(CERTS_DIR, 'wwdr.pem')),
-      signerCert: fs.readFileSync(path.join(CERTS_DIR, 'signerCert.pem')),
-      signerKey:  fs.readFileSync(path.join(CERTS_DIR, 'signerKey.pem')),
-    }
-  )
+  const files: Record<string, Buffer> = {
+    'pass.json':   Buffer.from(JSON.stringify(buildPassJson(data))),
+    'icon.png':    fs.readFileSync(path.join(CERTS_DIR, 'icon.png')),
+    'icon@2x.png': fs.readFileSync(path.join(CERTS_DIR, 'icon@2x.png')),
+    'icon@3x.png': fs.readFileSync(path.join(CERTS_DIR, 'icon@3x.png')),
+  }
+
+  // Add logo image if available
+  const logoPath = path.join(CERTS_DIR, 'logo.png')
+  if (fs.existsSync(logoPath)) {
+    files['logo.png']    = fs.readFileSync(logoPath)
+    files['logo@2x.png'] = fs.existsSync(path.join(CERTS_DIR, 'logo@2x.png'))
+      ? fs.readFileSync(path.join(CERTS_DIR, 'logo@2x.png'))
+      : files['logo.png']
+  }
+
+  // Add strip image if available (event-specific or default)
+  const stripPath = path.join(CERTS_DIR, 'strip.png')
+  if (fs.existsSync(stripPath)) {
+    files['strip.png']    = fs.readFileSync(stripPath)
+    files['strip@2x.png'] = fs.existsSync(path.join(CERTS_DIR, 'strip@2x.png'))
+      ? fs.readFileSync(path.join(CERTS_DIR, 'strip@2x.png'))
+      : files['strip.png']
+  }
+
+  const pass = new PKPass(files, {
+    wwdr:       fs.readFileSync(path.join(CERTS_DIR, 'wwdr.pem')),
+    signerCert: fs.readFileSync(path.join(CERTS_DIR, 'signerCert.pem')),
+    signerKey:  fs.readFileSync(path.join(CERTS_DIR, 'signerKey.pem')),
+  })
   return pass.getAsBuffer()
 }
 
@@ -124,7 +152,7 @@ export async function storePass(orderId: string, passBuffer: Buffer): Promise<st
   const file     = bucket.file(filePath)
   await file.save(passBuffer, {
     contentType: 'application/vnd.apple.pkpass',
-    metadata:    { cacheControl: 'public, max-age=3600' },
+    metadata:    { cacheControl: 'no-cache' },
   })
   await file.makePublic()
   return `https://storage.googleapis.com/${bucket.name}/${filePath}`
@@ -143,19 +171,36 @@ export const createPass = functions.https.onRequest(async (req, res) => {
   }
 
   try {
+    // Generate a unique auth token for pass update protocol
+    const authenticationToken = crypto.randomBytes(20).toString('hex')
+    data.authenticationToken  = authenticationToken
+
     functions.logger.info('Generating pass for order:', data.orderId)
     const passBuffer = await buildPassBuffer(data)
     const passUrl    = await storePass(data.orderId, passBuffer)
 
+    // Store walletPass record for update protocol
+    await db.collection('walletPasses').doc(data.orderId).set({
+      orderId:             data.orderId,
+      authenticationToken,
+      passColor:           data.passColor   || null,
+      colorLabel:          data.colorLabel  || null,
+      tableNumber:         data.tableNumber || null,
+      lastUpdated:         admin.firestore.FieldValue.serverTimestamp(),
+      passGeneratedAt:     admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true })
+
+    // Update order doc
     try {
       await db.collection('orders').doc(data.orderId).update({
         passUrl,
-        passColor:        data.passColor || null,
-        colorLabel:       data.colorLabel || null,
-        tableNumber:      data.tableNumber || null,
-        passGeneratedAt:  admin.firestore.FieldValue.serverTimestamp(),
+        authenticationToken,
+        passColor:       data.passColor   || null,
+        colorLabel:      data.colorLabel  || null,
+        tableNumber:     data.tableNumber || null,
+        passGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
       })
-    } catch { /* order doc may not exist */ }
+    } catch { /* order doc may not exist yet */ }
 
     functions.logger.info('Pass generated:', passUrl)
     res.json({ success: true, passUrl })
