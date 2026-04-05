@@ -7,6 +7,7 @@ import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
   SafeAreaView, Image, Alert, ActivityIndicator, Dimensions,
 } from 'react-native'
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker'
 import { getOrCreateGallery } from '../lib/firebase'
 import { useUploadQueue } from '../hooks/useUploadQueue'
 import { useRouterSync } from '../hooks/useRouterSync'
@@ -83,11 +84,25 @@ export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
   }, [event])
 
   async function handlePickPhotos() {
-    Alert.alert('Coming Soon', 'Photo library import coming in next update.')
+    launchImageLibrary(
+      { mediaType: 'photo', selectionLimit: 0, quality: 0.9 },
+      response => {
+        if (response.didCancel || response.errorCode) return
+        const uris = (response.assets || []).map(a => a.uri).filter(Boolean) as string[]
+        if (uris.length > 0) enqueue(uris)
+      }
+    )
   }
 
   async function handleCamera() {
-    Alert.alert('Coming Soon', 'Direct camera capture coming in next update.')
+    launchCamera(
+      { mediaType: 'photo', quality: 0.9, saveToPhotos: false },
+      response => {
+        if (response.didCancel || response.errorCode) return
+        const uri = response.assets?.[0]?.uri
+        if (uri) enqueue([uri])
+      }
+    )
   }
 
   if (initializing) {
