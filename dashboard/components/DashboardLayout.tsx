@@ -6,14 +6,63 @@ import { auth } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 import { useState, useEffect } from "react"
 
+// SVG icon components — clean, consistent, sidebar-sized
+const Icon = {
+  Overview: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+  ),
+  Venues: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 21h18M6 21V7l6-4 6 4v14M9 21v-6h6v6"/>
+    </svg>
+  ),
+  Events: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+      <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>
+    </svg>
+  ),
+  Tickets: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 9a2 2 0 0 1 0-4V3h20v2a2 2 0 0 1 0 4v2a2 2 0 0 1 0 4v2H2v-2a2 2 0 0 1 0-4V9z"/>
+      <line x1="9" y1="3" x2="9" y2="21" strokeDasharray="2 2"/>
+    </svg>
+  ),
+  Galleries: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+      <polyline points="21 15 16 10 5 21"/>
+    </svg>
+  ),
+  Users: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+  Audit: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+      <polyline points="10 9 9 9 8 9"/>
+    </svg>
+  ),
+}
+
 const NAV = [
-  { href: "/dashboard",           label: "Overview",   icon: "◻" },
-  { href: "/dashboard/venues",    label: "Venues",     icon: "⬡" },
-  { href: "/dashboard/events",    label: "Events",     icon: "◈" },
-  { href: "/dashboard/tickets",   label: "Tickets",    icon: "◇" },
-  { href: "/dashboard/galleries", label: "Galleries",  icon: "▣" },
-  { href: "/dashboard/users",     label: "Users",      icon: "◉" },
-  { href: "/dashboard/audit",     label: "Audit Log",  icon: "≡" },
+  { href: "/dashboard",           label: "Overview",   Icon: Icon.Overview  },
+  { href: "/dashboard/venues",    label: "Venues",     Icon: Icon.Venues    },
+  { href: "/dashboard/events",    label: "Events",     Icon: Icon.Events    },
+  { href: "/dashboard/tickets",   label: "Tickets",    Icon: Icon.Tickets   },
+  { href: "/dashboard/galleries", label: "Galleries",  Icon: Icon.Galleries },
+  { href: "/dashboard/users",     label: "Users",      Icon: Icon.Users     },
+  { href: "/dashboard/audit",     label: "Audit Log",  Icon: Icon.Audit     },
 ]
 
 const TOPBAR_H = 52 // px — fixed mobile topbar height
@@ -63,7 +112,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             fontWeight: active ? 600 : 400,
             borderLeft: active ? "2px solid #2a7a5a" : "2px solid transparent",
           }}>
-            <span style={{ fontSize: 15, width: 20, textAlign: "center", flexShrink: 0 }}>{item.icon}</span>
+            <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+              <item.Icon />
+            </span>
             {item.label}
           </Link>
         )
