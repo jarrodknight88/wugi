@@ -16,7 +16,7 @@ function parse(val: string): { h: number; m: number; ampm: "AM" | "PM" } {
 const POPUP: React.CSSProperties = {
   position: "absolute", zIndex: 200, background: "#fff", borderRadius: 12,
   border: "1px solid #e5e7eb", boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-  padding: 16, top: "calc(100% + 6px)", left: 0, minWidth: 220,
+  padding: 16, top: "calc(100% + 6px)", right: 0, left: "auto", minWidth: 220,
 }
 const COL: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }
 const BTN = (active: boolean): React.CSSProperties => ({
