@@ -1,6 +1,8 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+
+export const dynamic = 'force-dynamic'
 import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
@@ -26,7 +28,7 @@ type EventForm = { title: string; venue: string; venueId: string; date: string; 
 const EMPTY: EventForm = { title: "", venue: "", venueId: "", date: "", time: "10:00 PM", age: "21+", about: "", status: "approved", hasTickets: false, vibes: [], media: "" }
 const EMPTY_TT: TicketType = { id: "", name: "", price: 0, capacity: 100, color: "#2a7a5a" }
 
-export default function EventsPage() {
+function EventsPageInner() {
   const router = useRouter()
   const params = useSearchParams()
   const { user, hasDashboardAccess, loading } = useAuthContext()
@@ -256,5 +258,13 @@ export default function EventsPage() {
         </div>
       )}
     </DashboardLayout>
+  )
+}
+
+export default function EventsPage() {
+  return (
+    <Suspense fallback={null}>
+      <EventsPageInner />
+    </Suspense>
   )
 }

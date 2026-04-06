@@ -1,6 +1,8 @@
 "use client"
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+
+export const dynamic = 'force-dynamic'
 import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, query, orderBy } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
@@ -22,7 +24,7 @@ type VenueForm = { name: string; category: string; address: string; phone: strin
 
 const EMPTY_FORM: VenueForm = { name: "", category: "", address: "", phone: "", website: "", instagram: "", about: "", neighborhood: "", status: "pending_review", isFeatured: false, vibes: [] }
 
-export default function VenuesPage() {
+function VenuesPageInner() {
   const router = useRouter()
   const params = useSearchParams()
   const { user, hasDashboardAccess, loading } = useAuthContext()
@@ -163,7 +165,6 @@ const MINPUT  = { padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7
 const MVIB  = ["High Energy","Boujee","Divey","Rooftop","Speakeasy","Sports Bar","Lounge","Late Night","Hip-Hop","R&B","EDM","Jazz","Live Music","Brunch","LGBTQ+","Karaoke"]
 const MCATS = ["Bar","Nightclub","Lounge","Restaurant","Rooftop","Sports Bar","Live Music Venue","Hotel Bar","Event Space"]
 
-type VenueForm = { name: string; category: string; address: string; phone: string; website: string; instagram: string; about: string; neighborhood: string; status: string; isFeatured: boolean; vibes: string[] }
 
 function VenueModal({ form, setForm, onSave, onClose, saving, error, isEdit }: {
   form: VenueForm; setForm: (f: VenueForm) => void; onSave: () => void
@@ -274,5 +275,13 @@ function VenueModal({ form, setForm, onSave, onClose, saving, error, isEdit }: {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function VenuesPage() {
+  return (
+    <Suspense fallback={null}>
+      <VenuesPageInner />
+    </Suspense>
   )
 }
