@@ -8,6 +8,9 @@ import { adminDb } from '@/lib/firebase-admin'
 import GalleryClient from './GalleryClient'
 import type { GalleryData, GalleryPhoto } from './types'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 60 // refresh every 60s for live galleries
+
 // ── Metadata ──────────────────────────────────────────────────────────
 export async function generateMetadata(
   { params }: { params: { galleryId: string } }
