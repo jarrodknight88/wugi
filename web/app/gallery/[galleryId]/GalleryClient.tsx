@@ -4,7 +4,7 @@
 // Masonry photo grid with lightbox — shareable event gallery
 // ─────────────────────────────────────────────────────────────────────
 import { useState, useCallback } from 'react'
-import type { GalleryData, GalleryPhoto } from './page'
+import type { GalleryData, GalleryPhoto } from './types'
 
 export default function GalleryClient({ gallery }: { gallery: GalleryData }) {
   const [lightbox, setLightbox] = useState<number | null>(null)

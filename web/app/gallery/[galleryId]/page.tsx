@@ -6,6 +6,7 @@ import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { adminDb } from '@/lib/firebase-admin'
 import GalleryClient from './GalleryClient'
+import type { GalleryData, GalleryPhoto } from './types'
 
 // ── Metadata ──────────────────────────────────────────────────────────
 export async function generateMetadata(
