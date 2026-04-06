@@ -220,30 +220,25 @@ export default function UsersPage() {
               </div>
 
               {needsVenues && (
-                <div>
-                  <label style={{ fontSize:13, fontWeight:600, color:"#374151", display:"block", marginBottom:6 }}>Assign Venues</label>
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                    {venues.map(v => {
-                      const sel = nVenueIds.includes(v.id)
-                      return <button key={v.id} type="button" onClick={() => setNVenueIds(ids => sel ? ids.filter(x=>x!==v.id) : [...ids,v.id])}
-                        style={{ padding:"5px 12px", borderRadius:20, fontSize:13, cursor:"pointer", fontWeight:sel?600:400, background:sel?"#064e3b":"#f3f4f6", color:sel?"#fff":"#374151", border:"1px solid "+(sel?"#064e3b":"#e5e7eb") }}>{v.label}</button>
-                    })}
-                  </div>
-                  {nVenueIds.length===0 && <p style={{ fontSize:12, color:"#f59e0b", marginTop:6 }}>Select at least one venue</p>}
-                </div>
+                <SearchSelect
+                  multi
+                  label="Assign Venues"
+                  value={nVenueIds}
+                  options={venues}
+                  placeholder="Search and select venues..."
+                  onChange={ids => setNVenueIds(ids)}
+                />
               )}
 
               {needsEvents && (
-                <div>
-                  <label style={{ fontSize:13, fontWeight:600, color:"#374151", display:"block", marginBottom:6 }}>Assign Events</label>
-                  <div style={{ display:"flex", flexWrap:"wrap", gap:8, maxHeight:160, overflowY:"auto" }}>
-                    {events.map(ev => {
-                      const sel = nEventIds.includes(ev.id)
-                      return <button key={ev.id} type="button" onClick={() => setNEventIds(ids => sel ? ids.filter(x=>x!==ev.id) : [...ids,ev.id])}
-                        style={{ padding:"5px 12px", borderRadius:20, fontSize:13, cursor:"pointer", fontWeight:sel?600:400, background:sel?"#1d4ed8":"#f3f4f6", color:sel?"#fff":"#374151", border:"1px solid "+(sel?"#1d4ed8":"#e5e7eb") }}>{ev.label}</button>
-                    })}
-                  </div>
-                </div>
+                <SearchSelect
+                  multi
+                  label="Assign Events"
+                  value={nEventIds}
+                  options={events}
+                  placeholder="Search and select events..."
+                  onChange={ids => setNEventIds(ids)}
+                />
               )}
 
               {canHaveTableAccess && (

@@ -49,11 +49,13 @@ service cloud.firestore {
     }
 
     // ── Users ────────────────────────────────────────────────────────
+    // Users must be readable by any authenticated user — the userDoc()
+    // helper calls get() on this collection to resolve roles, so we cannot
+    // gate reads behind role checks (that would cause infinite recursion).
     match /users/{userId} {
-      // Admins can read all users; others read own doc only
-      allow read:   if isAuth() && (isStaff() || isVenueAdmin() || request.auth.uid == userId);
-      allow create: if isAuth() && request.auth.uid == userId;  // own signup
-      allow update: if isAuth() && (isSuperAdmin() || request.auth.uid == userId);
+      allow read:   if isAuth();
+      allow create: if isAuth() && request.auth.uid == userId;
+      allow update: if isAuth() && (isSuperAdmin() || isVenueAdmin() || request.auth.uid == userId);
       allow delete: if isSuperAdmin();
     }
 
