@@ -4,47 +4,15 @@
 // ─────────────────────────────────────────────────────────────────────
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { initializeApp, getApps, cert } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
+import { adminDb } from '@/lib/firebase-admin'
 import GalleryClient from './GalleryClient'
-
-// ── Firebase Admin init ───────────────────────────────────────────────
-function getDb() {
-  if (!getApps().length) {
-    const sa = JSON.parse(
-      Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64!, 'base64').toString('utf8')
-    )
-    initializeApp({ credential: cert(sa) })
-  }
-  return getFirestore()
-}
-
-// ── Types ─────────────────────────────────────────────────────────────
-export type GalleryPhoto = {
-  id:         string
-  url:        string
-  thumbUrl:   string
-  uploadedAt: string
-}
-
-export type GalleryData = {
-  id:           string
-  eventTitle:   string
-  venueName:    string
-  eventId:      string
-  photoCount:   number
-  status:       string
-  createdAt:    string
-  photos:       GalleryPhoto[]
-}
 
 // ── Metadata ──────────────────────────────────────────────────────────
 export async function generateMetadata(
   { params }: { params: { galleryId: string } }
 ): Promise<Metadata> {
   try {
-    const db  = getDb()
-    const doc = await db.collection('eventGalleries').doc(params.galleryId).get()
+    const doc = await adminDb.collection('eventGalleries').doc(params.galleryId).get()
     if (!doc.exists) return { title: 'Gallery — Wugi' }
     const d = doc.data()!
     return {
@@ -65,14 +33,12 @@ export async function generateMetadata(
 export default async function GalleryPage(
   { params }: { params: { galleryId: string } }
 ) {
-  const db  = getDb()
-  const doc = await db.collection('eventGalleries').doc(params.galleryId).get()
+  const doc = await adminDb.collection('eventGalleries').doc(params.galleryId).get()
   if (!doc.exists) notFound()
 
   const data = doc.data()!
 
-  // Fetch all photos
-  const photosSnap = await db
+  const photosSnap = await adminDb
     .collection('eventGalleries').doc(params.galleryId)
     .collection('photos')
     .where('approved', '==', true)
