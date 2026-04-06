@@ -24,14 +24,14 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, hasDashboardAccess, loading: authLoading } = useAuthContext()
+  const { user, hasDashboardAccess, hasUserDocument, loading: authLoading } = useAuthContext()
   const [stats, setStats] = useState({ venues: 0, pendingVenues: 0, events: 0, pendingEvents: 0, galleries: 0, photos: 0 })
   const [recentAudit, setRecentAudit] = useState<any[]>([])
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login")
-    if (!authLoading && user && !hasDashboardAccess) router.replace("/unauthorized")
-  }, [authLoading, user, hasDashboardAccess, router])
+    if (!authLoading && hasUserDocument && !hasDashboardAccess) router.replace("/unauthorized")
+  }, [authLoading, user, hasDashboardAccess, hasUserDocument, router])
 
   useEffect(() => {
     if (!user) return
@@ -53,7 +53,7 @@ export default function DashboardPage() {
     return () => unsubs.forEach(u => u())
   }, [user])
 
-  if (authLoading || !user) return null
+  if (authLoading || !user || !hasDashboardAccess) return null
 
   return (
     <DashboardLayout>

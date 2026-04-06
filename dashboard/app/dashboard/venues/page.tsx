@@ -27,7 +27,7 @@ const EMPTY_FORM: VenueForm = { name: "", category: "", address: "", phone: "", 
 function VenuesPageInner() {
   const router = useRouter()
   const params = useSearchParams()
-  const { user, hasDashboardAccess, loading } = useAuthContext()
+  const { user, hasDashboardAccess, hasUserDocument, loading } = useAuthContext()
   const [venues, setVenues] = useState<Venue[]>([])
   const [filter, setFilter] = useState("all")
   const [search, setSearch] = useState("")
@@ -39,7 +39,7 @@ function VenuesPageInner() {
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login")
-    if (!loading && user && !hasDashboardAccess) router.replace("/unauthorized")
+    if (!loading && hasUserDocument && !hasDashboardAccess) router.replace("/unauthorized")
   }, [loading, user, hasDashboardAccess, router])
 
   useEffect(() => {
@@ -83,7 +83,7 @@ function VenuesPageInner() {
 
   const displayed = venues.filter(v => (filter === "all" || v.status === filter) && (!search || v.name.toLowerCase().includes(search.toLowerCase())))
 
-  if (loading || !user) return null
+  if (loading || !user || !hasDashboardAccess) return null
 
   return (
     <DashboardLayout>

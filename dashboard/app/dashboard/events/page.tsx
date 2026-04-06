@@ -31,7 +31,7 @@ const EMPTY_TT: TicketType = { id: "", name: "", price: 0, capacity: 100, color:
 function EventsPageInner() {
   const router = useRouter()
   const params = useSearchParams()
-  const { user, hasDashboardAccess, loading } = useAuthContext()
+  const { user, hasDashboardAccess, hasUserDocument, loading } = useAuthContext()
   const [events, setEvents] = useState<EventItem[]>([])
   const [venues, setVenues] = useState<{ id: string; name: string }[]>([])
   const [filter, setFilter] = useState("all")
@@ -45,7 +45,7 @@ function EventsPageInner() {
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login")
-  }, [loading, user, router])
+    if (!loading && hasUserDocument && !hasDashboardAccess) router.replace("/unauthorized")  }, [loading, user, router])
 
   useEffect(() => {
     if (!user) return
@@ -103,7 +103,7 @@ function EventsPageInner() {
 
   const displayed = events.filter(e => (filter === "all" || e.status === filter) && (!search || e.title.toLowerCase().includes(search.toLowerCase())))
 
-  if (loading || !user) return null
+  if (loading || !user || !hasDashboardAccess) return null
 
   return (
     <DashboardLayout>
