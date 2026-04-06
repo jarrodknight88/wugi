@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
+exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Cloud Functions Index
 // ─────────────────────────────────────────────────────────────────────
@@ -73,4 +73,6 @@ var chargebackSuspension_1 = require("./venues/chargebackSuspension");
 Object.defineProperty(exports, "onVenueChargebackUpdate", { enumerable: true, get: function () { return chargebackSuspension_1.onVenueChargebackUpdate; } });
 var updateInventory_1 = require("./tickets/updateInventory");
 Object.defineProperty(exports, "onTicketTypeSold", { enumerable: true, get: function () { return updateInventory_1.onTicketTypeSold; } });
+var generateDoorPin_1 = require("./door/generateDoorPin");
+Object.defineProperty(exports, "generateDoorPin", { enumerable: true, get: function () { return generateDoorPin_1.generateDoorPin; } });
 //# sourceMappingURL=index.js.map

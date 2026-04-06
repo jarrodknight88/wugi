@@ -136,7 +136,7 @@ function EventsPageInner() {
                   <td style={{ padding:"12px 16px", color:ev.hasTickets?"#2a7a5a":"#d1d5db", fontSize:13 }}>{ev.hasTickets?"✓ Live":"—"}</td>
                   <td style={{ padding:"12px 16px" }}>
                     <div style={{ display:"flex", gap:6 }}>
-                      <button onClick={()=>openEdit(ev)} style={{ padding:"5px 10px", borderRadius:6, fontSize:12, background:"#f3f4f6", border:"none", cursor:"pointer", color:"#374151" }}>Edit</button>
+                      <button onClick={()=>router.push(`/dashboard/events/${ev.id}`)} style={{ padding:"5px 10px", borderRadius:6, fontSize:12, background:"#f3f4f6", border:"none", cursor:"pointer", color:"#374151" }}>Edit</button>
                       {ev.status!=="approved" && <button onClick={()=>setStatus(ev.id,ev.title,"approved")} style={{ padding:"5px 10px", borderRadius:6, fontSize:12, background:"#dcfce7", border:"none", cursor:"pointer", color:"#15803d", fontWeight:600 }}>Approve</button>}
                       {ev.status!=="rejected" && <button onClick={()=>setStatus(ev.id,ev.title,"rejected")} style={{ padding:"5px 10px", borderRadius:6, fontSize:12, background:"#fee2e2", border:"none", cursor:"pointer", color:"#b91c1c" }}>Reject</button>}
                     </div>

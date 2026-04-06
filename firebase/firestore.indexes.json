@@ -25,7 +25,24 @@
       ]
     },
     {
-      "collectionGroup": "photos",
+      "collectionGroup": "eventPins",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "venueId", "order": "ASCENDING" },
+        { "fieldPath": "scope",   "order": "ASCENDING" },
+        { "fieldPath": "active",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "eventPins",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "venueId",  "order": "ASCENDING" },
+        { "fieldPath": "scope",    "order": "ASCENDING" },
+        { "fieldPath": "active",   "order": "ASCENDING" },
+        { "fieldPath": "eventId",  "order": "ASCENDING" }
+      ]
+    },
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "approved",   "order": "ASCENDING" },

@@ -137,7 +137,7 @@ function VenuesPageInner() {
                     <td style={{ padding: "12px 16px", color: v.isFeatured ? "#2a7a5a" : "#d1d5db" }}>{v.isFeatured ? "★" : "—"}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => openEdit(v)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#f3f4f6", border: "none", cursor: "pointer", color: "#374151" }}>Edit</button>
+                        <button onClick={() => router.push(`/dashboard/venues/${v.id}`)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#f3f4f6", border: "none", cursor: "pointer", color: "#374151" }}>Edit</button>
                         {v.status !== "approved" && <button onClick={() => setStatus(v.id, v.name, "approved")} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#dcfce7", border: "none", cursor: "pointer", color: "#15803d", fontWeight: 600 }}>Approve</button>}
                         {v.status !== "rejected" && <button onClick={() => setStatus(v.id, v.name, "rejected")} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#fee2e2", border: "none", cursor: "pointer", color: "#b91c1c" }}>Reject</button>}
                       </div>
