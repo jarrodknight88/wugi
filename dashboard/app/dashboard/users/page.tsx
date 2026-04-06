@@ -1,5 +1,6 @@
 "use client"
 
+import DashboardLayout from "@/components/DashboardLayout"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -177,176 +178,92 @@ export default function UsersPage() {
     }
   }
 
-  if (authLoading || accessLoading) {
-    return (
-      <main className="min-h-screen p-6">
-        <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
-          <div className="h-8 w-48 rounded bg-neutral-200" />
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-12 rounded bg-neutral-100" />
-          ))}
-        </div>
-      </main>
-    )
-  }
-
+  if (authLoading || accessLoading) return null
   if (!user || !hasDashboardAccess) return null
 
   return (
-    <main className="min-h-screen p-6">
-      <div className="mx-auto max-w-4xl space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">User Management</h1>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="rounded border border-neutral-300 px-3 py-2 text-sm"
-          >
-            Back to Dashboard
-          </button>
+    <DashboardLayout>
+      <div style={{ padding: "32px 36px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>User Management</h1>
+            <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>Manage admin dashboard access.</p>
+          </div>
         </div>
 
-        <p className="text-sm text-neutral-600">
-          View and manage dashboard user accounts.
-        </p>
-
-        {error ? (
-          <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>
-        ) : null}
+        {error && <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
         {isSuperAdmin && (
-          <form
-            onSubmit={handleCreateUser}
-            className="rounded border border-neutral-300 p-4 space-y-3"
-          >
-            <h2 className="text-sm font-semibold">Create User</h2>
-            <div className="flex flex-wrap gap-3">
-              <input
-                type="email"
-                placeholder="Email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="rounded border border-neutral-300 px-3 py-2 text-sm"
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="rounded border border-neutral-300 px-3 py-2 text-sm"
-              />
-              <select
-                value={newRole}
-                onChange={(e) =>
-                  setNewRole(e.target.value as "moderator" | "support")
-                }
-                className="rounded border border-neutral-300 px-3 py-2 text-sm"
-              >
+          <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "20px 24px", marginBottom: 20 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: "0 0 14px" }}>Create Admin User</h2>
+            <form onSubmit={handleCreateUser} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <input type="email" placeholder="Email" required value={email} onChange={e => setEmail(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", flex: 1, minWidth: 180 }}/>
+              <input type="password" placeholder="Password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", flex: 1, minWidth: 140 }}/>
+              <select value={newRole} onChange={e => setNewRole(e.target.value as "moderator"|"support")} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none" }}>
                 <option value="moderator">Moderator</option>
                 <option value="support">Support</option>
               </select>
-              <button
-                type="submit"
-                disabled={creating}
-                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
-              >
-                {creating ? "Creating..." : "Create"}
+              <button type="submit" disabled={creating} style={{ padding: "9px 20px", borderRadius: 8, background: "#111827", color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, opacity: creating ? 0.7 : 1 }}>
+                {creating ? "Creating..." : "Create User"}
               </button>
-            </div>
-          </form>
+            </form>
+          </div>
         )}
 
-        {loadingUsers ? (
-          <div className="rounded border border-neutral-300 p-4">
-            Loading users...
-          </div>
-        ) : users.length === 0 ? (
-          <div className="rounded border border-neutral-300 p-4">
-            No users found.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded border border-neutral-300">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-neutral-300 bg-neutral-50">
-                <tr>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Email
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Role
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Active
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Created At
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => {
-                  const isToggling = togglingId === u.id
-                  const isChangingRole = changingRoleId === u.id
-                  const isSelf = u.id === user?.uid
-                  return (
-                    <tr
-                      key={u.id}
-                      className="border-b border-neutral-200 last:border-b-0"
-                    >
-                      <td className="px-4 py-3">{u.email}</td>
-                      <td className="px-4 py-3">{u.role}</td>
-                      <td className="px-4 py-3">
-                        {u.active ? "Yes" : "No"}
-                      </td>
-                      <td className="px-4 py-3">{u.createdAt}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {isSuperAdmin && !isSelf && (
-                            <button
-                              onClick={() => toggleActive(u.id, u.active)}
-                              disabled={isToggling}
-                              className={`rounded px-3 py-1 text-sm text-white disabled:opacity-60 ${
-                                u.active ? "bg-red-600" : "bg-green-600"
-                              }`}
-                            >
-                              {isToggling
-                                ? "Saving..."
-                                : u.active
-                                  ? "Deactivate"
-                                  : "Activate"}
-                            </button>
-                          )}
-                          {isSuperAdmin &&
-                            !isSelf &&
-                            (u.role === "moderator" ||
-                              u.role === "support") && (
-                              <select
-                                value={u.role}
-                                disabled={isChangingRole}
-                                onChange={(e) =>
-                                  changeRole(u.id, e.target.value)
-                                }
-                                className="rounded border border-neutral-300 px-2 py-1 text-sm disabled:opacity-60"
-                              >
-                                <option value="moderator">Moderator</option>
-                                <option value="support">Support</option>
-                              </select>
-                            )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                {["Email","Role","Active","Created","Actions"].map(h => (
+                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loadingUsers ? (
+                <tr><td colSpan={5} style={{ padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>Loading users...</td></tr>
+              ) : users.length === 0 ? (
+                <tr><td colSpan={5} style={{ padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>No users found.</td></tr>
+              ) : users.map((u, i) => {
+                const isToggling = togglingId === u.id
+                const isChangingRole = changingRoleId === u.id
+                const isSelf = u.id === user?.uid
+                const roleColors: Record<string, { bg: string; color: string }> = {
+                  super_admin: { bg: "#fef3c7", color: "#92400e" },
+                  moderator:   { bg: "#dbeafe", color: "#1e40af" },
+                  support:     { bg: "#f3f4f6", color: "#6b7280" },
+                }
+                const rc = roleColors[u.role] || roleColors.support
+                return (
+                  <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                    <td style={{ padding: "12px 16px", color: "#111827", fontWeight: 500 }}>{u.email} {isSelf && <span style={{ fontSize: 11, color: "#9ca3af" }}>(you)</span>}</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: rc.bg, color: rc.color }}>{u.role}</span>
+                    </td>
+                    <td style={{ padding: "12px 16px", color: u.active ? "#15803d" : "#9ca3af" }}>{u.active ? "Active" : "Inactive"}</td>
+                    <td style={{ padding: "12px 16px", color: "#9ca3af", fontSize: 13 }}>{u.createdAt}</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {isSuperAdmin && !isSelf && (
+                          <button onClick={() => toggleActive(u.id, u.active)} disabled={isToggling} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", fontWeight: 600, background: u.active ? "#fee2e2" : "#dcfce7", color: u.active ? "#b91c1c" : "#15803d" }}>
+                            {isToggling ? "..." : u.active ? "Deactivate" : "Activate"}
+                          </button>
+                        )}
+                        {isSuperAdmin && !isSelf && (u.role === "moderator" || u.role === "support") && (
+                          <select value={u.role} disabled={isChangingRole} onChange={e => changeRole(u.id, e.target.value)} style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #e5e7eb", fontSize: 12 }}>
+                            <option value="moderator">Moderator</option>
+                            <option value="support">Support</option>
+                          </select>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </main>
+    </DashboardLayout>
   )
 }

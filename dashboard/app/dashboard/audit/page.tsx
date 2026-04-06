@@ -1,5 +1,6 @@
 "use client"
 
+import DashboardLayout from "@/components/DashboardLayout"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -86,86 +87,49 @@ export default function AuditLogsPage() {
     return unsubscribe
   }, [user])
 
-  if (authLoading || accessLoading) {
-    return (
-      <main className="min-h-screen p-6">
-        <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
-          <div className="h-8 w-48 rounded bg-neutral-200" />
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-10 rounded bg-neutral-100" />
-          ))}
-        </div>
-      </main>
-    )
-  }
-
+  if (authLoading || accessLoading) return null
   if (!user || !hasDashboardAccess) return null
 
+  const CARD = { background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }
+
   return (
-    <main className="min-h-screen p-6">
-      <div className="mx-auto max-w-4xl space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Audit Logs</h1>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="rounded border border-neutral-300 px-3 py-2 text-sm"
-          >
-            Back to Dashboard
-          </button>
+    <DashboardLayout>
+      <div style={{ padding: "32px 36px" }}>
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Audit Log</h1>
+          <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>Last 100 admin actions.</p>
         </div>
 
-        <p className="text-sm text-neutral-600">
-          Recent admin actions (last 100 entries).
-        </p>
+        {error && <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
-        {error ? (
-          <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>
-        ) : null}
-
-        {loadingLogs ? (
-          <div className="rounded border border-neutral-300 p-4">
-            Loading audit logs...
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="rounded border border-neutral-300 p-4">
-            No audit logs yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded border border-neutral-300">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-neutral-300 bg-neutral-50">
-                <tr>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Date/Time
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Admin
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Action
-                  </th>
-                  <th className="px-4 py-3 font-semibold text-neutral-700">
-                    Target
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b border-neutral-200 last:border-b-0"
-                  >
-                    <td className="px-4 py-3">{entry.timestamp}</td>
-                    <td className="px-4 py-3">{entry.adminEmail}</td>
-                    <td className="px-4 py-3">{entry.action}</td>
-                    <td className="px-4 py-3">{entry.targetName}</td>
-                  </tr>
+        <div style={{ ...CARD, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                {["Date/Time", "Admin", "Action", "Target"].map(h => (
+                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </tr>
+            </thead>
+            <tbody>
+              {loadingLogs ? (
+                <tr><td colSpan={4} style={{ padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>Loading...</td></tr>
+              ) : logs.length === 0 ? (
+                <tr><td colSpan={4} style={{ padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>No audit logs yet.</td></tr>
+              ) : logs.map((entry, i) => (
+                <tr key={entry.id} style={{ borderBottom: i < logs.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                  <td style={{ padding: "11px 16px", color: "#9ca3af", fontSize: 13, whiteSpace: "nowrap" }}>{entry.timestamp}</td>
+                  <td style={{ padding: "11px 16px", color: "#374151" }}>{entry.adminEmail}</td>
+                  <td style={{ padding: "11px 16px" }}>
+                    <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#f0fdf4", color: "#15803d" }}>{entry.action.replace(/_/g, " ")}</span>
+                  </td>
+                  <td style={{ padding: "11px 16px", color: "#6b7280" }}>{entry.targetName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </main>
+    </DashboardLayout>
   )
 }

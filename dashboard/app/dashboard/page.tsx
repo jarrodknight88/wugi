@@ -1,192 +1,114 @@
 "use client"
-
 import { useEffect, useState } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { signOut } from "firebase/auth"
-import { collection, onSnapshot } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase"
+import { collection, onSnapshot, query, where, orderBy, limit } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
+import DashboardLayout from "@/components/DashboardLayout"
+import Link from "next/link"
 
-type VenueStatus = "pending" | "approved" | "rejected"
+const CARD = {
+  background: "#fff", borderRadius: 12, padding: "20px 24px",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb",
+}
 
-type Analytics = {
-  total: number
-  pending: number
-  approved: number
-  rejected: number
+function StatCard({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
+  return (
+    <div style={{ ...CARD }}>
+      <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 500, marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 32, fontWeight: 700, color: accent || "#111827", lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>{sub}</div>}
+    </div>
+  )
 }
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, hasDashboardAccess, hasUserDocument, loading: authLoading } = useAuthContext()
-  const accessLoading = authLoading
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [analytics, setAnalytics] = useState<Analytics>({
-    total: 0,
-    pending: 0,
-    approved: 0,
-    rejected: 0,
-  })
-  const [loadingAnalytics, setLoadingAnalytics] = useState(true)
-  const [error, setError] = useState("")
+  const { user, hasDashboardAccess, loading: authLoading } = useAuthContext()
+  const [stats, setStats] = useState({ venues: 0, pendingVenues: 0, events: 0, pendingEvents: 0, galleries: 0, photos: 0 })
+  const [recentAudit, setRecentAudit] = useState<any[]>([])
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace("/login")
-    }
-  }, [authLoading, router, user])
+    if (!authLoading && !user) router.replace("/login")
+    if (!authLoading && user && !hasDashboardAccess) router.replace("/unauthorized")
+  }, [authLoading, user, hasDashboardAccess, router])
 
   useEffect(() => {
-    if (!accessLoading && hasUserDocument && !hasDashboardAccess) {
-      router.replace("/unauthorized")
-    }
-  }, [accessLoading, hasDashboardAccess, hasUserDocument, router])
-
-  useEffect(() => {
-    if (!user) {
-      return
-    }
-
-    setLoadingAnalytics(true)
-    setError("")
-
-    const unsubscribe = onSnapshot(
-      collection(db, "venues"),
-      (snapshot) => {
-        const nextAnalytics: Analytics = {
-          total: snapshot.size,
-          pending: 0,
-          approved: 0,
-          rejected: 0,
-        }
-
-        snapshot.forEach((venueDoc) => {
-          const data = venueDoc.data()
-          const status = data.status as VenueStatus | undefined
-
-          if (status === "pending") {
-            nextAnalytics.pending += 1
-          } else if (status === "approved") {
-            nextAnalytics.approved += 1
-          } else if (status === "rejected") {
-            nextAnalytics.rejected += 1
-          }
-        })
-
-        setAnalytics(nextAnalytics)
-        setLoadingAnalytics(false)
-      },
-      () => {
-        setError("Could not load dashboard analytics. Please try again.")
-        setLoadingAnalytics(false)
-      }
-    )
-
-    return unsubscribe
+    if (!user) return
+    const unsubs = [
+      onSnapshot(collection(db, "venues"), s => {
+        setStats(p => ({ ...p, venues: s.size, pendingVenues: s.docs.filter(d => d.data().status === "pending_review").length }))
+      }),
+      onSnapshot(collection(db, "events"), s => {
+        setStats(p => ({ ...p, events: s.size, pendingEvents: s.docs.filter(d => d.data().status === "pending").length }))
+      }),
+      onSnapshot(collection(db, "eventGalleries"), s => {
+        const photos = s.docs.reduce((acc, d) => acc + (d.data().photoCount || 0), 0)
+        setStats(p => ({ ...p, galleries: s.size, photos }))
+      }),
+      onSnapshot(query(collection(db, "auditLogs"), orderBy("createdAt", "desc"), limit(6)), s => {
+        setRecentAudit(s.docs.map(d => ({ id: d.id, ...d.data() })))
+      }),
+    ]
+    return () => unsubs.forEach(u => u())
   }, [user])
 
-  async function handleLogout() {
-    setIsLoggingOut(true)
-    await signOut(auth)
-    router.replace("/login")
-  }
-
-  if (authLoading) {
-    return (
-      <main className="min-h-screen p-6">
-        <div className="mx-auto max-w-5xl space-y-6 animate-pulse">
-          <div className="h-9 w-64 rounded bg-neutral-200" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="rounded border border-neutral-200 p-4 h-24 bg-neutral-100" />
-            ))}
-          </div>
-        </div>
-      </main>
-    )
-  }
-
-  if (!user) return null
+  if (authLoading || !user) return null
 
   return (
-    <main className="min-h-screen p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Wugi Admin Dashboard</h1>
-          <button
-            onClick={handleLogout}
-            disabled={isLoggingOut}
-            className="rounded border border-neutral-300 px-4 py-2 text-sm"
-          >
-            {isLoggingOut ? "Logging out..." : "Logout"}
-          </button>
+    <DashboardLayout>
+      <div style={{ padding: "32px 36px" }}>
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: "#111827", margin: 0 }}>Overview</h1>
+          <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>Welcome back — here's what's happening with Wugi.</p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-neutral-600">
-            Overview of venue approvals in Firestore.
-          </p>
-          <div className="flex gap-2">
-            <Link
-              href="/dashboard/venues"
-              className="rounded bg-black px-4 py-2 text-sm text-white"
-            >
-              Manage Venue Queue
-            </Link>
-            <Link
-              href="/dashboard/events"
-              className="rounded border border-neutral-300 px-4 py-2 text-sm"
-            >
-              Manage Event Queue
-            </Link>
-            <Link
-              href="/dashboard/users"
-              className="rounded border border-neutral-300 px-4 py-2 text-sm"
-            >
-              Manage Users
-            </Link>
-            <Link
-              href="/dashboard/audit"
-              className="rounded border border-neutral-300 px-4 py-2 text-sm"
-            >
-              Audit Logs
-            </Link>
-          </div>
+        {/* Quick actions */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 28, flexWrap: "wrap" }}>
+          {[
+            { label: "+ Add Venue", href: "/dashboard/venues?new=1", color: "#2a7a5a" },
+            { label: "+ Add Event", href: "/dashboard/events?new=1", color: "#1d4ed8" },
+            { label: "Review Queue", href: "/dashboard/venues", color: "#7c3aed" },
+          ].map(btn => (
+            <Link key={btn.href} href={btn.href} style={{
+              padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+              background: btn.color, color: "#fff", textDecoration: "none",
+            }}>{btn.label}</Link>
+          ))}
         </div>
 
-        {error ? (
-          <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>
-        ) : null}
+        {/* Stat cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 28 }}>
+          <StatCard label="Total Venues" value={stats.venues} sub={`${stats.pendingVenues} need review`} accent="#111827"/>
+          <StatCard label="Pending Venues" value={stats.pendingVenues} accent={stats.pendingVenues > 0 ? "#f59e0b" : "#10b981"}/>
+          <StatCard label="Total Events" value={stats.events} sub={`${stats.pendingEvents} pending`}/>
+          <StatCard label="Pending Events" value={stats.pendingEvents} accent={stats.pendingEvents > 0 ? "#f59e0b" : "#10b981"}/>
+          <StatCard label="Galleries" value={stats.galleries} sub={`${stats.photos} photos`}/>
+        </div>
 
-        {loadingAnalytics ? (
-          <div className="rounded border border-neutral-300 p-4">
-            Loading analytics...
+        {/* Recent audit log */}
+        <div style={{ ...CARD }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0 }}>Recent Activity</h2>
+            <Link href="/dashboard/audit" style={{ fontSize: 13, color: "#2a7a5a", textDecoration: "none", fontWeight: 500 }}>View all →</Link>
           </div>
-        ) : (
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <article className="rounded border border-neutral-300 p-4">
-              <p className="text-sm text-neutral-600">Total Venues</p>
-              <p className="mt-2 text-3xl font-semibold">{analytics.total}</p>
-            </article>
-
-            <article className="rounded border border-neutral-300 p-4">
-              <p className="text-sm text-neutral-600">Pending Venues</p>
-              <p className="mt-2 text-3xl font-semibold">{analytics.pending}</p>
-            </article>
-
-            <article className="rounded border border-neutral-300 p-4">
-              <p className="text-sm text-neutral-600">Approved Venues</p>
-              <p className="mt-2 text-3xl font-semibold">{analytics.approved}</p>
-            </article>
-
-            <article className="rounded border border-neutral-300 p-4">
-              <p className="text-sm text-neutral-600">Rejected Venues</p>
-              <p className="mt-2 text-3xl font-semibold">{analytics.rejected}</p>
-            </article>
-          </section>
-        )}
+          {recentAudit.length === 0 ? (
+            <p style={{ fontSize: 14, color: "#9ca3af" }}>No activity yet</p>
+          ) : recentAudit.map(log => (
+            <div key={log.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6", fontSize: 13 }}>
+              <span style={{ color: "#374151" }}>
+                <span style={{ fontWeight: 600, color: "#111827" }}>{log.adminEmail?.split("@")[0]}</span>
+                {" "}{log.action?.replace(/_/g, " ")}{" "}
+                <span style={{ color: "#6b7280" }}>{log.targetName}</span>
+              </span>
+              <span style={{ color: "#9ca3af", whiteSpace: "nowrap", marginLeft: 12 }}>
+                {log.createdAt?.toDate?.()?.toLocaleDateString?.() || ""}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
-    </main>
+    </DashboardLayout>
   )
 }
