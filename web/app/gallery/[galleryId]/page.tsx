@@ -40,7 +40,7 @@ export default async function GalleryPage({
     eventTitle:   data.eventTitle  || '',
     venueName:    data.venueName   || '',
     eventId:      data.eventId     || '',
-    photoCount:   data.photoCount  || photos.length,
+    photoCount:   photos.length,        // use actual count, not stored field
     status:       data.status      || 'live',
     createdAt:    data.createdAt?.toDate?.()?.toISOString() || '',
     photos,

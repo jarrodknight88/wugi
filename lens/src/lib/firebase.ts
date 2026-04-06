@@ -87,22 +87,24 @@ export async function uploadPhoto(
 
   const url = await ref.getDownloadURL()
 
-  // Create Firestore doc for this photo
-  await db.collection('eventGalleries').doc(galleryId)
-    .collection('photos').doc(photoId).set({
+  // Use transaction to create photo doc + increment count atomically
+  const galleryRef = db.collection('eventGalleries').doc(galleryId)
+  const photoRef   = galleryRef.collection('photos').doc(photoId)
+
+  await db.runTransaction(async tx => {
+    tx.set(photoRef, {
       url,
-      thumbUrl:       url, // thumb = same for now; CDN resize in v2
+      thumbUrl:       url,
       uploadedAt:     firestore.FieldValue.serverTimestamp(),
       photographerId: uid,
       approved:       true,
       width:          0,
       height:         0,
     })
-
-  // Increment photo count
-  await db.collection('eventGalleries').doc(galleryId).update({
-    photoCount: firestore.FieldValue.increment(1),
-    updatedAt:  firestore.FieldValue.serverTimestamp(),
+    tx.update(galleryRef, {
+      photoCount: firestore.FieldValue.increment(1),
+      updatedAt:  firestore.FieldValue.serverTimestamp(),
+    })
   })
 
   return { url, thumbUrl: url }

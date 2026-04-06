@@ -32,19 +32,23 @@ export function useEventGallery(eventId: string | null): {
         const count = data.photoCount || 0
         setPhotoCount(count)
 
-        // Listen for photos in this gallery
         const photosUnsub = firestore()
           .collection('eventGalleries').doc(doc.id)
           .collection('photos')
           .where('approved', '==', true)
-          .orderBy('uploadedAt', 'desc')
           .limit(30)
           .onSnapshot(photoSnap => {
-            const photos: GalleryPhoto[] = photoSnap.docs.map(d => ({
-              id:     d.id,
-              uri:    d.data().url || d.data().thumbUrl || '',
-              height: d.data().height || 300,
-            }))
+            // Use actual doc count as the source of truth
+            setPhotoCount(photoSnap.size)
+            const photos: GalleryPhoto[] = photoSnap.docs
+              .map(d => ({
+                id:          d.id,
+                uri:         d.data().url || d.data().thumbUrl || '',
+                height:      d.data().height || 300,
+                _uploadedAt: d.data().uploadedAt?.toMillis?.() || 0,
+              }))
+              .sort((a, b) => b._uploadedAt - a._uploadedAt)
+              .map(({ _uploadedAt, ...rest }) => rest as GalleryPhoto)
 
             setGallery({
               id:         doc.id,
