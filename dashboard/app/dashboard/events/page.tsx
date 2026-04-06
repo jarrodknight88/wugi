@@ -11,6 +11,7 @@ import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
 import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
+import { useVenueFilter } from "@/hooks/useVenueFilter"
 
 const INPUT = { padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" as const }
 const OVERLAY = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
@@ -26,7 +27,8 @@ const EMPTY: EF = { title:"", venue:"", venueId:"", date:"", time:"10:00 PM", ag
 function EventsPageInner() {
   const router = useRouter()
   const params = useSearchParams()
-  const { user, hasDashboardAccess, hasUserDocument, loading } = useAuthContext()
+  const { user, hasDashboardAccess, hasUserDocument, loading, canWrite } = useAuthContext()
+  const { venueIds, eventIds } = useVenueFilter()
   const [events, setEvents] = useState<EventItem[]>([])
   const [venueOptions, setVenueOptions] = useState<SelectOption[]>([])
   const [filter, setFilter] = useState("all")
@@ -46,14 +48,21 @@ function EventsPageInner() {
 
   useEffect(() => {
     if (!user) return
-    const u1 = onSnapshot(collection(db, "events"), s =>
-      setEvents(s.docs.map(d => ({ id:d.id, title:d.data().title||"Untitled", venue:d.data().venue||"", date:d.data().date||"", time:d.data().time||"", status:d.data().status||"pending", hasTickets:d.data().hasTickets||false })))
-    )
-    const u2 = onSnapshot(collection(db, "venues"), s =>
-      setVenueOptions(s.docs.map(d => ({ id:d.id, label:d.data().name||"Unnamed", sub:d.data().neighborhood||d.data().category||"" })).sort((a,b)=>a.label.localeCompare(b.label)))
-    )
+    const u1 = onSnapshot(collection(db, "events"), s => {
+      let all = s.docs.map(d => ({ id:d.id, title:d.data().title||"Untitled", venue:d.data().venue||"", venueId:d.data().venueId||"", date:d.data().date||"", time:d.data().time||"", status:d.data().status||"pending", hasTickets:d.data().hasTickets||false }))
+      // Scope by venueIds (venue_admin/staff) or eventIds (event_admin/staff)
+      if (venueIds !== null) all = all.filter(e => venueIds.includes(e.venueId))
+      if (eventIds !== null) all = all.filter(e => eventIds.includes(e.id))
+      setEvents(all)
+    })
+    const u2 = onSnapshot(collection(db, "venues"), s => {
+      let opts = s.docs.map(d => ({ id:d.id, label:d.data().name||"Unnamed", sub:d.data().neighborhood||d.data().category||"" })).sort((a,b)=>a.label.localeCompare(b.label))
+      // Scope venue picker to only venues this user can access
+      if (venueIds !== null) opts = opts.filter(v => venueIds.includes(v.id))
+      setVenueOptions(opts)
+    })
     return () => { u1(); u2() }
-  }, [user])
+  }, [user, venueIds, eventIds])
 
   useEffect(() => { if (params.get("new")==="1") openCreate() }, [params])
 

@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
 import { useAuthContext } from "@/context/AuthContext"
 import DashboardLayout from "@/components/DashboardLayout"
+import { useVenueFilter } from "@/hooks/useVenueFilter"
 
 const CARD = { background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -27,7 +28,8 @@ const EMPTY_FORM: VenueForm = { name: "", category: "", address: "", phone: "", 
 function VenuesPageInner() {
   const router = useRouter()
   const params = useSearchParams()
-  const { user, hasDashboardAccess, hasUserDocument, loading } = useAuthContext()
+  const { user, hasDashboardAccess, hasUserDocument, loading, canWrite, isSuperAdmin } = useAuthContext()
+  const { venueIds } = useVenueFilter()
   const [venues, setVenues] = useState<Venue[]>([])
   const [filter, setFilter] = useState("all")
   const [search, setSearch] = useState("")
@@ -45,10 +47,13 @@ function VenuesPageInner() {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(collection(db, "venues"), snap => {
-      setVenues(snap.docs.map(d => ({ id: d.id, name: d.data().name || "Unnamed", category: d.data().category || "", address: d.data().address || "", status: d.data().status || "unknown", isFeatured: d.data().isFeatured || false, neighborhood: d.data().neighborhood || "" })))
+      let all = snap.docs.map(d => ({ id: d.id, name: d.data().name || "Unnamed", category: d.data().category || "", address: d.data().address || "", status: d.data().status || "unknown", isFeatured: d.data().isFeatured || false, neighborhood: d.data().neighborhood || "" }))
+      // Scope: non-super-admins only see their assigned venues
+      if (venueIds !== null) all = all.filter(v => venueIds.includes(v.id))
+      setVenues(all)
     })
     return unsub
-  }, [user])
+  }, [user, venueIds])
 
   useEffect(() => { if (params.get("new") === "1") openCreate() }, [params])
 
@@ -93,9 +98,11 @@ function VenuesPageInner() {
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Venues</h1>
             <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>{venues.length} total venues</p>
           </div>
-          <button onClick={openCreate} style={{ padding: "10px 20px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
-            + Add Venue
-          </button>
+          {canWrite && (
+            <button onClick={openCreate} style={{ padding: "10px 20px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+              + Add Venue
+            </button>
+          )}
         </div>
 
         {/* Filters */}
@@ -137,9 +144,9 @@ function VenuesPageInner() {
                     <td style={{ padding: "12px 16px", color: v.isFeatured ? "#2a7a5a" : "#d1d5db" }}>{v.isFeatured ? "★" : "—"}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => router.push(`/dashboard/venues/${v.id}`)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#f3f4f6", border: "none", cursor: "pointer", color: "#374151" }}>Edit</button>
-                        {v.status !== "approved" && <button onClick={() => setStatus(v.id, v.name, "approved")} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#dcfce7", border: "none", cursor: "pointer", color: "#15803d", fontWeight: 600 }}>Approve</button>}
-                        {v.status !== "rejected" && <button onClick={() => setStatus(v.id, v.name, "rejected")} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#fee2e2", border: "none", cursor: "pointer", color: "#b91c1c" }}>Reject</button>}
+                        <button onClick={() => router.push(`/dashboard/venues/${v.id}`)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#f3f4f6", border: "none", cursor: "pointer", color: "#374151" }}>{canWrite ? "Edit" : "View"}</button>
+                        {canWrite && v.status !== "approved" && <button onClick={() => setStatus(v.id, v.name, "approved")} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#dcfce7", border: "none", cursor: "pointer", color: "#15803d", fontWeight: 600 }}>Approve</button>}
+                        {isSuperAdmin && v.status !== "rejected" && <button onClick={() => setStatus(v.id, v.name, "rejected")} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#fee2e2", border: "none", cursor: "pointer", color: "#b91c1c" }}>Reject</button>}
                       </div>
                     </td>
                   </tr>

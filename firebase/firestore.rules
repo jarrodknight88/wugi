@@ -3,147 +3,173 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ── Helper functions ─────────────────────────────────────────────
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
-    function isAuth()                  { return request.auth != null; }
-    function isSuperAdmin()            { return isAuth() && userDoc().role == 'super_admin'; }
-    function isModerator()             { return isAuth() && userDoc().role == 'moderator'; }
-    function isSuperAdminOrModerator() { return isSuperAdmin() || isModerator(); }
+    function isAuth()       { return request.auth != null; }
+    function role()         { return isAuth() ? userDoc().role : null; }
+    function venueIds()     { return isAuth() ? userDoc().get('venueIds', []) : []; }
+    function eventIds()     { return isAuth() ? userDoc().get('eventIds', []) : []; }
+    function tableAccess()  { return isAuth() && userDoc().get('tableAccess', false) == true; }
 
-    // ── Users — auth required, own doc only ──────────────────────────
+    function isSuperAdmin()  { return role() == 'super_admin'; }
+    function isModerator()   { return role() == 'moderator'; }
+    function isSupport()     { return role() == 'support'; }
+    function isVenueAdmin()  { return role() == 'venue_admin'; }
+    function isVenueStaff()  { return role() == 'venue_staff'; }
+    function isEventAdmin()  { return role() == 'event_admin'; }
+    function isEventStaff()  { return role() == 'event_staff'; }
+
+    function isStaff()  { return isSuperAdmin() || isModerator() || isSupport(); }
+    function canWrite() { return isStaff() || isVenueAdmin() || isEventAdmin(); }
+
+    function canAccessVenue(venueId) {
+      return isStaff()
+        || (isVenueAdmin()  && venueId in venueIds())
+        || (isVenueStaff()  && venueId in venueIds());
+    }
+
+    function canWriteVenue(venueId) {
+      return isStaff() || (isVenueAdmin() && venueId in venueIds());
+    }
+
+    function canAccessEvent(eventId, venueId) {
+      return isStaff()
+        || (isVenueAdmin()  && venueId in venueIds())
+        || (isVenueStaff()  && venueId in venueIds())
+        || (isEventAdmin()  && eventId in eventIds())
+        || (isEventStaff()  && eventId in eventIds());
+    }
+
+    function canWriteEvent(eventId, venueId) {
+      return isStaff()
+        || (isVenueAdmin() && venueId in venueIds())
+        || (isEventAdmin() && eventId in eventIds());
+    }
+
+    // ── Users ────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read:   if isAuth() && request.auth.uid == userId;
-      allow create: if isSuperAdmin()
-                    || (isAuth() && request.auth.uid == userId);
-      allow update: if isSuperAdmin()
-                    || (isAuth() && request.auth.uid == userId);
+      // Admins can read all users; others read own doc only
+      allow read:   if isAuth() && (isStaff() || isVenueAdmin() || request.auth.uid == userId);
+      allow create: if isAuth() && request.auth.uid == userId;  // own signup
+      allow update: if isAuth() && (isSuperAdmin() || request.auth.uid == userId);
+      allow delete: if isSuperAdmin();
     }
 
-    // ── Venues — PUBLIC read ──────────────────────────────────────────
+    // ── Venues ───────────────────────────────────────────────────────
     match /venues/{venueId} {
-      allow read:                   if true;
-      allow create, update, delete: if isSuperAdminOrModerator();
+      allow read:   if true;  // public
+      allow create: if isStaff() || isVenueAdmin();
+      allow update: if canWriteVenue(venueId);
+      allow delete: if isStaff();
 
-      // Table color assignments — public read, admin write
-      match /tableColors/{tableId} {
-        allow read:   if true;
-        allow write:  if isSuperAdminOrModerator();
+      match /tableColors/{colorId} {
+        allow read:  if true;
+        allow write: if canWriteVenue(venueId);
+      }
+
+      match /tables/{tableId} {
+        allow read:  if canAccessVenue(venueId);
+        allow write: if canWriteVenue(venueId);
       }
     }
 
-    // ── Events — PUBLIC read ──────────────────────────────────────────
+    // ── Events ───────────────────────────────────────────────────────
     match /events/{eventId} {
-      allow read:                   if true;
-      allow create, update, delete: if isSuperAdminOrModerator();
+      allow read:   if true;  // public
+      allow create: if canWrite();
+      allow update: if canWriteEvent(eventId, resource.data.venueId);
+      allow delete: if isStaff();
 
-      match /ticketTypes/{ticketTypeId} {
-        allow read:                   if true;
-        allow create, update, delete: if isSuperAdminOrModerator();
+      match /ticketTypes/{ttId} {
+        allow read:   if true;
+        allow write:  if canWriteEvent(eventId, get(/databases/$(database)/documents/events/$(eventId)).data.venueId);
+      }
+
+      match /tableReservations/{resId} {
+        allow read:  if canAccessEvent(eventId, get(/databases/$(database)/documents/events/$(eventId)).data.venueId);
+        allow write: if false;  // Cloud Functions only
       }
     }
 
-    // ── Orders — auth required, owner or admin ────────────────────────
+    // ── Event Series ─────────────────────────────────────────────────
+    match /eventSeries/{seriesId} {
+      allow read:   if true;
+      allow create: if canWrite();
+      allow update: if isStaff()
+        || (isVenueAdmin() && resource.data.venueId in venueIds())
+        || (isEventAdmin() && resource.data.promoterId == request.auth.uid);
+      allow delete: if isStaff();
+    }
+
+    // ── Orders ───────────────────────────────────────────────────────
     match /orders/{orderId} {
-      allow read:  if isAuth() && (request.auth.uid == resource.data.userId || isSuperAdminOrModerator());
-      allow write: if false;
+      allow read: if isAuth() && (
+        request.auth.uid == resource.data.userId
+        || isStaff()
+        || (isVenueAdmin() && resource.data.venueId in venueIds())
+        || (isEventAdmin() && resource.data.eventId in eventIds())
+      );
+      allow write: if false;  // Cloud Functions only
     }
 
-    // ── Passes — auth required, holder or admin ───────────────────────
-    match /passes/{passId} {
-      allow read:   if isAuth() && (request.auth.uid == resource.data.userId || isSuperAdminOrModerator());
-      allow update: if isAuth() && isSuperAdminOrModerator();
-      allow write:  if false;
-    }
-
-    // ── Tickets — check-in app uses PIN-based unauthenticated access ──
-    // Read:   anyone with a valid eventId (check-in app validates PIN in app layer)
-    // Update: allow checkedIn + checkedInAt + checkedInBy fields only
-    // Write:  Cloud Functions only (create/delete)
+    // ── Tickets ──────────────────────────────────────────────────────
     match /tickets/{ticketId} {
       allow read: if true;
       allow update: if
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['checkedIn', 'checkedInAt', 'checkedInBy']) &&
-        request.resource.data.checkedIn == true;
+          .hasOnly(['checkedIn','checkedInAt','checkedInBy'])
+        && request.resource.data.checkedIn == true;
       allow create, delete: if false;
     }
 
-    // ── Event PINs — check-in app reads to validate PIN ──────────────
-    // PINs are short-lived, event-scoped, and rate-limited in the app layer.
-    // We allow read so unauthenticated check-in devices can validate PINs.
-    // Write is admin-only (created via Node script with service account).
+    // ── Event PINs ───────────────────────────────────────────────────
     match /eventPins/{pinId} {
-      allow read:   if true;
-      allow write:  if false;
+      allow read:  if true;   // check-in devices read without auth
+      allow write: if false;  // Cloud Functions only
     }
 
-    // ── Config — PUBLIC read ──────────────────────────────────────────
+    // ── Event Galleries ──────────────────────────────────────────────
+    match /eventGalleries/{galleryId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        request.auth.uid == resource.data.photographerId || isStaff()
+      );
+      allow delete: if isStaff();
+
+      match /photos/{photoId} {
+        allow read:   if true;
+        allow create: if isAuth();
+        allow update: if isAuth() && (
+          request.auth.uid == resource.data.photographerId || isStaff()
+        );
+        allow delete: if isStaff();
+      }
+    }
+
+    // ── Audit Logs ───────────────────────────────────────────────────
+    match /auditLogs/{logId} {
+      allow read:  if isStaff();
+      allow write: if false;  // Cloud Functions only
+    }
+
+    // ── Config ───────────────────────────────────────────────────────
     match /config/{configId} {
       allow read:  if true;
       allow write: if isSuperAdmin();
     }
 
-    // ── Audit logs — admin only ───────────────────────────────────────
-    match /auditLogs/{logId} {
-      allow read:  if isSuperAdminOrModerator();
-      allow write: if false;
-    }
+    // ── Passes / Wallets / Transfers (Cloud Functions only) ──────────
+    match /passes/{passId}         { allow read: if isAuth() && request.auth.uid == resource.data.userId; allow write: if false; }
+    match /walletPasses/{passId}   { allow read: if isAuth() && request.auth.uid == resource.data.userId; allow write: if false; }
+    match /walletDevices/{deviceId}{ allow read, write: if false; }
+    match /transfers/{transferId}  { allow read: if isAuth() && (request.auth.uid == resource.data.fromUid || isStaff()); allow write: if false; }
+    match /payouts/{id}            { allow read: if isStaff(); allow write: if false; }
+    match /chargebacks/{id}        { allow read: if isStaff(); allow write: if false; }
 
-    // ── Event Galleries — PUBLIC read, photographer write ─────────────
-    // Photographers create galleries and upload photos via Wugi Lens
-    // Consumer app reads galleries and photos publicly
-    match /eventGalleries/{galleryId} {
-      allow read: if true;
-      allow create: if isAuth();
-      allow update: if isAuth() && (
-        request.auth.uid == resource.data.photographerId
-        || isSuperAdminOrModerator()
-      );
-      allow delete: if isSuperAdminOrModerator();
-
-      match /photos/{photoId} {
-        allow read: if true;
-        allow create: if isAuth();
-        allow update: if isAuth() && (
-          request.auth.uid == resource.data.photographerId
-          || isSuperAdminOrModerator()
-        );
-        allow delete: if isSuperAdminOrModerator();
-      }
-    }
-
-    // ── Wallet Passes — pass update protocol ─────────────────────────
-    match /walletPasses/{passId} {
-      allow read:  if isAuth() && request.auth.uid == resource.data.userId;
-      allow write: if false; // Cloud Functions only
-    }
-
-    // ── Wallet Devices — pass update protocol ────────────────────────
-    match /walletDevices/{deviceId} {
-      allow read, write: if false; // Cloud Functions only via passWebService
-    }
-
-    // ── Transfers — auth required, parties only ───────────────────────
-    match /transfers/{transferId} {
-      allow read: if isAuth() && (
-        request.auth.uid == resource.data.fromUid
-        || isSuperAdminOrModerator()
-      );
-      allow write: if false; // Cloud Functions only
-    }
-
-    // ── Payouts / Chargebacks — admin only ────────────────────────────
-    match /payouts/{payoutId} {
-      allow read:  if isAuth() && isSuperAdminOrModerator();
-      allow write: if false;
-    }
-    match /chargebacks/{chargebackId} {
-      allow read:  if isAuth() && isSuperAdminOrModerator();
-      allow write: if false;
-    }
-
-    // ── Catch-all — auth required for anything else ───────────────────
+    // ── Catch-all ────────────────────────────────────────────────────
     match /{document=**} {
       allow read:  if isAuth();
       allow write: if false;

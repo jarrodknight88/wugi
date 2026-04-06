@@ -21,4 +21,5 @@ export { sendEmail }               from './email/sendEmail';
 export { releaseReserves } from './stripe/releaseReserves';
 export { onVenueChargebackUpdate } from './venues/chargebackSuspension';
 export { onTicketTypeSold } from './tickets/updateInventory';
-export { generateDoorPin } from './door/generateDoorPin';
+export { generateDoorPin }      from './door/generateDoorPin';
+export { createDashboardUser }  from './users/createDashboardUser';

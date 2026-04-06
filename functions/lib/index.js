@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
+exports.createDashboardUser = exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Cloud Functions Index
 // ─────────────────────────────────────────────────────────────────────
@@ -75,4 +75,6 @@ var updateInventory_1 = require("./tickets/updateInventory");
 Object.defineProperty(exports, "onTicketTypeSold", { enumerable: true, get: function () { return updateInventory_1.onTicketTypeSold; } });
 var generateDoorPin_1 = require("./door/generateDoorPin");
 Object.defineProperty(exports, "generateDoorPin", { enumerable: true, get: function () { return generateDoorPin_1.generateDoorPin; } });
+var createDashboardUser_1 = require("./users/createDashboardUser");
+Object.defineProperty(exports, "createDashboardUser", { enumerable: true, get: function () { return createDashboardUser_1.createDashboardUser; } });
 //# sourceMappingURL=index.js.map

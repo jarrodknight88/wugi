@@ -70,9 +70,15 @@ const TOPBAR_H = 52 // px — fixed mobile topbar height
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router   = useRouter()
-  const { user } = useAuthContext()
+  const { user, isSuperAdmin, canManageUsers } = useAuthContext()
   const [loggingOut, setLoggingOut] = useState(false)
   const [open, setOpen]             = useState(false)
+
+  const visibleNav = NAV.filter(item => {
+    if (item.href === "/dashboard/users")  return canManageUsers
+    if (item.href === "/dashboard/audit")  return isSuperAdmin
+    return true
+  })
 
   useEffect(() => { setOpen(false) }, [pathname])
 
@@ -98,7 +104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const navLinks = (
     <nav style={{ flex: 1, padding: "10px 8px", overflowY: "auto" }}>
-      {NAV.map(item => {
+      {visibleNav.map(item => {
         const active = item.href === "/dashboard"
           ? pathname === item.href
           : pathname.startsWith(item.href)

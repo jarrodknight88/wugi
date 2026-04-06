@@ -11,6 +11,7 @@ import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 import DashboardLayout from "@/components/DashboardLayout"
 import DoorAccessPanel from "@/components/DoorAccessPanel"
+import TableManager from "@/components/TableManager"
 import Link from "next/link"
 
 type Venue = {
@@ -29,7 +30,7 @@ const CARD: React.CSSProperties = { background: "#fff", borderRadius: 12, border
 
 export default function VenueDetailPage({ params }: { params: Promise<{ venueId: string }> }) {
   const router = useRouter()
-  const { user, loading, hasDashboardAccess } = useAuthContext()
+  const { user, loading, hasDashboardAccess, canWrite, canManageTables } = useAuthContext()
   const [venueId, setVenueId] = useState("")
   const [venue, setVenue] = useState<Venue | null>(null)
   const [tab, setTab] = useState<"info" | "door" | "tables">("info")
@@ -150,11 +151,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
 
         {/* ── Tables Tab ── */}
         {tab === "tables" && (
-          <div style={{ ...CARD, textAlign: "center", color: "#9ca3af", padding: 48 }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>🪑</div>
-            <p style={{ fontSize: 15, fontWeight: 600, color: "#374151", margin: "0 0 6px" }}>Table management coming soon</p>
-            <p style={{ fontSize: 14, margin: 0 }}>Set up your floor plan, VIP tables, and bottle service sections.</p>
-          </div>
+          <TableManager venueId={venueId} canWrite={canManageTables}/>
         )}
       </div>
     </DashboardLayout>

@@ -5,77 +5,119 @@ import { onAuthStateChanged, type User } from "firebase/auth"
 import { doc, getDoc } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 
-const DASHBOARD_ROLES = ["super_admin", "moderator", "support"]
+// All roles that can access the dashboard at all
+const DASHBOARD_ROLES = [
+  "super_admin",
+  "moderator",
+  "support",
+  "venue_admin",
+  "venue_staff",
+  "event_admin",
+  "event_staff",
+]
+
+// Roles with full admin write access (not scoped)
+const SUPER_ROLES = ["super_admin", "moderator", "support"]
+
+export type WugiRole =
+  | "super_admin" | "moderator" | "support"
+  | "venue_admin" | "venue_staff"
+  | "event_admin" | "event_staff"
+  | null
+
+export type UserProfile = {
+  role: WugiRole
+  venueIds: string[]      // venues this user can access
+  eventIds: string[]      // events this user can access (event_admin/staff)
+  tableAccess: boolean    // can manage tables (event_admin opt-in)
+}
 
 type AuthContextType = {
-  user: User | null
-  role: string | null
-  hasUserDocument: boolean
-  hasDashboardAccess: boolean
-  loading: boolean
+  user:              User | null
+  profile:           UserProfile
+  role:              WugiRole
+  loading:           boolean
+  hasUserDocument:   boolean
+  hasDashboardAccess:boolean
+  isSuperAdmin:      boolean
+  isVenueAdmin:      boolean
+  isVenueStaff:      boolean
+  isEventAdmin:      boolean
+  isEventStaff:      boolean
+  canWrite:          boolean   // can create/edit (not staff roles)
+  canManageTables:   boolean
+  canManageUsers:    boolean   // super_admin only
+}
+
+const DEFAULT_PROFILE: UserProfile = {
+  role: null, venueIds: [], eventIds: [], tableAccess: false,
 }
 
 const AuthContext = createContext<AuthContextType>({
-  user: null,
-  role: null,
-  hasUserDocument: false,
-  hasDashboardAccess: false,
-  loading: true,
+  user: null, profile: DEFAULT_PROFILE, role: null,
+  loading: true, hasUserDocument: false, hasDashboardAccess: false,
+  isSuperAdmin: false, isVenueAdmin: false, isVenueStaff: false,
+  isEventAdmin: false, isEventStaff: false,
+  canWrite: false, canManageTables: false, canManageUsers: false,
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [role, setRole] = useState<string | null>(null)
+  const [user,            setUser]            = useState<User | null>(null)
+  const [profile,         setProfile]         = useState<UserProfile>(DEFAULT_PROFILE)
   const [hasUserDocument, setHasUserDocument] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading,         setLoading]         = useState(true)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
+    const unsub = onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser)
-
       if (!nextUser) {
-        setRole(null)
+        setProfile(DEFAULT_PROFILE)
         setHasUserDocument(false)
         setLoading(false)
         return
       }
-
-      // Keep loading=true until the Firestore doc fetch completes
-      // This prevents premature unauthorized redirects
       try {
         const snap = await getDoc(doc(db, "users", nextUser.uid))
         if (snap.exists()) {
+          const d = snap.data()
           setHasUserDocument(true)
-          setRole((snap.data().role as string) ?? null)
+          setProfile({
+            role:        (d.role as WugiRole) ?? null,
+            venueIds:    Array.isArray(d.venueIds)  ? d.venueIds  : [],
+            eventIds:    Array.isArray(d.eventIds)  ? d.eventIds  : [],
+            tableAccess: d.tableAccess === true,
+          })
         } else {
-          // No user doc — auto-create with consumer role
-          // (handles case where user signed in but doc not yet created)
           setHasUserDocument(false)
-          setRole(null)
+          setProfile(DEFAULT_PROFILE)
         }
       } catch {
         setHasUserDocument(false)
-        setRole(null)
+        setProfile(DEFAULT_PROFILE)
       } finally {
-        // Only set loading=false AFTER the Firestore fetch completes
         setLoading(false)
       }
     })
-
-    return unsubscribe
+    return unsub
   }, [])
 
-  // hasDashboardAccess is only true when loading is done AND doc exists AND role is valid
-  const hasDashboardAccess =
-    !loading &&
-    hasUserDocument &&
-    role !== null &&
-    DASHBOARD_ROLES.includes(role)
+  const role            = profile.role
+  const hasDashboardAccess = !loading && hasUserDocument && role !== null && DASHBOARD_ROLES.includes(role)
+  const isSuperAdmin    = SUPER_ROLES.includes(role ?? "")
+  const isVenueAdmin    = role === "venue_admin"
+  const isVenueStaff    = role === "venue_staff"
+  const isEventAdmin    = role === "event_admin"
+  const isEventStaff    = role === "event_staff"
+  const canWrite        = isSuperAdmin || isVenueAdmin || isEventAdmin
+  const canManageTables = isSuperAdmin || isVenueAdmin || (isEventAdmin && profile.tableAccess)
+  const canManageUsers  = isSuperAdmin
 
   return (
-    <AuthContext.Provider
-      value={{ user, role, hasUserDocument, hasDashboardAccess, loading }}
-    >
+    <AuthContext.Provider value={{
+      user, profile, role, loading, hasUserDocument, hasDashboardAccess,
+      isSuperAdmin, isVenueAdmin, isVenueStaff, isEventAdmin, isEventStaff,
+      canWrite, canManageTables, canManageUsers,
+    }}>
       {children}
     </AuthContext.Provider>
   )
