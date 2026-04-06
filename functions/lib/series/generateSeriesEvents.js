@@ -35,127 +35,95 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateSeriesEventsScheduled = exports.generateSeriesEvents = void 0;
 // ─────────────────────────────────────────────────────────────────────
-// generateSeriesEvents — creates individual event instances from a series
-// Called on series create/update and weekly via scheduler
+// generateSeriesEvents — callable + scheduled Cloud Function
+// Creates individual event instances from an eventSeries doc.
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const db = admin.firestore();
-const DAY_MAP = {
+const DAYS = {
     sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
     thursday: 4, friday: 5, saturday: 6,
 };
-// Get next N occurrences of a given weekday from a start date
-function getOccurrences(dayOfWeek, frequency, startDate, endDate, count) {
-    const target = DAY_MAP[dayOfWeek.toLowerCase()] ?? 5; // default friday
-    const dates = [];
-    const cursor = new Date(startDate);
-    // Advance to first occurrence on or after startDate
-    while (cursor.getDay() !== target) {
-        cursor.setDate(cursor.getDate() + 1);
-    }
-    const step = frequency === 'weekly' ? 7
-        : frequency === 'biweekly' ? 14
-            : 28; // monthly approx
-    while (dates.length < count) {
-        const d = new Date(cursor);
-        if (endDate && d > endDate)
-            break;
-        dates.push(d);
-        cursor.setDate(cursor.getDate() + step);
-    }
-    return dates;
+function nextOccurrence(day, fromDate) {
+    const target = DAYS[day.toLowerCase()] ?? 5;
+    const d = new Date(fromDate);
+    d.setHours(0, 0, 0, 0);
+    const diff = (target - d.getDay() + 7) % 7;
+    d.setDate(d.getDate() + (diff === 0 ? 0 : diff));
+    return d;
 }
 function formatDate(d) {
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', year: 'numeric' }).toUpperCase();
+    return d.toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    }).toUpperCase();
 }
-// Callable: manually generate events for a series
+async function generateForSeries(seriesId, weeksAhead = 8) {
+    const seriesSnap = await db.collection('eventSeries').doc(seriesId).get();
+    if (!seriesSnap.exists)
+        throw new Error(`Series ${seriesId} not found`);
+    const s = seriesSnap.data();
+    const now = new Date();
+    const endDate = s.endDate?.toDate?.() || null;
+    const generated = [];
+    // Get existing instance dates to avoid duplicates
+    const existing = await db.collection('events')
+        .where('seriesId', '==', seriesId).get();
+    const existingDates = new Set(existing.docs.map(d => d.data().instanceDate));
+    let cursor = nextOccurrence(s.day, now);
+    for (let i = 0; i < weeksAhead; i++) {
+        if (endDate && cursor > endDate)
+            break;
+        const instanceDate = formatDate(cursor);
+        if (!existingDates.has(instanceDate)) {
+            const ref = await db.collection('events').add({
+                title: s.name,
+                venue: s.venueName || '',
+                venueId: s.venueId || '',
+                date: instanceDate,
+                time: s.time || '10:00 PM',
+                age: s.age || '21+',
+                about: s.about || '',
+                vibes: s.vibes || [],
+                coverImage: s.coverImage || '',
+                status: 'approved',
+                hasTickets: false,
+                seriesId,
+                seriesInstance: true,
+                instanceDate,
+                promoterId: s.promoterId || null,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            generated.push(ref.id);
+        }
+        // Advance by frequency
+        const weeks = s.frequency === 'biweekly' ? 2 : s.frequency === 'monthly' ? 4 : 1;
+        cursor.setDate(cursor.getDate() + (weeks * 7));
+    }
+    await db.collection('eventSeries').doc(seriesId).update({
+        lastGenerated: admin.firestore.FieldValue.serverTimestamp(),
+        totalGenerated: admin.firestore.FieldValue.increment(generated.length),
+    });
+    return { generated: generated.length, ids: generated };
+}
+// Callable — manually trigger from dashboard
 exports.generateSeriesEvents = functions.https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
     const { seriesId, weeksAhead = 8 } = data;
     if (!seriesId)
         throw new functions.https.HttpsError('invalid-argument', 'seriesId required');
-    const seriesDoc = await db.collection('eventSeries').doc(seriesId).get();
-    if (!seriesDoc.exists)
-        throw new functions.https.HttpsError('not-found', 'Series not found');
-    const s = seriesDoc.data();
-    const startDate = s.startDate?.toDate() ?? new Date();
-    const endDate = s.endDate?.toDate() ?? null;
-    const dates = getOccurrences(s.day || 'friday', s.frequency || 'weekly', startDate, endDate, weeksAhead);
-    // Check which dates already have events
-    const existing = await db.collection('events')
-        .where('seriesId', '==', seriesId).get();
-    const existingDates = new Set(existing.docs.map(d => d.data().instanceDate));
-    const batch = db.batch();
-    let created = 0;
-    for (const date of dates) {
-        const instanceDate = formatDate(date);
-        if (existingDates.has(instanceDate))
-            continue;
-        const eventRef = db.collection('events').doc();
-        batch.set(eventRef, {
-            // Inherit series fields
-            title: s.name,
-            venue: s.venueName || '',
-            venueId: s.venueId || '',
-            time: s.time || '10:00 PM',
-            age: s.age || '21+',
-            about: s.about || '',
-            vibes: s.vibes || [],
-            media: s.coverImage ? [{ type: 'image', uri: s.coverImage }] : [],
-            // Series metadata
-            seriesId,
-            seriesName: s.name,
-            seriesInstance: true,
-            instanceDate,
-            date: instanceDate,
-            // Status / timestamps
-            status: 'approved',
-            hasTickets: false,
-            promoterId: s.promoterId || null,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        created++;
-    }
-    await batch.commit();
-    return { created, total: dates.length };
+    return generateForSeries(seriesId, weeksAhead);
 });
-// Scheduled: run every Monday at 6am to generate the coming week's events
+// Scheduled — runs every Monday at 6am ET, generates 2 weeks ahead for all active series
 exports.generateSeriesEventsScheduled = functions.pubsub
     .schedule('0 6 * * 1')
     .timeZone('America/New_York')
     .onRun(async () => {
-    const activeSeries = await db.collection('eventSeries')
-        .where('status', '==', 'active').get();
-    for (const seriesDoc of activeSeries.docs) {
-        const s = seriesDoc.data();
-        const startDate = s.startDate?.toDate() ?? new Date();
-        const endDate = s.endDate?.toDate() ?? null;
-        const dates = getOccurrences(s.day || 'friday', s.frequency || 'weekly', startDate, endDate, 2);
-        const existing = await db.collection('events')
-            .where('seriesId', '==', seriesDoc.id).get();
-        const existingDates = new Set(existing.docs.map(d => d.data().instanceDate));
-        const batch = db.batch();
-        for (const date of dates) {
-            const instanceDate = formatDate(date);
-            if (existingDates.has(instanceDate))
-                continue;
-            const eventRef = db.collection('events').doc();
-            batch.set(eventRef, {
-                title: s.name, venue: s.venueName || '', venueId: s.venueId || '',
-                time: s.time || '10:00 PM', age: s.age || '21+', about: s.about || '',
-                vibes: s.vibes || [], media: s.coverImage ? [{ type: 'image', uri: s.coverImage }] : [],
-                seriesId: seriesDoc.id, seriesName: s.name, seriesInstance: true,
-                instanceDate, date: instanceDate, status: 'approved', hasTickets: false,
-                promoterId: s.promoterId || null,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-        }
-        await batch.commit();
-    }
-    return null;
+    const series = await db.collection('eventSeries').where('status', '==', 'active').get();
+    const results = await Promise.allSettled(series.docs.map(d => generateForSeries(d.id, 2)));
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    console.log(`Series generation: ${succeeded}/${series.size} succeeded`);
 });
 //# sourceMappingURL=generateSeriesEvents.js.map
