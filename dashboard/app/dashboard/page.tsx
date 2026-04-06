@@ -51,7 +51,6 @@ export default function DashboardPage() {
     return () => unsubs.forEach(u => u())
   }, [user, hasDashboardAccess])
 
-  // Show loading state — never return null (blank page is undebuggable)
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f2f5" }}>
@@ -60,24 +59,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (!user) return null
-
-  // Debug: show state if we have a user but no access
-  if (!hasDashboardAccess) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f2f5" }}>
-        <div style={{ background: "#fff", borderRadius: 12, padding: 32, maxWidth: 400, textAlign: "center" }}>
-          <div style={{ fontSize: 14, color: "#374151", marginBottom: 8 }}>Access check failed</div>
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
-            user: {user.email}<br/>
-            role: {role || "null"}<br/>
-            hasUserDocument: {String(hasUserDocument)}<br/>
-            hasDashboardAccess: {String(hasDashboardAccess)}
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (!user || !hasDashboardAccess) return null
 
   return (
     <DashboardLayout>
