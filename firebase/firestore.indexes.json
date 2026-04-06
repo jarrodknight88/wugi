@@ -43,6 +43,8 @@
         { "fieldPath": "eventId",  "order": "ASCENDING" }
       ]
     },
+    {
+      "collectionGroup": "photos",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "approved",   "order": "ASCENDING" },
