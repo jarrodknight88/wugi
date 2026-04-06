@@ -1,94 +1,44 @@
 "use client"
-
 import DashboardLayout from "@/components/DashboardLayout"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import {
-  collection,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore"
+import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 
-
-type AuditEntry = {
-  id: string
-  adminEmail: string
-  action: string
-  targetName: string
-  timestamp: string
-}
+type AuditEntry = { id: string; adminEmail: string; action: string; targetName: string; timestamp: string }
 
 export default function AuditLogsPage() {
   const router = useRouter()
-  const { user, hasDashboardAccess, hasUserDocument, loading: authLoading } = useAuthContext()
-  const accessLoading = authLoading
+  const { user, hasDashboardAccess, loading } = useAuthContext()
   const [logs, setLogs] = useState<AuditEntry[]>([])
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [error, setError] = useState("")
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace("/login")
-    }
-  }, [authLoading, router, user])
-
-  useEffect(() => {
-    if (!accessLoading && hasUserDocument && !hasDashboardAccess) {
-      router.replace("/unauthorized")
-    }
-  }, [accessLoading, hasDashboardAccess, hasUserDocument, router])
+    if (loading) return
+    if (!user) { router.replace("/login"); return }
+    if (!hasDashboardAccess) router.replace("/unauthorized")
+  }, [loading, user, hasDashboardAccess, router])
 
   useEffect(() => {
     if (!user) return
-
     setLoadingLogs(true)
-    setError("")
-
-    const logsQuery = query(
-      collection(db, "auditLogs"),
-      orderBy("timestamp", "desc"),
-      limit(100)
-    )
-
-    const unsubscribe = onSnapshot(
-      logsQuery,
-      (snapshot) => {
-        const entries: AuditEntry[] = snapshot.docs.map((d) => {
-          const data = d.data()
-          let timestamp = "—"
-          if (data.timestamp?.toDate) {
-            timestamp = data.timestamp.toDate().toLocaleString()
-          } else if (typeof data.timestamp === "string") {
-            timestamp = data.timestamp
-          }
-          return {
-            id: d.id,
-            adminEmail:
-              typeof data.adminEmail === "string" ? data.adminEmail : "—",
-            action: typeof data.action === "string" ? data.action : "—",
-            targetName:
-              typeof data.targetName === "string" ? data.targetName : "—",
-            timestamp,
-          }
-        })
-        setLogs(entries)
-        setLoadingLogs(false)
-      },
-      () => {
-        setError("Could not load audit logs. Please try again.")
-        setLoadingLogs(false)
-      }
-    )
-
-    return unsubscribe
+    const q = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(100))
+    const unsub = onSnapshot(q, snap => {
+      setLogs(snap.docs.map(d => {
+        const data = d.data()
+        let timestamp = "—"
+        if (data.timestamp?.toDate) timestamp = data.timestamp.toDate().toLocaleString()
+        else if (typeof data.timestamp === "string") timestamp = data.timestamp
+        return { id: d.id, adminEmail: data.adminEmail || "—", action: data.action || "—", targetName: data.targetName || "—", timestamp }
+      }))
+      setLoadingLogs(false)
+    }, () => { setError("Could not load audit logs."); setLoadingLogs(false) })
+    return unsub
   }, [user])
 
-  if (authLoading || accessLoading) return null
-  if (!user || !hasDashboardAccess) return null
+  if (loading || !user || !hasDashboardAccess) return null
 
   const CARD = { background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }
 
@@ -99,14 +49,12 @@ export default function AuditLogsPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Audit Log</h1>
           <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>Last 100 admin actions.</p>
         </div>
-
         {error && <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>{error}</div>}
-
         <div style={{ ...CARD, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                {["Date/Time", "Admin", "Action", "Target"].map(h => (
+                {["Date/Time","Admin","Action","Target"].map(h => (
                   <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
                 ))}
               </tr>

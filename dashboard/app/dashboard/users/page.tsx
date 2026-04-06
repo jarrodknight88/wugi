@@ -26,8 +26,7 @@ type UserItem = {
 
 export default function UsersPage() {
   const router = useRouter()
-  const { user, hasDashboardAccess, hasUserDocument, role, loading: authLoading } = useAuthContext()
-  const accessLoading = authLoading
+  const { user, hasDashboardAccess, role, loading: authLoading } = useAuthContext()
   const isSuperAdmin = role === "super_admin"
 
   const [users, setUsers] = useState<UserItem[]>([])
@@ -43,16 +42,10 @@ export default function UsersPage() {
   const [changingRoleId, setChangingRoleId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace("/login")
-    }
-  }, [authLoading, router, user])
-
-  useEffect(() => {
-    if (!accessLoading && hasUserDocument && !hasDashboardAccess) {
-      router.replace("/unauthorized")
-    }
-  }, [accessLoading, hasDashboardAccess, hasUserDocument, router])
+    if (authLoading) return
+    if (!user) { router.replace("/login"); return }
+    if (!hasDashboardAccess) router.replace("/unauthorized")
+  }, [authLoading, user, hasDashboardAccess, router])
 
   useEffect(() => {
     if (!user) return
@@ -178,8 +171,7 @@ export default function UsersPage() {
     }
   }
 
-  if (authLoading || accessLoading) return null
-  if (!user || !hasDashboardAccess) return null
+  if (authLoading || !user || !hasDashboardAccess) return null
 
   return (
     <DashboardLayout>

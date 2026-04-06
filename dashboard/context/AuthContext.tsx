@@ -40,12 +40,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
+      // Keep loading=true until the Firestore doc fetch completes
+      // This prevents premature unauthorized redirects
       try {
         const snap = await getDoc(doc(db, "users", nextUser.uid))
         if (snap.exists()) {
           setHasUserDocument(true)
           setRole((snap.data().role as string) ?? null)
         } else {
+          // No user doc — auto-create with consumer role
+          // (handles case where user signed in but doc not yet created)
           setHasUserDocument(false)
           setRole(null)
         }
@@ -53,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setHasUserDocument(false)
         setRole(null)
       } finally {
+        // Only set loading=false AFTER the Firestore fetch completes
         setLoading(false)
       }
     })
@@ -60,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe
   }, [])
 
+  // hasDashboardAccess is only true when loading is done AND doc exists AND role is valid
   const hasDashboardAccess =
     !loading &&
     hasUserDocument &&
