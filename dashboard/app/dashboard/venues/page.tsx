@@ -87,8 +87,8 @@ function VenuesPageInner() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "32px 36px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+      <div className="dash-page">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 12, flexWrap: "wrap" as const }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Venues</h1>
             <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>{venues.length} total venues</p>
@@ -99,7 +99,7 @@ function VenuesPageInner() {
         </div>
 
         {/* Filters */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" as const, alignItems: "center" }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search venues..."
             style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, width: 200, outline: "none" }}/>
           {["all","approved","pending_review","unclaimed","rejected"].map(s => (
@@ -112,8 +112,8 @@ function VenuesPageInner() {
         </div>
 
         {/* Table */}
-        <div style={{ ...CARD, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <div className="dash-table-wrap">
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 600 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
                 {["Name","Category","Neighborhood","Status","Featured","Actions"].map(h => (

@@ -63,12 +63,12 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "32px 36px" }}>
+      <div className="dash-page">
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "#111827", margin: 0 }}>Overview</h1>
           <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>Welcome back — here's what's happening with Wugi.</p>
         </div>
-        <div style={{ display: "flex", gap: 10, marginBottom: 28, flexWrap: "wrap" }}>
+        <div className="dash-quick-actions">
           {[
             { label: "+ Add Venue", href: "/dashboard/venues?new=1", color: "#2a7a5a" },
             { label: "+ Add Event", href: "/dashboard/events?new=1", color: "#1d4ed8" },
@@ -77,7 +77,7 @@ export default function DashboardPage() {
             <Link key={btn.href} href={btn.href} style={{ padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: btn.color, color: "#fff", textDecoration: "none" }}>{btn.label}</Link>
           ))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 28 }}>
+        <div className="dash-stat-grid">
           <StatCard label="Total Venues" value={stats.venues} sub={`${stats.pendingVenues} need review`}/>
           <StatCard label="Pending Venues" value={stats.pendingVenues} accent={stats.pendingVenues > 0 ? "#f59e0b" : "#10b981"}/>
           <StatCard label="Total Events" value={stats.events} sub={`${stats.pendingEvents} pending`}/>

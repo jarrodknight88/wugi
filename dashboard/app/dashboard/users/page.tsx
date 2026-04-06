@@ -175,7 +175,7 @@ export default function UsersPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "32px 36px" }}>
+      <div className="dash-page">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>User Management</h1>
@@ -202,8 +202,8 @@ export default function UsersPage() {
           </div>
         )}
 
-        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <div className="dash-table-wrap">
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 600 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
                 {["Email","Role","Active","Created","Actions"].map(h => (

@@ -33,12 +33,12 @@ export default function TicketsPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "32px 36px" }}>
+      <div className="dash-page">
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Tickets</h1>
           <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>{orders.length} orders · ${(revenue / 100).toFixed(2)} total revenue</p>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 24 }}>
           {[
             { label: "Total Orders",   value: orders.length },
             { label: "Confirmed",      value: orders.filter(o => o.status === "confirmed").length },
@@ -51,8 +51,8 @@ export default function TicketsPage() {
             </div>
           ))}
         </div>
-        <div style={{ ...CARD, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <div className="dash-table-wrap">
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 600 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
                 {["Buyer","Event","Total","Status","Date"].map(h => (

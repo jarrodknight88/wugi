@@ -31,13 +31,13 @@ export default function GalleriesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "32px 36px" }}>
+      <div className="dash-page">
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Galleries</h1>
           <p style={{ fontSize: 14, color: "#6b7280", marginTop: 4 }}>{galleries.length} active galleries from Wugi Lens</p>
         </div>
-        <div style={{ ...CARD, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <div className="dash-table-wrap">
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 600 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
                 {["Event","Venue","Photos","Status","View"].map(h => (
