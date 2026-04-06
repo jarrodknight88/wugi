@@ -15,7 +15,7 @@ type BaseProps = {
 }
 
 type SingleProps = BaseProps & {
-  multi:     false | undefined
+  multi?:    false
   value:     string
   onChange:  (id: string, label: string) => void
 }
