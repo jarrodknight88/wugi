@@ -23,3 +23,4 @@ export { onVenueChargebackUpdate } from './venues/chargebackSuspension';
 export { onTicketTypeSold } from './tickets/updateInventory';
 export { generateDoorPin }      from './door/generateDoorPin';
 export { createDashboardUser }  from './users/createDashboardUser';
+export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
