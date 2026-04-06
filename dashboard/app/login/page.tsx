@@ -3,8 +3,7 @@
 import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { signInWithEmailAndPassword } from "firebase/auth"
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase"
+import { auth } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 
 export default function LoginPage() {
@@ -25,19 +24,9 @@ export default function LoginPage() {
     event.preventDefault()
     setError("")
     setIsSubmitting(true)
-
     try {
-      const credential = await signInWithEmailAndPassword(auth, email, password)
-      const userRef = doc(db, "users", credential.user.uid)
-      const userSnap = await getDoc(userRef)
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
-          email: credential.user.email,
-          role: "patron",
-          active: true,
-          createdAt: serverTimestamp(),
-        })
-      }
+      await signInWithEmailAndPassword(auth, email, password)
+      // DO NOT create or overwrite user doc here — roles are managed in the dashboard
       router.replace("/dashboard")
     } catch {
       setError("Invalid email or password.")
@@ -47,59 +36,46 @@ export default function LoginPage() {
   }
 
   if (loading) {
-    return <main className="min-h-screen p-6">Checking authentication...</main>
+    return (
+      <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f2f5" }}>
+        <div style={{ color: "#6b7280", fontSize: 14 }}>Loading...</div>
+      </main>
+    )
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md items-center p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full space-y-4 rounded border border-neutral-300 p-6"
-      >
-        <h1 className="text-2xl font-semibold">Admin Login</h1>
-
-        <p className="text-sm text-neutral-600">
-          First admin: jarrod.knight88@gmail.com
-        </p>
-
-        <div className="space-y-1">
-          <label htmlFor="email" className="block text-sm font-medium">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-            className="w-full rounded border border-neutral-300 px-3 py-2"
-          />
+    <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f2f5", fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: 400, padding: "0 16px" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ color: "#2a7a5a", fontSize: 28, fontWeight: 900, letterSpacing: -1 }}>wugi</div>
+          <div style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, letterSpacing: 2, marginTop: 4 }}>ADMIN PANEL</div>
         </div>
+        <form onSubmit={handleSubmit} style={{ background: "#fff", borderRadius: 16, padding: "32px 28px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", border: "1px solid #e5e7eb" }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111827", margin: "0 0 24px" }}>Sign in</h1>
 
-        <div className="space-y-1">
-          <label htmlFor="password" className="block text-sm font-medium">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            className="w-full rounded border border-neutral-300 px-3 py-2"
-          />
-        </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Email</label>
+            <input
+              type="email" value={email} onChange={e => setEmail(e.target.value)} required
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", boxSizing: "border-box" as const }}
+            />
+          </div>
 
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Password</label>
+            <input
+              type="password" value={password} onChange={e => setPassword(e.target.value)} required
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", boxSizing: "border-box" as const }}
+            />
+          </div>
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-60"
-        >
-          {isSubmitting ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
+          {error && <p style={{ color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>{error}</p>}
+
+          <button type="submit" disabled={isSubmitting} style={{ width: "100%", padding: "11px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", cursor: "pointer", fontSize: 15, fontWeight: 600, opacity: isSubmitting ? 0.7 : 1 }}>
+            {isSubmitting ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+      </div>
     </main>
   )
 }
