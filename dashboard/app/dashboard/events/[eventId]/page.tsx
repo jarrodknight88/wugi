@@ -25,7 +25,7 @@ type EventDoc = {
 }
 type TicketType = {
   id: string; name: string; price: number; capacity: number
-  sold: number; remaining: number; active: boolean; color?: string
+  sold: number; remaining: number; active: boolean; color?: string; walkUp?: boolean
 }
 type TableGroup = { id: string; name: string; color: string }
 type EditForm = {
@@ -34,7 +34,7 @@ type EditForm = {
   idVerificationThreshold: number
 }
 type TicketForm = {
-  name: string; price: number; capacity: number; active: boolean; color: string
+  name: string; price: number; capacity: number; active: boolean; color: string; walkUp: boolean
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ const SC: Record<string, { bg: string; color: string }> = {
   rejected: { bg: "#fee2e2", color: "#b91c1c" },
 }
 const VIBES = ["High Energy","Boujee","Divey","Rooftop","Speakeasy","Late Night","Hip-Hop","R&B","Live Music","Brunch","LGBTQ+"]
-const EMPTY_TICKET: TicketForm = { name: "", price: 0, capacity: 100, active: true, color: GROUP_COLORS[0] }
+const EMPTY_TICKET: TicketForm = { name: "", price: 0, capacity: 100, active: true, color: GROUP_COLORS[0], walkUp: false }
 
 // ── Color picker (inline) ─────────────────────────────────────────────
 function ColorDots({ value, onChange }: { value: string; onChange: (c: string) => void }) {
@@ -156,7 +156,14 @@ function TicketModal({
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <input type="checkbox" id="ttActive" checked={form.active} onChange={e => setForm(f => ({ ...f, active: e.target.checked }))} style={{ width: 16, height: 16 }} />
-              <label htmlFor="ttActive" style={{ fontSize: 13, color: "#374151", cursor: "pointer" }}>Active (on sale)</label>
+              <label htmlFor="ttActive" style={{ fontSize: 13, color: "#374151", cursor: "pointer" }}>Active (visible to customers)</label>
+            </div>
+            <div style={{ background: "#fffbeb", borderRadius: 8, padding: "12px 14px", border: "1px solid #fde68a" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" id="ttWalkUp" checked={form.walkUp} onChange={e => setForm(f => ({ ...f, walkUp: e.target.checked, active: e.target.checked ? false : f.active }))} style={{ width: 16, height: 16 }} />
+                <label htmlFor="ttWalkUp" style={{ fontSize: 13, color: "#92400e", cursor: "pointer", fontWeight: 600 }}>Walk-Up / Door Price</label>
+              </div>
+              <p style={{ fontSize: 11, color: "#a16207", margin: "4px 0 0 24px" }}>Walk-up tickets are hidden from customers. Staff select them in Wugi Door when selling at the door.</p>
             </div>
           </div>
         </div>
@@ -211,6 +218,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
         id: d.id, name: d.data().name, price: d.data().price, capacity: d.data().capacity,
         sold: d.data().sold || 0, remaining: d.data().remaining ?? d.data().capacity,
         active: d.data().active !== false, color: d.data().color || "#2a7a5a",
+        walkUp: d.data().walkUp || false,
       })))
     )
     const u3 = onSnapshot(collection(db, "venues"), snap =>
@@ -241,7 +249,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   async function saveTicket(f: TicketForm, id?: string) {
     const data = {
       name: f.name, price: f.price, capacity: f.capacity, active: f.active,
-      color: f.color, remaining: id
+      color: f.color, walkUp: f.walkUp || false, remaining: id
         ? f.capacity - (tickets.find(t => t.id === id)?.sold ?? 0)
         : f.capacity,
       updatedAt: serverTimestamp(),
@@ -471,6 +479,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "#111827" }}>{tt.name}</p>
                             {!tt.active && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#f3f4f6", color: "#9ca3af", fontWeight: 600 }}>INACTIVE</span>}
+                            {tt.walkUp && <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#fef9c3", color: "#a16207", fontWeight: 600 }}>🚪 WALK-UP</span>}
                           </div>
                           <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6b7280" }}>${(tt.price / 100).toFixed(2)} · {tt.capacity} capacity</p>
                         </div>
