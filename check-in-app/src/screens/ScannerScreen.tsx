@@ -26,7 +26,7 @@ interface TicketInfo {
 }
 
 export default function ScannerScreen() {
-  const { session } = useSession();
+  const { session, clearSession, setSession } = useSession();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning]       = useState(true);
   const [result, setResult]           = useState<ScanResult>(null);
@@ -139,9 +139,19 @@ export default function ScannerScreen() {
         })()}
       </Modal>
 
-      {/* Header */}
+  {/* Header */}
       <View style={styles.header}>
-        <View>
+        <TouchableOpacity onPress={() => {
+          // Super admin → back to event selector; regular staff → end session
+          if (session?.isSuperAdmin) {
+            setSession({ ...session, eventId: '__super_admin__', eventName: 'All Events', venueName: 'Super Admin', venueId: '__super_admin__' });
+          } else {
+            clearSession();
+          }
+        }} style={styles.backBtn}>
+          <Text style={styles.backBtnText}>←</Text>
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
           <Text style={styles.eventName}>{session?.eventName}</Text>
           <Text style={styles.venueName}>{session?.venueName} · {session?.date}</Text>
         </View>
@@ -216,10 +226,13 @@ export default function ScannerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0a' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12, backgroundColor: '#111' },
-  eventName: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 56, paddingBottom: 12, backgroundColor: '#111' },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  backBtnText: { color: '#fff', fontSize: 20, lineHeight: 22 },
+  headerCenter: { flex: 1 },
+  eventName: { fontSize: 15, fontWeight: '700', color: '#fff' },
   venueName: { fontSize: 12, color: '#888', marginTop: 2 },
-  countBadge: { alignItems: 'center' },
+  countBadge: { alignItems: 'center', marginLeft: 8 },
   countNum: { fontSize: 24, fontWeight: '800', color: '#2a7a5a' },
   countLabel: { fontSize: 11, color: '#888' },
   camera: { flex: 1 },
