@@ -1,3 +1,8 @@
+// ─────────────────────────────────────────────────────────────────────
+// PINScreen — Staff PIN entry
+// Auto-submits on 6th digit, no Enter button needed
+// Backspace only shown once at least 1 digit entered
+// ─────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
@@ -8,15 +13,15 @@ import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useSession, EventSession } from '../context/SessionContext';
 import { useLocationCheck } from '../hooks/useLocationCheck';
 
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS    = 5;
 const LOCKOUT_MINUTES = 30;
 
 export default function PINScreen() {
-  const [pin, setPin] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [attempts, setAttempts] = useState(0);
-  const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
-  const { setSession } = useSession();
+  const [pin,        setPin]        = useState('');
+  const [loading,    setLoading]    = useState(false);
+  const [attempts,   setAttempts]   = useState(0);
+  const [lockedUntil,setLockedUntil]= useState<Date | null>(null);
+  const { setSession }              = useSession();
   const { verifyAtVenue, checking, error: locationError, setError } = useLocationCheck();
 
   const isLocked = lockedUntil !== null && new Date() < lockedUntil;
@@ -26,66 +31,47 @@ export default function PINScreen() {
     if (pin.length < 6) {
       const next = pin + d;
       setPin(next);
-      if (next.length === 6) {
-        // Auto-submit when 6th digit is entered
-        setTimeout(() => handleSubmitWithPin(next), 100);
-      }
+      if (next.length === 6) setTimeout(() => handleSubmitWithPin(next), 80);
     }
   }
 
   function handleDelete() {
+    if (loading || checking) return;
     setPin(prev => prev.slice(0, -1));
-  }
-
-  async function handleSubmit() {
-    await handleSubmitWithPin(pin);
   }
 
   async function handleSubmitWithPin(pinValue: string) {
     if (pinValue.length !== 6) return;
     if (isLocked) {
-      const mins = Math.ceil((lockedUntil!.getTime() - Date.now()) / 60000);
-      Alert.alert('Too many attempts', `Try again in ${mins} minute(s).`);
+      Alert.alert('Too many attempts', `Try again in ${Math.ceil((lockedUntil!.getTime() - Date.now()) / 60000)} minute(s).`);
       return;
     }
-
-    setLoading(true);
-    setError(null);
-
+    setLoading(true); setError(null);
     try {
-      // 1. Try super admin PIN first (server-side, never exposed in Firestore)
+      // 1. Try super admin PIN
       try {
-        const fn = httpsCallable(getFunctions(), 'validateSuperAdminPin');
+        const fn     = httpsCallable(getFunctions(), 'validateSuperAdminPin');
         const result = await fn({ pin: pinValue });
-        const data = result.data as any;
+        const data   = result.data as any;
         if (data?.isSuperAdmin) {
-          const session: EventSession = {
-            eventId:        data.eventId,
-            eventName:      data.eventName,
-            venueName:      data.venueName,
-            venueId:        data.venueId,
-            venueLatitude:  data.venueLatitude,
-            venueLongitude: data.venueLongitude,
-            date:           data.date,
-            role:           'super_admin',
-            pin:            pinValue,
-            isSuperAdmin:   true,
-          };
           setAttempts(0);
-          setSession(session);
+          setSession({
+            eventId: '__super_admin__', eventName: 'All Events',
+            venueName: 'Super Admin', venueId: '__super_admin__',
+            venueLatitude: 0, venueLongitude: 0,
+            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            role: 'super_admin', pin: pinValue, isSuperAdmin: true,
+          });
           return;
         }
-      } catch (superAdminErr: any) {
-        // permission-denied = wrong PIN, fall through to regular lookup
-      }
+      } catch (_) { /* wrong PIN or error — fall through */ }
 
-      // 2. Regular event PIN lookup
+      // 2. Regular event PIN
       const snap = await firestore()
         .collection('eventPins')
         .where('pin', '==', pinValue)
         .where('active', '==', true)
-        .limit(1)
-        .get();
+        .limit(1).get();
 
       if (snap.empty) {
         Vibration.vibrate(400);
@@ -93,8 +79,7 @@ export default function PINScreen() {
         setAttempts(next);
         if (next >= MAX_ATTEMPTS) {
           const until = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
-          setLockedUntil(until);
-          setPin('');
+          setLockedUntil(until); setPin('');
           Alert.alert('Device locked', `Too many failed attempts. Try again in ${LOCKOUT_MINUTES} minutes.`);
         } else {
           Alert.alert('Invalid PIN', `${MAX_ATTEMPTS - next} attempt(s) remaining.`);
@@ -104,115 +89,89 @@ export default function PINScreen() {
       }
 
       const pinDoc = snap.docs[0].data();
-
-      // 3. Check PIN expiry
       if (pinDoc.expiresAt && pinDoc.expiresAt.toDate() < new Date()) {
-        Alert.alert('PIN expired', 'This PIN is no longer active. Contact your manager.');
-        setPin('');
-        return;
+        Alert.alert('PIN expired', 'This PIN is no longer active. Contact your manager.'); setPin(''); return;
       }
-
-      // 4. Verify location
       const atVenue = await verifyAtVenue(pinDoc.venueLatitude, pinDoc.venueLongitude);
-      if (!atVenue) {
-        setPin('');
-        return;
-      }
+      if (!atVenue) { setPin(''); return; }
 
-      // 5. Set session
-      const session: EventSession = {
-        eventId:        pinDoc.eventId,
-        eventName:      pinDoc.eventName,
-        venueName:      pinDoc.venueName,
-        venueId:        pinDoc.venueId,
-        venueLatitude:  pinDoc.venueLatitude,
-        venueLongitude: pinDoc.venueLongitude,
-        date:           pinDoc.date,
-        role:           pinDoc.role ?? 'door',
-        pin:            pinValue,
-        isSuperAdmin:   false,
-      };
       setAttempts(0);
-      setSession(session);
-
-    } catch (e) {
+      setSession({
+        eventId: pinDoc.eventId, eventName: pinDoc.eventName,
+        venueName: pinDoc.venueName, venueId: pinDoc.venueId,
+        venueLatitude: pinDoc.venueLatitude, venueLongitude: pinDoc.venueLongitude,
+        date: pinDoc.date, role: pinDoc.role ?? 'door',
+        pin: pinValue, isSuperAdmin: false,
+      });
+    } catch {
       Alert.alert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
-  const KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
+  // Keypad: digits 1-9, blank, 0, and backspace (only shown if pin has digits)
+  const ROWS = [
+    ['1','2','3'],
+    ['4','5','6'],
+    ['7','8','9'],
+    ['', '0', pin.length > 0 ? '⌫' : ''],
+  ];
 
   return (
     <View style={styles.container}>
-      <Text style={styles.logo}>Wugi</Text>
+      <Text style={styles.logo}>wugi</Text>
       <Text style={styles.title}>Staff Check-In</Text>
-      <Text style={styles.subtitle}>Enter your 6-digit event PIN</Text>
-
-      {/* Dev bypass banner */}
-      {__DEV__ && (
-        <View style={styles.devBanner}>
-          <Text style={styles.devBannerText}>⚠️ DEV MODE — Location check bypassed</Text>
-        </View>
-      )}
+      <Text style={styles.subtitle}>Enter your 6-digit PIN</Text>
 
       {/* PIN dots */}
       <View style={styles.dotsRow}>
         {Array.from({ length: 6 }).map((_, i) => (
-          <View
-            key={i}
-            style={[styles.dot, pin.length > i && styles.dotFilled]}
-          />
+          <View key={i} style={[styles.dot, pin.length > i && styles.dotFilled]} />
         ))}
       </View>
 
-      {/* Error messages */}
-      {(locationError) ? (
-        <Text style={styles.errorText}>{locationError}</Text>
-      ) : null}
-
+      {/* Error / locked messages */}
+      {locationError ? <Text style={styles.errorText}>{locationError}</Text> : null}
       {isLocked && (
         <Text style={styles.errorText}>
-          Device locked. Try again in {Math.ceil((lockedUntil!.getTime() - Date.now()) / 60000)} min.
+          Locked. Try again in {Math.ceil((lockedUntil!.getTime() - Date.now()) / 60000)} min.
         </Text>
       )}
 
       {/* Keypad */}
       <View style={styles.keypad}>
-        {KEYS.map((k, i) => (
-          <TouchableOpacity
-            key={i}
-            style={[styles.key, k === '' && styles.keyEmpty]}
-            onPress={() => {
-              if (k === '⌫') handleDelete();
-              else if (k === '') {}
-              else handleDigit(k);
-            }}
-            disabled={k === '' || isLocked}
-            activeOpacity={0.6}
-          >
-            <Text style={styles.keyText}>{k}</Text>
-          </TouchableOpacity>
+        {ROWS.map((row, ri) => (
+          <View key={ri} style={styles.row}>
+            {row.map((k, ci) => {
+              const isEmpty = k === '';
+              const isBack  = k === '⌫';
+              return (
+                <TouchableOpacity
+                  key={ci}
+                  style={[styles.key, isEmpty && styles.keyHidden]}
+                  onPress={() => {
+                    if (isEmpty) return;
+                    if (isBack) handleDelete();
+                    else handleDigit(k);
+                  }}
+                  disabled={isEmpty || isLocked}
+                  activeOpacity={0.5}>
+                  {isBack
+                    ? <Text style={styles.backspaceText}>⌫</Text>
+                    : <Text style={styles.keyText}>{k}</Text>
+                  }
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         ))}
       </View>
 
-      {/* Submit — hidden once all 6 digits entered (auto-submits), shown as fallback */}
-      {pin.length < 6 && (
-        <TouchableOpacity
-          style={[styles.submitBtn, pin.length !== 6 && styles.submitDisabled]}
-          onPress={handleSubmit}
-          disabled={pin.length !== 6 || loading || checking || isLocked}
-        >
-          {loading || checking ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.submitText}>Enter</Text>
-          )}
-        </TouchableOpacity>
-      )}
-      {(loading || checking) && pin.length === 6 && (
-        <ActivityIndicator color="#2a7a5a" size="large" style={{ marginTop: 8 }} />
+      {/* Loading spinner replaces keypad when submitting */}
+      {(loading || checking) && (
+        <View style={styles.spinnerRow}>
+          <ActivityIndicator color="#2a7a5a" size="large" />
+          <Text style={styles.spinnerText}>{checking ? 'Checking location…' : 'Verifying…'}</Text>
+        </View>
       )}
     </View>
   );
@@ -220,106 +179,57 @@ export default function PINScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
+    flex: 1, backgroundColor: '#0a0a0a',
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24,
   },
   logo: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#2a7a5a',
-    letterSpacing: 2,
-    marginBottom: 4,
+    fontSize: 42, fontWeight: '900', color: '#2a7a5a',
+    letterSpacing: 2, marginBottom: 6,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
+    fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 4,
   },
   subtitle: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 32,
+    fontSize: 15, color: '#666', marginBottom: 36,
   },
   dotsRow: {
-    flexDirection: 'row',
-    gap: 14,
-    marginBottom: 20,
+    flexDirection: 'row', gap: 16, marginBottom: 24,
   },
   dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: '#444',
-    backgroundColor: 'transparent',
+    width: 20, height: 20, borderRadius: 10,
+    borderWidth: 2, borderColor: '#333', backgroundColor: 'transparent',
   },
   dotFilled: {
-    backgroundColor: '#2a7a5a',
-    borderColor: '#2a7a5a',
+    backgroundColor: '#2a7a5a', borderColor: '#2a7a5a',
   },
   errorText: {
-    color: '#ff6b6b',
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 8,
+    color: '#ff6b6b', fontSize: 14, textAlign: 'center',
+    marginBottom: 14, paddingHorizontal: 8,
   },
   keypad: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    width: 270,
-    gap: 16,
-    marginBottom: 28,
-    justifyContent: 'center',
+    gap: 16, marginTop: 8,
+  },
+  row: {
+    flexDirection: 'row', gap: 20, justifyContent: 'center',
   },
   key: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#1a1a1a',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 90, height: 90, borderRadius: 45,
+    backgroundColor: '#1c1c1e',
+    alignItems: 'center', justifyContent: 'center',
   },
-  keyEmpty: {
+  keyHidden: {
     backgroundColor: 'transparent',
   },
   keyText: {
-    fontSize: 24,
-    fontWeight: '500',
-    color: '#fff',
+    fontSize: 32, fontWeight: '400', color: '#fff',
   },
-  submitBtn: {
-    backgroundColor: '#2a7a5a',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 60,
-    alignItems: 'center',
+  backspaceText: {
+    fontSize: 28, color: '#aaa',
   },
-  submitDisabled: {
-    opacity: 0.4,
+  spinnerRow: {
+    marginTop: 32, alignItems: 'center', gap: 10,
   },
-  submitText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  devBanner: {
-    backgroundColor: '#2a1f00',
-    borderWidth: 1,
-    borderColor: '#e6a817',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    marginBottom: 16,
-  },
-  devBannerText: {
-    color: '#e6a817',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
+  spinnerText: {
+    color: '#555', fontSize: 14,
   },
 });
