@@ -7,17 +7,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, ScrollView, Vibration,
 } from 'react-native';
-// Stripe Terminal disabled pending Apple entitlement approval.
-// When TAP_TO_PAY_ENABLED = true, replace stub with:
-//   import { useStripeTerminal } from '@stripe/stripe-terminal-react-native';
-const TAP_TO_PAY_ENABLED = false;
-function useStripeTerminal() {
-  return {
-    collectPaymentMethod: async (_: any) => ({ paymentIntent: null, error: { message: 'Tap to Pay not enabled' } }),
-    confirmPaymentIntent: async (_: any) => ({ error: { message: 'Tap to Pay not enabled' } }),
-    cancelCollectPaymentMethod: async () => {},
-  };
-}
+import { useStripeTerminal } from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';

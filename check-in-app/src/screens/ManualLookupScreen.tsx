@@ -9,7 +9,7 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
 
-const TAP_TO_PAY_ENABLED = false;
+const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
 
 const COLORS = [

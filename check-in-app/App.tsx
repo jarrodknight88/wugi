@@ -5,7 +5,7 @@ import PINScreen from './src/screens/PINScreen';
 import MainTabs from './src/screens/MainTabs';
 import SuperAdminEventSelector from './src/screens/SuperAdminEventSelector';
 
-const TAP_TO_PAY_ENABLED = false;
+const TAP_TO_PAY_ENABLED = true;
 
 function RootNavigator() {
   const { session } = useSession();

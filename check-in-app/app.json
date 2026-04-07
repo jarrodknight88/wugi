@@ -19,7 +19,11 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Wugi Door uses your location to verify you are at the venue.",
         "NSCameraUsageDescription": "Wugi Door uses your camera to scan ticket QR codes and ID barcodes.",
+        "NFCReaderUsageDescription": "Wugi Door uses NFC to accept contactless payments.",
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.proximity-reader.payment.acceptance": true
       }
     },
     "android": {
@@ -31,6 +35,14 @@
     },
     "plugins": [
       "@react-native-firebase/app",
+      [
+        "@stripe/stripe-terminal-react-native",
+        {
+          "bluetoothBackgroundMode": false,
+          "locationWhenInUsePermission": "Wugi Door uses your location to verify you are at the venue.",
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-build-properties",
         {

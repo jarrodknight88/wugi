@@ -8,7 +8,7 @@ import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
 
 // Tap to Pay is pending Apple entitlement approval — disabled until approved
-const TAP_TO_PAY_ENABLED = false;
+const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
 
 type ScanResult = 'valid' | 'already_scanned' | 'invalid' | 'wrong_event' | null;

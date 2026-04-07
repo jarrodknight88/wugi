@@ -11,6 +11,7 @@
     "@react-native-firebase/app": "^23.8.8",
     "@react-native-firebase/firestore": "^23.8.8",
     "@react-native-firebase/functions": "^23.8.8",
+    "@stripe/stripe-terminal-react-native": "^0.0.1-beta.29",
     "expo": "~54.0.33",
     "expo-build-properties": "~1.0.10",
     "expo-camera": "~17.0.10",

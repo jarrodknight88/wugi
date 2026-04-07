@@ -33,28 +33,28 @@ for pkg in firestore functions auth; do
   fi
 done
 
-# ── 2. Banned packages — must not be in package.json ─────────────────
-title "2. Banned native packages (removed pending entitlement)"
-BANNED=("@stripe/stripe-terminal-react-native")
-for pkg in "${BANNED[@]}"; do
-  if grep -q "\"$pkg\"" package.json; then
-    red "$pkg found in package.json — will crash on launch without its native plugin"
-  else
-    green "$pkg not present"
-  fi
-done
+# ── 2. TAP_TO_PAY_ENABLED flag consistency ────────────────────────────
+title "2. TAP_TO_PAY_ENABLED flag consistency"
+DISABLED_COUNT=$(grep -rn "TAP_TO_PAY_ENABLED = false" src App.tsx 2>/dev/null | grep -v "//" | wc -l | tr -d ' ')
+ENABLED_COUNT=$(grep -rn "TAP_TO_PAY_ENABLED = true" src App.tsx 2>/dev/null | grep -v "//" | wc -l | tr -d ' ')
+if [ "$DISABLED_COUNT" -gt 0 ] && [ "$ENABLED_COUNT" -gt 0 ]; then
+  red "Mixed TAP_TO_PAY_ENABLED flags — $ENABLED_COUNT true, $DISABLED_COUNT false. Make them consistent."
+elif [ "$ENABLED_COUNT" -gt 0 ]; then
+  green "TAP_TO_PAY_ENABLED = true ($ENABLED_COUNT files) — Tap to Pay active"
+else
+  green "TAP_TO_PAY_ENABLED = false — Tap to Pay disabled"
+fi
 
-# ── 3. Banned imports in source files ────────────────────────────────
-title "3. Banned imports in source"
-BANNED_IMPORTS=("@stripe/stripe-terminal-react-native")
-for imp in "${BANNED_IMPORTS[@]}"; do
-  MATCHES=$(grep -rn "from '$imp'" src --include="*.ts" --include="*.tsx" | grep -v "//")
-  if [ -n "$MATCHES" ]; then
-    red "Active import of '$imp' found:\n$MATCHES"
-  else
-    green "No active import of '$imp'"
-  fi
-done
+# ── 3. Stripe Terminal import matches TAP_TO_PAY_ENABLED ─────────────
+title "3. Stripe Terminal import consistency"
+HAS_STRIPE_IMPORT=$(grep -rn "from '@stripe/stripe-terminal-react-native'" src --include="*.ts" --include="*.tsx" 2>/dev/null | grep -v "//" | wc -l | tr -d ' ')
+if [ "$ENABLED_COUNT" -gt 0 ] && [ "$HAS_STRIPE_IMPORT" -gt 0 ]; then
+  green "Stripe Terminal imported and TAP_TO_PAY_ENABLED=true — consistent"
+elif [ "$DISABLED_COUNT" -gt 0 ] && [ "$HAS_STRIPE_IMPORT" -gt 0 ]; then
+  red "Stripe Terminal imported but TAP_TO_PAY_ENABLED=false — will crash on launch"
+else
+  green "No active Stripe Terminal imports (TAP_TO_PAY disabled)"
+fi
 
 # ── 4. Context hook safety — hooks that throw outside provider ────────
 title "4. Context hook safety"
@@ -116,7 +116,7 @@ if [ "$HAS_TAP_TO_PAY" = "True" ] && [ "$HAS_STRIPE_PKG" = "0" ]; then
 elif [ "$HAS_STRIPE_PKG" != "0" ] && [ "$HAS_STRIPE_PLUGIN" != "True" ]; then
   red "@stripe/stripe-terminal-react-native in package.json but plugin missing from app.json"
 elif [ "$HAS_TAP_TO_PAY" = "True" ] && [ "$HAS_STRIPE_PLUGIN" = "True" ] && [ "$HAS_STRIPE_PKG" != "0" ]; then
-  green "Tap to Pay fully configured (entitlement + plugin + package all present)"
+  green "Tap to Pay fully configured (entitlement + plugin + package all present) ✅"
 else
   green "Tap to Pay disabled (pending Apple entitlement) — correct for current build"
 fi

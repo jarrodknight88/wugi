@@ -1,20 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────
 // TerminalContext — Stripe Terminal (Tap to Pay) SDK manager
-// DISABLED until Apple approves the Tap to Pay entitlement.
-// When enabled: flip TAP_TO_PAY_ENABLED = true in App.tsx,
-// add back the entitlement + plugin in app.json, and rebuild.
+// Apple Tap to Pay entitlement approved — fully enabled
 // ─────────────────────────────────────────────────────────────────────
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import {
+  StripeTerminalProvider,
+  useStripeTerminal,
+  Reader,
+} from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 
-// ── Token fetch ───────────────────────────────────────────────────────
 async function fetchConnectionToken(venueId: string): Promise<string> {
   const fn = httpsCallable(getFunctions(), 'createTerminalConnectionToken');
   const result = await fn({ venueId });
   return (result.data as any).secret;
 }
 
-// ── Context shape ─────────────────────────────────────────────────────
 interface TerminalContextType {
   isReady: boolean;
   isConnecting: boolean;
@@ -25,25 +26,32 @@ interface TerminalContextType {
 
 const TerminalContext = createContext<TerminalContextType | null>(null);
 
-// ── Stub inner component (no Stripe SDK imported here) ────────────────
-// Full implementation is in TerminalContextFull.tsx — only loaded when
-// TAP_TO_PAY_ENABLED = true and the native plugin is active.
 function TerminalInner({ children }: { children: ReactNode }) {
-  const [isConnecting] = useState(false);
-  const [error] = useState<string | null>(null);
+  const { connectLocalMobileReader, disconnectReader, connectedReader } = useStripeTerminal();
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const connectReader = useCallback(async (_venueId: string) => {
-    console.log('[TerminalContext] Tap to Pay not yet enabled');
-  }, []);
+  const connectReader = useCallback(async (venueId: string) => {
+    if (connectedReader) return;
+    setIsConnecting(true); setError(null);
+    try {
+      const { error: connErr } = await connectLocalMobileReader({ onBehalfOf: venueId });
+      if (connErr) setError(connErr.message);
+    } catch (e: any) {
+      setError(e.message || 'Failed to connect reader');
+    } finally { setIsConnecting(false); }
+  }, [connectedReader, connectLocalMobileReader]);
 
-  const disconnectReader = useCallback(async () => {}, []);
+  const disconnect = useCallback(async () => {
+    await disconnectReader();
+  }, [disconnectReader]);
 
   return (
     <TerminalContext.Provider value={{
-      isReady: false,
+      isReady: !!connectedReader,
       isConnecting,
       connectReader,
-      disconnectReader,
+      disconnectReader: disconnect,
       error,
     }}>
       {children}
@@ -51,29 +59,22 @@ function TerminalInner({ children }: { children: ReactNode }) {
   );
 }
 
-// ── Provider ──────────────────────────────────────────────────────────
-export function TerminalProvider({
-  children,
-  venueId,
-}: {
-  children: ReactNode;
-  venueId: string;
-}) {
-  // When Tap to Pay is enabled, this will wrap with StripeTerminalProvider.
-  // For now, just renders a stub context.
-  return <TerminalInner>{children}</TerminalInner>;
+export function TerminalProvider({ children, venueId }: { children: ReactNode; venueId: string }) {
+  const tokenProvider = useCallback(() => fetchConnectionToken(venueId), [venueId]);
+  return (
+    <StripeTerminalProvider logLevel="verbose" tokenProvider={tokenProvider}>
+      <TerminalInner>{children}</TerminalInner>
+    </StripeTerminalProvider>
+  );
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────
 export function useTerminal() {
   const ctx = useContext(TerminalContext);
-  // Returns a safe no-op stub when used outside TerminalProvider
-  // (i.e. when TAP_TO_PAY_ENABLED = false and no provider is mounted)
   if (!ctx) {
+    // Safe stub when used outside provider (shouldn't happen with TAP_TO_PAY_ENABLED=true)
     return {
-      isReady: false,
-      isConnecting: false,
-      connectReader: async (_venueId: string) => {},
+      isReady: false, isConnecting: false,
+      connectReader: async (_: string) => {},
       disconnectReader: async () => {},
       error: null,
     };
