@@ -15,7 +15,7 @@ interface TicketTypeStat {
 }
 
 export default function DashboardScreen() {
-  const { session, clearSession } = useSession();
+  const { session, clearSession, setSession } = useSession();
   const [totalTickets, setTotalTickets]   = useState(0);
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [balanceDueCount, setBalanceDueCount] = useState(0);
@@ -97,7 +97,14 @@ export default function DashboardScreen() {
               <View style={{ backgroundColor: '#7c3aed', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                 <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>⚡ SUPER ADMIN</Text>
               </View>
-              <Text style={{ color: '#555', fontSize: 11 }}>Geofence bypassed · All events</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  // Return to event selector by resetting eventId
+                  if (session) setSession({ ...session, eventId: '__super_admin__', eventName: 'All Events', venueName: 'Super Admin', venueId: '__super_admin__' });
+                }}
+                style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#7c3aed' }}>
+                <Text style={{ color: '#a78bfa', fontSize: 10, fontWeight: '700' }}>Switch Event</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
