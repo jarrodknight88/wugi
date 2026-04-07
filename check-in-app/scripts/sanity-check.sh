@@ -82,6 +82,17 @@ else
   green "No old default functions import"
 fi
 
+# ── 6. Super admin safety — __super_admin__ eventId guard ────────────
+title "6. Super admin Firestore safety"
+# Check DashboardScreen and ScannerScreen have isSuperAdmin guard before Firestore listeners
+DASH_GUARDED=$(grep -A2 "isSuperAdmin" src/screens/DashboardScreen.tsx 2>/dev/null | grep -c "return")
+SCAN_GUARDED=$(grep -A2 "isSuperAdmin" src/screens/ScannerScreen.tsx 2>/dev/null | grep -c "return")
+if [ "$DASH_GUARDED" -ge 2 ] && [ "$SCAN_GUARDED" -ge 1 ]; then
+  green "DashboardScreen and ScannerScreen have super admin guards on Firestore listeners"
+else
+  red "Missing super admin guard on Firestore listeners — will crash with __super_admin__ eventId"
+fi
+
 # ── 7. All contexts used in screens have providers ────────────────────
 title "7. Context provider coverage"
 # Find all useXxx() hooks from context files and verify providers exist

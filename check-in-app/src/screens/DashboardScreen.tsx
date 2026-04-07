@@ -26,6 +26,7 @@ export default function DashboardScreen() {
   // Live ticket stats from per-event subcollection
   useEffect(() => {
     if (!session) return;
+    if (session.isSuperAdmin) return; // no event to query in super admin mode
     const unsub = firestore()
       .collection('events').doc(session.eventId)
       .collection('tickets')
@@ -35,13 +36,14 @@ export default function DashboardScreen() {
         setCheckedInCount(docs.filter((d: any) => d.checkedIn).length);
         setBalanceDueCount(docs.filter((d: any) => (d.balanceDue ?? 0) > 0).length);
         setLastUpdated(new Date());
-      });
+      }, () => {}); // silent error handler
     return unsub;
   }, [session]);
 
   // Live ticket type breakdown
   useEffect(() => {
     if (!session) return;
+    if (session.isSuperAdmin) return; // no event to query in super admin mode
     const unsub = firestore()
       .collection('events').doc(session.eventId)
       .collection('ticketTypes')
@@ -55,7 +57,7 @@ export default function DashboardScreen() {
           price: d.data().price || 0,
           remaining: d.data().remaining ?? d.data().capacity ?? 0,
         })));
-      });
+      }, () => {}); // silent error handler
     return unsub;
   }, [session]);
 

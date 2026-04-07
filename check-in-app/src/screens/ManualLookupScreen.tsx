@@ -34,9 +34,12 @@ export default function ManualLookupScreen() {
     if (!query.trim() || !session) return;
     setLoading(true); setSearched(true);
     try {
-      const snap = await firestore()
-        .collection('events').doc(session.eventId)
-        .collection('tickets')
+      // Super admin searches across all tickets — use root collection
+      // Regular staff search per-event subcollection
+      const ref = session.isSuperAdmin
+        ? firestore().collection('tickets')
+        : firestore().collection('events').doc(session.eventId).collection('tickets');
+      const snap = await ref
         .orderBy('holderName')
         .startAt(query.trim())
         .endAt(query.trim() + '\uf8ff')

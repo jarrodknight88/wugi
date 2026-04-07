@@ -38,13 +38,14 @@ export default function ScannerScreen() {
 
   useEffect(() => {
     if (!session) return;
+    if (session.isSuperAdmin) return; // no specific event in super admin mode
     const unsub = firestore()
       .collection('events').doc(session.eventId)
       .collection('tickets')
       .onSnapshot(snap => {
         setTotal(snap.size);
         setCheckedIn(snap.docs.filter(d => d.data().checkedIn).length);
-      });
+      }, () => {}); // silent error handler
     return unsub;
   }, [session]);
 
@@ -71,10 +72,11 @@ export default function ScannerScreen() {
         Vibration.vibrate([0, 100, 100, 100]); showResult('invalid'); return;
       }
       const ticketId = data.replace('WUGI:', '');
-      // Try per-event subcollection first, fall back to root
-      let ticketSnap = await firestore()
-        .collection('events').doc(session.eventId)
-        .collection('tickets').doc(ticketId).get();
+      // Super admin can scan any ticket — search root collection
+      // Regular staff scan per-event subcollection then fall back to root
+      let ticketSnap = session.isSuperAdmin
+        ? await firestore().collection('tickets').doc(ticketId).get()
+        : await firestore().collection('events').doc(session.eventId).collection('tickets').doc(ticketId).get();
       if (!ticketSnap.exists) {
         ticketSnap = await firestore().collection('tickets').doc(ticketId).get();
       }
@@ -82,7 +84,8 @@ export default function ScannerScreen() {
         Vibration.vibrate([0, 100, 100, 100]); showResult('invalid'); return;
       }
       const ticket = ticketSnap.data()!;
-      if (ticket.eventId && ticket.eventId !== session.eventId) {
+      // Only enforce event match for non-super-admin
+      if (!session.isSuperAdmin && ticket.eventId && ticket.eventId !== session.eventId) {
         Vibration.vibrate([0, 100, 100, 100]);
         showResult('wrong_event', { holderName: ticket.holderName, ticketType: ticket.ticketTypeName || ticket.ticketType || '', ticketTypeName: ticket.ticketTypeName || '', ticketTypeId: ticket.ticketTypeId || '', ticketColor: ticket.color || '#2a7a5a', quantity: ticket.quantity ?? 1, ticketId, balanceDue: ticket.balanceDue ?? 0, holderEmail: ticket.holderEmail || '' });
         return;

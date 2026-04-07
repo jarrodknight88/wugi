@@ -58,7 +58,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Load ID verification threshold from event doc
   useEffect(() => {
-    if (!session?.eventId) return;
+    if (!session?.eventId || session.isSuperAdmin) return;
     firestore().collection('events').doc(session.eventId).get().then(snap => {
       if (snap.exists) {
         const threshold = snap.data()?.idVerificationThreshold;
