@@ -21,6 +21,10 @@ type Pass = {
   ticketTypeName: string;
   holderName: string;
   scanStatus: 'valid' | 'scanned' | 'invalid';
+  color?: string;
+  balanceDue?: number;
+  tableAssignment?: string;
+  idVerification?: { verified: boolean; idName?: string };
 };
 
 type Props = {
@@ -112,8 +116,11 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
   const pass = passes[activePass];
   if (!pass) return null;
 
-  const statusColor = pass.scanStatus === 'valid' ? theme.accent : pass.scanStatus === 'scanned' ? '#e67e22' : '#e74c3c';
-  const statusLabel = pass.scanStatus === 'valid' ? '✓ Valid' : pass.scanStatus === 'scanned' ? 'Used' : 'Invalid';
+  const passColor    = pass.color || theme.accent;
+  const statusColor  = pass.scanStatus === 'valid' ? passColor : pass.scanStatus === 'scanned' ? '#e67e22' : '#e74c3c';
+  const statusLabel  = pass.scanStatus === 'valid' ? '✓ Valid' : pass.scanStatus === 'scanned' ? 'Used' : 'Invalid';
+  const hasBalance   = (pass.balanceDue ?? 0) > 0;
+  const isVerified   = pass.idVerification?.verified === true;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -142,22 +149,32 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
         </View>
 
         {/* Pass card */}
-        <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1.5, borderColor: theme.accent, marginBottom: 16, shadowColor: theme.accent, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
+        <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1.5, borderColor: passColor, marginBottom: 16, shadowColor: passColor, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
           {/* Header */}
-          <View style={{ backgroundColor: theme.accent, padding: 16, alignItems: 'center' }}>
+          <View style={{ backgroundColor: passColor, padding: 16, alignItems: 'center' }}>
             <Text style={{ color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: -1 }}>wugi</Text>
             <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800', marginTop: 4 }} numberOfLines={1}>{pass.eventName}</Text>
             <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 }}>{pass.venueName}{pass.eventDate ? ` · ${pass.eventDate}` : ''}{pass.eventTime ? ` · ${pass.eventTime}` : ''}</Text>
           </View>
 
+          {/* Balance due warning */}
+          {hasBalance && (
+            <View style={{ backgroundColor: '#2a1a00', padding: 12, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#e6a817' }}>
+              <Text style={{ color: '#e6a817', fontWeight: '800', fontSize: 14 }}>
+                ⚠️  ${((pass.balanceDue ?? 0) / 100).toFixed(2)} balance due at door
+              </Text>
+              <Text style={{ color: '#a16207', fontSize: 11, marginTop: 2 }}>Please have payment ready upon arrival</Text>
+            </View>
+          )}
+
           {/* Tear line */}
-          <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 0, borderStyle: 'dashed' }}/>
+          <View style={{ height: 1, backgroundColor: theme.divider }}/>
 
           {/* QR Code */}
           <View style={{ backgroundColor: theme.card, alignItems: 'center', paddingVertical: 24 }}>
             <View style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12 }}>
               <QRCode
-                value={pass.id || 'wugi-pass'}
+                value={`WUGI:${pass.id}` || 'wugi-pass'}
                 size={160}
                 color="#000"
                 backgroundColor="#fff"
@@ -180,12 +197,19 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
             {[
               { label: 'Name',        value: pass.holderName },
               { label: 'Ticket type', value: pass.ticketTypeName },
+              ...(pass.tableAssignment ? [{ label: 'Table', value: pass.tableAssignment }] : []),
             ].map((row, i) => (
               <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
                 <Text style={{ color: theme.subtext, fontSize: 13 }}>{row.label}</Text>
                 <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{row.value}</Text>
               </View>
             ))}
+            {isVerified && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.divider }}>
+                <Text style={{ color: theme.subtext, fontSize: 13 }}>ID Verified</Text>
+                <Text style={{ color: passColor, fontSize: 13, fontWeight: '700' }}>✓ Verified at door</Text>
+              </View>
+            )}
           </View>
         </View>
 

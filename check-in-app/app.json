@@ -14,11 +14,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wugi.door",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Wugi Door uses your location to verify you are at the venue.",
-        "NSCameraUsageDescription": "Wugi Door uses your camera to scan ticket QR codes.",
+        "NSCameraUsageDescription": "Wugi Door uses your camera to scan ticket QR codes and ID barcodes.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },

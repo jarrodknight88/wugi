@@ -132,26 +132,46 @@ export async function upsertUserProfile(
   email: string,
   displayName?: string
 ): Promise<void> {
-  try {
-    const ref  = doc(collection(db, 'users'), uid);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        uid,
-        email,
-        displayName: displayName || '',
-        role: 'consumer',
-        vibes: [],
-        affinityScores: {},
-        createdAt: serverTimestamp(),
-      });
-      console.log('upsertUserProfile: created user doc for', uid);
-    } else {
-      console.log('upsertUserProfile: user doc already exists for', uid);
+  const ref = doc(collection(db, 'users'), uid);
+
+  // Use merge:true so existing fields (role, vibes, etc.) are never overwritten
+  // Retry up to 3 times to handle the auth token propagation race on first sign-in
+  let lastError: any;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          uid,
+          email,
+          displayName: displayName || '',
+          role: 'consumer',
+          vibes: [],
+          affinityScores: {},
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        console.log('upsertUserProfile: created user doc for', uid);
+      } else {
+        // Update mutable fields only — never overwrite role or vibes
+        await updateDoc(ref, {
+          email,
+          displayName: displayName || snap.data()?.displayName || '',
+          updatedAt: serverTimestamp(),
+        });
+        console.log('upsertUserProfile: updated user doc for', uid);
+      }
+      return; // success
+    } catch (e: any) {
+      lastError = e;
+      console.log(`upsertUserProfile attempt ${attempt} failed:`, e?.code, e?.message);
+      if (attempt < 3) {
+        // Wait 500ms before retry — gives auth token time to propagate
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
-  } catch (e) {
-    console.log('upsertUserProfile error:', e);
   }
+  console.log('upsertUserProfile: all retries failed for', uid, lastError);
 }
 
 export async function saveUserVibes(uid: string, vibes: string[]): Promise<void> {

@@ -22,5 +22,8 @@ export { releaseReserves } from './stripe/releaseReserves';
 export { onVenueChargebackUpdate } from './venues/chargebackSuspension';
 export { onTicketTypeSold } from './tickets/updateInventory';
 export { generateDoorPin }      from './door/generateDoorPin';
+export { validateSuperAdminPin } from './door/validateSuperAdminPin';
 export { createDashboardUser }  from './users/createDashboardUser';
 export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
+export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment } from './terminal/terminalFunctions';
+export { onTicketColorChange } from './passes/ticketColorSync';

@@ -99,6 +99,10 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
       setAuthError(null);
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(cred.user, { displayName });
+      // Reload user to ensure the auth token is fully settled before Firestore write
+      await cred.user.reload();
+      // Small delay to let the auth token propagate to Firestore security rules
+      await new Promise(resolve => setTimeout(resolve, 300));
       await upsertUserProfile(cred.user.uid, email, displayName);
     } catch (e: any) {
       const msg = friendlyAuthError(e.code);

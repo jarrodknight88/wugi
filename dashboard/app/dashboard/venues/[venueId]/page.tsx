@@ -4,14 +4,14 @@
 // Tabs: Info | Door Access | Tables
 // ─────────────────────────────────────────────────────────────────────
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 import DashboardLayout from "@/components/DashboardLayout"
 import DoorAccessPanel from "@/components/DoorAccessPanel"
-import TableManager from "@/components/TableManager"
+import TableGroupManager from "@/components/TableGroupManager"
 import Link from "next/link"
 
 type Venue = {
@@ -25,9 +25,104 @@ const INPUT: React.CSSProperties = {
   padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb",
   fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box",
 }
-const LABEL: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }
-const CARD: React.CSSProperties = { background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", padding: "24px" }
+const LABEL: React.CSSProperties = {
+  fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6,
+}
+const CARD: React.CSSProperties = {
+  background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.06)", padding: "24px",
+}
 
+// ── Google Places Autocomplete ────────────────────────────────────────
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? ""
+
+function loadMapsScript(onLoad: () => void) {
+  if (typeof window === "undefined") return
+  if ((window as any).__googleMapsLoaded) { onLoad(); return }
+  const existing = document.getElementById("google-maps-script")
+  if (existing) {
+    existing.addEventListener("load", onLoad)
+    return
+  }
+  const script = document.createElement("script")
+  script.id = "google-maps-script"
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&libraries=places`
+  script.async = true
+  script.onload = () => {
+    ;(window as any).__googleMapsLoaded = true
+    onLoad()
+  }
+  document.head.appendChild(script)
+}
+
+type AddressResult = {
+  address: string
+  lat: number
+  lng: number
+  neighborhood?: string
+}
+
+function AddressAutocomplete({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (result: AddressResult) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const autocompleteRef = useRef<any>(null)
+  const [inputVal, setInputVal] = useState(value)
+
+  useEffect(() => { setInputVal(value) }, [value])
+
+  useEffect(() => {
+    loadMapsScript(() => {
+      if (!inputRef.current) return
+      const ac = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
+        types: ["establishment", "geocode"],
+        componentRestrictions: { country: "us" },
+        fields: ["formatted_address", "geometry", "address_components"],
+      })
+      autocompleteRef.current = ac
+      ac.addListener("place_changed", () => {
+        const place = ac.getPlace()
+        if (!place.geometry) return
+        const lat = place.geometry.location.lat()
+        const lng = place.geometry.location.lng()
+        const address = place.formatted_address ?? inputRef.current?.value ?? ""
+        // extract neighborhood from address_components
+        let neighborhood = ""
+        for (const comp of place.address_components ?? []) {
+          if (comp.types.includes("neighborhood") || comp.types.includes("sublocality")) {
+            neighborhood = comp.long_name
+            break
+          }
+        }
+        setInputVal(address)
+        onChange({ address, lat, lng, neighborhood })
+      })
+    })
+    return () => {
+      if (autocompleteRef.current) {
+        (window as any).google?.maps?.event?.clearInstanceListeners?.(autocompleteRef.current)
+      }
+    }
+  }, [])
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        ref={inputRef}
+        style={INPUT}
+        value={inputVal}
+        placeholder="Start typing an address…"
+        onChange={e => setInputVal(e.target.value)}
+      />
+    </div>
+  )
+}
+
+// ── Main page component ───────────────────────────────────────────────
 export default function VenueDetailPage({ params }: { params: Promise<{ venueId: string }> }) {
   const router = useRouter()
   const { user, loading, hasDashboardAccess, canWrite, canManageTables } = useAuthContext()
@@ -36,6 +131,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   const [tab, setTab] = useState<"info" | "door" | "tables">("info")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<Venue>>({})
 
   useEffect(() => {
@@ -64,11 +160,18 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   }, [venueId])
 
   async function handleSave() {
-    if (!venueId) return
+    if (!venueId || !canWrite) return
     setSaving(true)
-    await updateDoc(doc(db, "venues", venueId), { ...form, updatedAt: serverTimestamp() })
-    setSaving(false); setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaveError(null)
+    try {
+      await updateDoc(doc(db, "venues", venueId), { ...form, updatedAt: serverTimestamp() })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err: any) {
+      setSaveError(err?.message ?? "Save failed. Check your permissions.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading || !user || !hasDashboardAccess) return null
@@ -112,28 +215,88 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
         {tab === "info" && (
           <div style={CARD}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <div><label style={LABEL}>Name</label><input style={INPUT} value={form.name || ""} onChange={e => setForm(f => ({...f, name: e.target.value}))}/></div>
-              <div><label style={LABEL}>Category</label><input style={INPUT} value={form.category || ""} onChange={e => setForm(f => ({...f, category: e.target.value}))}/></div>
-              <div style={{ gridColumn: "1/-1" }}><label style={LABEL}>Address</label><input style={INPUT} value={form.address || ""} onChange={e => setForm(f => ({...f, address: e.target.value}))}/></div>
-              <div><label style={LABEL}>Neighborhood</label><input style={INPUT} value={form.neighborhood || ""} onChange={e => setForm(f => ({...f, neighborhood: e.target.value}))}/></div>
-              <div><label style={LABEL}>Phone</label><input style={INPUT} value={form.phone || ""} onChange={e => setForm(f => ({...f, phone: e.target.value}))}/></div>
-              <div><label style={LABEL}>Website</label><input style={INPUT} value={form.website || ""} onChange={e => setForm(f => ({...f, website: e.target.value}))}/></div>
-              <div><label style={LABEL}>Instagram</label><input style={INPUT} value={form.instagram || ""} onChange={e => setForm(f => ({...f, instagram: e.target.value}))}/></div>
-              <div style={{ gridColumn: "1/-1" }}><label style={LABEL}>About</label><textarea style={{ ...INPUT, minHeight: 80, resize: "vertical" }} value={form.about || ""} onChange={e => setForm(f => ({...f, about: e.target.value}))}/></div>
-              <div><label style={LABEL}>Status</label>
-                <select style={INPUT} value={form.status || ""} onChange={e => setForm(f => ({...f, status: e.target.value}))}>
-                  {["pending_review","approved","unclaimed","rejected","closed"].map(s => <option key={s} value={s}>{s}</option>)}
+              <div>
+                <label style={LABEL}>Name</label>
+                <input style={INPUT} value={form.name || ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label style={LABEL}>Category</label>
+                <input style={INPUT} value={form.category || ""} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
+              </div>
+
+              {/* Address with Google Places Autocomplete */}
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={LABEL}>Address</label>
+                <AddressAutocomplete
+                  value={form.address || ""}
+                  onChange={({ address, lat, lng, neighborhood }) => {
+                    setForm(f => ({
+                      ...f,
+                      address,
+                      venueLatitude: lat,
+                      venueLongitude: lng,
+                      // only overwrite neighborhood if it's currently empty
+                      ...((!f.neighborhood || f.neighborhood === "") && neighborhood ? { neighborhood } : {}),
+                    }))
+                  }}
+                />
+                {form.venueLatitude && form.venueLongitude && (
+                  <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                    📍 {form.venueLatitude.toFixed(5)}, {form.venueLongitude.toFixed(5)}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label style={LABEL}>Neighborhood</label>
+                <input style={INPUT} value={form.neighborhood || ""} onChange={e => setForm(f => ({ ...f, neighborhood: e.target.value }))} />
+              </div>
+              <div>
+                <label style={LABEL}>Phone</label>
+                <input style={INPUT} value={form.phone || ""} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+              <div>
+                <label style={LABEL}>Website</label>
+                <input style={INPUT} value={form.website || ""} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} />
+              </div>
+              <div>
+                <label style={LABEL}>Instagram</label>
+                <input style={INPUT} value={form.instagram || ""} onChange={e => setForm(f => ({ ...f, instagram: e.target.value }))} />
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={LABEL}>About</label>
+                <textarea style={{ ...INPUT, minHeight: 80, resize: "vertical" }} value={form.about || ""} onChange={e => setForm(f => ({ ...f, about: e.target.value }))} />
+              </div>
+              <div>
+                <label style={LABEL}>Status</label>
+                <select style={INPUT} value={form.status || ""} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                  {["pending_review", "approved", "unclaimed", "rejected", "closed"].map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
                 </select>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, paddingTop: 24 }}>
-                <input type="checkbox" id="featured" checked={form.isFeatured || false} onChange={e => setForm(f => ({...f, isFeatured: e.target.checked}))} style={{ width: 18, height: 18 }}/>
+                <input type="checkbox" id="featured" checked={form.isFeatured || false} onChange={e => setForm(f => ({ ...f, isFeatured: e.target.checked }))} style={{ width: 18, height: 18 }} />
                 <label htmlFor="featured" style={{ fontSize: 14, color: "#374151", cursor: "pointer" }}>Featured venue</label>
               </div>
             </div>
-            <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
-              <button onClick={handleSave} disabled={saving} style={{ padding: "10px 24px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14, opacity: saving ? 0.7 : 1 }}>
-                {saving ? "Saving..." : saved ? "✓ Saved!" : "Save Changes"}
-              </button>
+
+            {/* Save controls */}
+            <div style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 12 }}>
+              {canWrite ? (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{ padding: "10px 24px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", cursor: saving ? "default" : "pointer", fontWeight: 600, fontSize: 14, opacity: saving ? 0.7 : 1 }}
+                >
+                  {saving ? "Saving…" : saved ? "✓ Saved!" : "Save Changes"}
+                </button>
+              ) : (
+                <p style={{ fontSize: 13, color: "#9ca3af" }}>You don't have permission to edit venues.</p>
+              )}
+              {saveError && (
+                <p style={{ fontSize: 13, color: "#ef4444", margin: 0 }}>⚠️ {saveError}</p>
+              )}
             </div>
           </div>
         )}
@@ -151,7 +314,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
 
         {/* ── Tables Tab ── */}
         {tab === "tables" && (
-          <TableManager venueId={venueId} canWrite={canManageTables}/>
+          <TableGroupManager venueId={venueId} canWrite={canManageTables} />
         )}
       </div>
     </DashboardLayout>

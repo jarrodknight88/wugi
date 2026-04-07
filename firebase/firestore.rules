@@ -57,6 +57,12 @@ service cloud.firestore {
       allow create: if isAuth() && request.auth.uid == userId;
       allow update: if isAuth() && (isSuperAdmin() || isVenueAdmin() || request.auth.uid == userId);
       allow delete: if isSuperAdmin();
+
+      match /activity/{activityId} {
+        allow read:   if isAuth() && request.auth.uid == userId;
+        allow create: if isAuth() && request.auth.uid == userId;
+        allow update, delete: if false;
+      }
     }
 
     // ── Venues ───────────────────────────────────────────────────────
@@ -75,6 +81,11 @@ service cloud.firestore {
         allow read:  if canAccessVenue(venueId);
         allow write: if canWriteVenue(venueId);
       }
+
+      match /tableGroups/{groupId} {
+        allow read:  if canAccessVenue(venueId);
+        allow write: if canWriteVenue(venueId);
+      }
     }
 
     // ── Events ───────────────────────────────────────────────────────
@@ -87,6 +98,17 @@ service cloud.firestore {
       match /ticketTypes/{ttId} {
         allow read:   if true;
         allow write:  if canWriteEvent(eventId, get(/databases/$(database)/documents/events/$(eventId)).data.venueId);
+      }
+
+      // Per-event tickets subcollection — used by check-in page
+      match /tickets/{ticketId} {
+        allow read: if canAccessEvent(eventId, get(/databases/$(database)/documents/events/$(eventId)).data.venueId);
+        // Allow dashboard users to check in and assign colors
+        allow update: if canAccessEvent(eventId, get(/databases/$(database)/documents/events/$(eventId)).data.venueId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['checkedIn','checkedInAt','checkedInBy','color','passUpdatedAt','updatedAt','tableAssignment','depositPaid','balanceDue','idVerification']);
+        allow create: if canAccessEvent(eventId, get(/databases/$(database)/documents/events/$(eventId)).data.venueId);
+        allow delete: if false;
       }
 
       match /tableReservations/{resId} {

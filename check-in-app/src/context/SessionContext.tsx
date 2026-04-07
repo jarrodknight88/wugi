@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type StaffRole = 'door' | 'manager';
+export type StaffRole = 'door' | 'manager' | 'super_admin';
 
 export interface EventSession {
   eventId: string;
@@ -12,6 +12,7 @@ export interface EventSession {
   date: string;
   role: StaffRole;
   pin: string;
+  isSuperAdmin?: boolean;  // bypasses geofence and works across all events
 }
 
 interface SessionContextType {

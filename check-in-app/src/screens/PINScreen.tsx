@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Alert, Vibration,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useSession, EventSession } from '../context/SessionContext';
 import { useLocationCheck } from '../hooks/useLocationCheck';
 
@@ -22,7 +23,14 @@ export default function PINScreen() {
 
   function handleDigit(d: string) {
     if (isLocked || loading || checking) return;
-    if (pin.length < 6) setPin(prev => prev + d);
+    if (pin.length < 6) {
+      const next = pin + d;
+      setPin(next);
+      if (next.length === 6) {
+        // Auto-submit when 6th digit is entered
+        setTimeout(() => handleSubmitWithPin(next), 100);
+      }
+    }
   }
 
   function handleDelete() {
@@ -30,7 +38,11 @@ export default function PINScreen() {
   }
 
   async function handleSubmit() {
-    if (pin.length !== 6) return;
+    await handleSubmitWithPin(pin);
+  }
+
+  async function handleSubmitWithPin(pinValue: string) {
+    if (pinValue.length !== 6) return;
     if (isLocked) {
       const mins = Math.ceil((lockedUntil!.getTime() - Date.now()) / 60000);
       Alert.alert('Too many attempts', `Try again in ${mins} minute(s).`);
@@ -41,10 +53,36 @@ export default function PINScreen() {
     setError(null);
 
     try {
-      // 1. Look up PIN in Firestore
+      // 1. Try super admin PIN first (server-side, never exposed in Firestore)
+      try {
+        const fn = httpsCallable(getFunctions(), 'validateSuperAdminPin');
+        const result = await fn({ pin: pinValue });
+        const data = result.data as any;
+        if (data?.isSuperAdmin) {
+          const session: EventSession = {
+            eventId:        data.eventId,
+            eventName:      data.eventName,
+            venueName:      data.venueName,
+            venueId:        data.venueId,
+            venueLatitude:  data.venueLatitude,
+            venueLongitude: data.venueLongitude,
+            date:           data.date,
+            role:           'super_admin',
+            pin:            pinValue,
+            isSuperAdmin:   true,
+          };
+          setAttempts(0);
+          setSession(session);
+          return;
+        }
+      } catch (superAdminErr: any) {
+        // permission-denied = wrong PIN, fall through to regular lookup
+      }
+
+      // 2. Regular event PIN lookup
       const snap = await firestore()
         .collection('eventPins')
-        .where('pin', '==', pin)
+        .where('pin', '==', pinValue)
         .where('active', '==', true)
         .limit(1)
         .get();
@@ -67,31 +105,32 @@ export default function PINScreen() {
 
       const pinDoc = snap.docs[0].data();
 
-      // 2. Check PIN expiry
+      // 3. Check PIN expiry
       if (pinDoc.expiresAt && pinDoc.expiresAt.toDate() < new Date()) {
         Alert.alert('PIN expired', 'This PIN is no longer active. Contact your manager.');
         setPin('');
         return;
       }
 
-      // 3. Verify location
+      // 4. Verify location
       const atVenue = await verifyAtVenue(pinDoc.venueLatitude, pinDoc.venueLongitude);
       if (!atVenue) {
         setPin('');
         return;
       }
 
-      // 4. Set session
+      // 5. Set session
       const session: EventSession = {
-        eventId: pinDoc.eventId,
-        eventName: pinDoc.eventName,
-        venueName: pinDoc.venueName,
-        venueId: pinDoc.venueId,
-        venueLatitude: pinDoc.venueLatitude,
+        eventId:        pinDoc.eventId,
+        eventName:      pinDoc.eventName,
+        venueName:      pinDoc.venueName,
+        venueId:        pinDoc.venueId,
+        venueLatitude:  pinDoc.venueLatitude,
         venueLongitude: pinDoc.venueLongitude,
-        date: pinDoc.date,
-        role: pinDoc.role ?? 'door',
-        pin,
+        date:           pinDoc.date,
+        role:           pinDoc.role ?? 'door',
+        pin:            pinValue,
+        isSuperAdmin:   false,
       };
       setAttempts(0);
       setSession(session);
@@ -158,20 +197,23 @@ export default function PINScreen() {
         ))}
       </View>
 
-      {/* Submit */}
-      <TouchableOpacity
-        style={[styles.submitBtn, pin.length !== 6 && styles.submitDisabled]}
-        onPress={handleSubmit}
-        disabled={pin.length !== 6 || loading || checking || isLocked}
-      >
-        {loading || checking ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.submitText}>
-            {checking ? 'Checking location…' : 'Enter'}
-          </Text>
-        )}
-      </TouchableOpacity>
+      {/* Submit — hidden once all 6 digits entered (auto-submits), shown as fallback */}
+      {pin.length < 6 && (
+        <TouchableOpacity
+          style={[styles.submitBtn, pin.length !== 6 && styles.submitDisabled]}
+          onPress={handleSubmit}
+          disabled={pin.length !== 6 || loading || checking || isLocked}
+        >
+          {loading || checking ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.submitText}>Enter</Text>
+          )}
+        </TouchableOpacity>
+      )}
+      {(loading || checking) && pin.length === 6 && (
+        <ActivityIndicator color="#2a7a5a" size="large" style={{ marginTop: 8 }} />
+      )}
     </View>
   );
 }

@@ -34,7 +34,6 @@ import { MyPassesScreen }        from '../features/ticketing/PassScreens';
 import { TicketSelectionScreen } from '../features/ticketing/TicketSelectionScreen';
 import { PaymentScreen }         from '../features/ticketing/PaymentScreen';
 import { PassScreen }            from '../features/ticketing/PassScreen';
-import { ScanScreen }            from '../features/ticketing/ScanScreen';
 import type { TicketSelection }  from '../features/ticketing/TicketSelectionScreen';
 
 // Components
@@ -158,19 +157,6 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             e.screen !== 'ticketSelection'
           ));
         }}
-      />
-    );
-
-    if (current.screen === 'scan') return (
-      <ScanScreen
-        eventId={current.eventId}
-        eventName={current.eventName}
-        venueName={current.venueName}
-        eventDate={current.eventDate}
-        eventTime={current.eventTime}
-        userId={user?.uid ?? ''}
-        theme={theme}
-        onBack={pop}
       />
     );
 

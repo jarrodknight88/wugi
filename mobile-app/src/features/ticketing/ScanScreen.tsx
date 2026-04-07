@@ -20,6 +20,9 @@ type ScannedPass = {
   eventName: string;
   scanStatus: 'valid' | 'scanned' | 'invalid';
   orderId: string;
+  color?: string;
+  balanceDue?: number;
+  tableAssignment?: string;
 };
 
 type ScanResult = 'idle' | 'scanning' | 'valid' | 'already_scanned' | 'invalid' | 'error';
@@ -297,16 +300,26 @@ export function ScanScreen({
                 <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }}>{scannedPass.ticketNumber}</Text>
               </View>
 
+              {/* Balance due warning */}
+              {(scannedPass.balanceDue ?? 0) > 0 && (
+                <View style={{ backgroundColor: '#2a1a00', borderRadius: 8, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: '#e6a817', alignItems: 'center' }}>
+                  <Text style={{ color: '#e6a817', fontWeight: '800', fontSize: 13 }}>
+                    ⚠️  ${((scannedPass.balanceDue ?? 0) / 100).toFixed(2)} balance due at door
+                  </Text>
+                </View>
+              )}
+
               {/* Ticket details */}
-              <View style={{ backgroundColor: theme.bg, borderRadius: 10, padding: 10 }}>
+              <View style={{ backgroundColor: theme.bg, borderRadius: 10, padding: 10, borderLeftWidth: 3, borderLeftColor: scannedPass.color || theme.accent }}>
                 {[
                   { l: 'Name',   v: scannedPass.holderName },
                   { l: 'Type',   v: scannedPass.ticketTypeName },
+                  ...(scannedPass.tableAssignment ? [{ l: 'Table', v: scannedPass.tableAssignment }] : []),
                   { l: 'Status', v: scanResult === 'valid' ? 'Not yet scanned' : scanResult === 'already_scanned' ? 'Already scanned' : 'Invalid', accent: scanResult === 'valid' },
                 ].map((row, i) => (
                   <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
                     <Text style={{ color: theme.subtext, fontSize: 11 }}>{row.l}</Text>
-                    <Text style={{ color: row.accent ? theme.accent : theme.text, fontSize: 11, fontWeight: '600' }}>{row.v}</Text>
+                    <Text style={{ color: (row as any).accent ? theme.accent : theme.text, fontSize: 11, fontWeight: '600' }}>{row.v}</Text>
                   </View>
                 ))}
               </View>
