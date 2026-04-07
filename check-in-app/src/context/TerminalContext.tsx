@@ -67,6 +67,16 @@ export function TerminalProvider({
 // ── Hook ──────────────────────────────────────────────────────────────
 export function useTerminal() {
   const ctx = useContext(TerminalContext);
-  if (!ctx) throw new Error('useTerminal must be used within TerminalProvider');
+  // Returns a safe no-op stub when used outside TerminalProvider
+  // (i.e. when TAP_TO_PAY_ENABLED = false and no provider is mounted)
+  if (!ctx) {
+    return {
+      isReady: false,
+      isConnecting: false,
+      connectReader: async (_venueId: string) => {},
+      disconnectReader: async () => {},
+      error: null,
+    };
+  }
   return ctx;
 }
