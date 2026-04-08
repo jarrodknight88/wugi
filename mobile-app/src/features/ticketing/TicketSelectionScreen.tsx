@@ -15,17 +15,20 @@ import { BackIcon } from '../../components/icons';
 export type TicketType = {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   price: number;           // in cents
-  isFree: boolean;
-  taxIncluded: boolean;
+  isFree?: boolean;
+  taxIncluded?: boolean;
   capacity: number;
   remaining: number;
-  status: 'on_sale' | 'sold_out' | 'cancelled';
-  maxPerOrder: number;
-  bookingFeePercent: number | null;
-  bookingFeeMin: number | null;
-  bookingFeeMax: number | null;
+  active: boolean;
+  walkUp?: boolean;
+  color?: string;
+  status?: 'on_sale' | 'sold_out' | 'cancelled';
+  maxPerOrder?: number;
+  bookingFeePercent?: number | null;
+  bookingFeeMin?: number | null;
+  bookingFeeMax?: number | null;
 };
 
 type Props = {
@@ -91,11 +94,12 @@ export function TicketSelectionScreen({
         const snap = await getDocs(
           query(
             collection(db, 'events', eventId, 'ticketTypes'),
-            where('status', '==', 'on_sale'),
-            where('approvalStatus', '==', 'approved'),
+            where('active', '==', true),
           )
         );
-        const types = snap.docs.map(d => ({ id: d.id, ...d.data() } as TicketType));
+        const types = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as TicketType))
+          .filter(t => !t.walkUp); // exclude door-only walk-up types
         setTicketTypes(types);
         if (types.length > 0) setSelected(types[0]);
       } catch (e) {
