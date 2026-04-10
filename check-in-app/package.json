@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@react-native-firebase/app": "^23.8.8",
+    "@react-native-firebase/auth": "^23.8.8",
     "@react-native-firebase/firestore": "^23.8.8",
     "@react-native-firebase/functions": "^23.8.8",
     "@stripe/stripe-terminal-react-native": "^0.0.1-beta.29",

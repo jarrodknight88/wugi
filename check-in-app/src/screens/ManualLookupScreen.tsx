@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────
 // ManualLookupScreen — search tickets, multi-select, color change, add guest
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   ActivityIndicator, Alert, Modal, SectionList, ScrollView,
@@ -9,6 +9,14 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
+
+
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits.length ? `(${digits}` : '';
+  if (digits.length <= 6) return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+}
 
 const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
@@ -60,6 +68,9 @@ function ColorPickerModal({ visible, onSelect, onClose, selectedColor }:
 // ── Add Guest Modal ───────────────────────────────────────────────────
 function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
   { visible: boolean; onClose: () => void; onCharge: (mode: PaymentMode) => void; ticketTypes: TicketType[]; eventName: string }) {
+  const guestEmailRef = useRef<any>(null);
+  const guestPhoneRef = useRef<any>(null);
+  const guestTableRef = useRef<any>(null);
   const [name,   setName]   = useState('');
   const [email,  setEmail]  = useState('');
   const [phone,  setPhone]  = useState('');
@@ -114,21 +125,25 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
           {/* Guest info */}
           <Text style={s.guestLabel}>Guest Name *</Text>
           <TextInput style={s.guestInput} value={name} onChangeText={setName}
-            placeholder="Full name" placeholderTextColor="#555" autoCapitalize="words" />
+            placeholder="Full name" placeholderTextColor="#555" autoCapitalize="words"
+            returnKeyType="next" onSubmitEditing={() => guestEmailRef.current?.focus()} blurOnSubmit={false} />
 
           <Text style={s.guestLabel}>Email (optional)</Text>
-          <TextInput style={s.guestInput} value={email} onChangeText={setEmail}
+          <TextInput ref={guestEmailRef} style={s.guestInput} value={email} onChangeText={setEmail}
             placeholder="guest@email.com" placeholderTextColor="#555"
-            keyboardType="email-address" autoCapitalize="none" />
+            keyboardType="email-address" autoCapitalize="none"
+            returnKeyType="next" onSubmitEditing={() => guestPhoneRef.current?.focus()} blurOnSubmit={false} />
 
           <Text style={s.guestLabel}>Phone (optional)</Text>
-          <TextInput style={s.guestInput} value={phone} onChangeText={setPhone}
+          <TextInput ref={guestPhoneRef} style={s.guestInput} value={phone} onChangeText={v => setPhone(formatPhone(v))}
             placeholder="(555) 000-0000" placeholderTextColor="#555"
-            keyboardType="phone-pad" />
+            keyboardType="phone-pad"
+            returnKeyType="next" onSubmitEditing={() => guestTableRef.current?.focus()} blurOnSubmit={false} />
 
           <Text style={s.guestLabel}>Table Assignment (optional)</Text>
-          <TextInput style={s.guestInput} value={table} onChangeText={setTable}
-            placeholder="e.g. Table 5" placeholderTextColor="#555" />
+          <TextInput ref={guestTableRef} style={s.guestInput} value={table} onChangeText={setTable}
+            placeholder="e.g. Table 5" placeholderTextColor="#555"
+            returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
 
           {/* Ticket type selection */}
           <Text style={s.guestLabel}>Ticket Type *</Text>
@@ -220,6 +235,31 @@ export default function ManualLookupScreen() {
           active: d.data().active !== false,
         })));
       }).catch(() => {});
+  }, [session?.eventId]);
+
+  // Load ALL tickets on mount so list is populated without needing to search
+  useEffect(() => {
+    if (!session) return;
+    setLoading(true);
+    const ref = session.isSuperAdmin
+      ? firestore().collectionGroup('tickets')
+      : firestore().collection('events').doc(session.eventId).collection('tickets');
+    ref.orderBy('holderName').limit(200).get()
+      .then(snap => {
+        setResults(snap.docs.map(d => ({
+          id: d.id, holderName: d.data().holderName || '',
+          holderEmail: d.data().holderEmail || '',
+          holderPhone: d.data().holderPhone || '',
+          ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
+          ticketTypeId: d.data().ticketTypeId || '',
+          color: d.data().color || '#2a7a5a',
+          quantity: d.data().quantity ?? 1,
+          checkedIn: d.data().checkedIn === true,
+          balanceDue: d.data().balanceDue ?? 0,
+          tableAssignment: d.data().tableAssignment || '',
+        })));
+      }).catch(() => {})
+      .finally(() => setLoading(false));
   }, [session?.eventId]);
 
   const sections = useMemo(() => {
@@ -420,7 +460,7 @@ export default function ManualLookupScreen() {
           renderItem={renderTicket} renderSectionHeader={renderSectionHeader}
           contentContainerStyle={s.list} stickySectionHeadersEnabled={false}
           keyboardShouldPersistTaps="handled"
-          ListEmptyComponent={searched ? <Text style={s.empty}>No tickets found for "{query}"</Text> : null} />
+          ListEmptyComponent={<Text style={s.empty}>{searched ? `No tickets found for "${query}"` : "No tickets yet"}</Text>} />
       )}
 
       {multiSelect && (

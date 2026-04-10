@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import auth from '@react-native-firebase/auth';
 import { SessionProvider, useSession } from './src/context/SessionContext';
 import PINScreen from './src/screens/PINScreen';
 import MainTabs from './src/screens/MainTabs';
@@ -32,6 +33,11 @@ function RootNavigator() {
 }
 
 export default function App() {
+  // Sign in anonymously so Cloud Functions receive a valid auth context
+  useEffect(() => {
+    auth().signInAnonymously().catch(() => {});
+  }, []);
+
   return (
     <SessionProvider>
       <StatusBar style="light" />

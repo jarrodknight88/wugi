@@ -2,7 +2,7 @@
 // PaymentScreen — Tap to Pay via Stripe Terminal
 // Flow: Enter details → Scan ID → Charge → Success
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, ScrollView, Vibration,
@@ -16,9 +16,17 @@ import { useTerminal } from '../context/TerminalContext';
 import IDScanScreen from './IDScanScreen';
 import type { VerificationResult } from './IDScanScreen';
 
+
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits.length ? `(${digits}` : '';
+  if (digits.length <= 6) return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+}
+
 export type PaymentMode =
   | { type: 'balance'; ticketId: string; holderName: string; balanceDue: number; holderEmail?: string }
-  | { type: 'walkin';  ticketTypeName: string; ticketTypeId: string; price: number; color: string };
+  | { type: 'walkin';  ticketTypeName: string; ticketTypeId: string; price: number; color: string; holderName?: string; holderEmail?: string; holderPhone?: string; tableAssignment?: string; };
 
 interface Props {
   mode: PaymentMode;
@@ -37,16 +45,20 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const defaultAmount = mode.type === 'balance' ? mode.balanceDue : mode.price;
   const [amountCents, setAmountCents] = useState(defaultAmount);
   const [amountInput, setAmountInput] = useState((defaultAmount / 100).toFixed(2));
-  const [holderName, setHolderName]   = useState(mode.type === 'balance' ? mode.holderName : '');
-  const [holderEmail, setHolderEmail] = useState(mode.type === 'balance' ? (mode.holderEmail || '') : '');
-  const [holderPhone, setHolderPhone] = useState('');
-  const [tableAssign, setTableAssign] = useState('');
+  const [holderName, setHolderName]   = useState(mode.type === 'balance' ? mode.holderName : (mode as any).holderName || '');
+  const [holderEmail, setHolderEmail] = useState(mode.type === 'balance' ? (mode.holderEmail || '') : (mode as any).holderEmail || '');
+  const [holderPhone, setHolderPhone] = useState((mode as any).holderPhone || '');
+  const [tableAssign, setTableAssign] = useState((mode as any).tableAssignment || '');
   const [step, setStep]               = useState<PaymentStep>('details');
   const [errorMsg, setErrorMsg]       = useState('');
   const [idVerification, setIdVerification] = useState<VerificationResult | null>(null);
   const [completedTicketId, setCompletedTicketId] = useState('');
   const [cardholderName, setCardholderName] = useState('');
   const [idThreshold, setIdThreshold] = useState(30000); // default $300
+  const nameRef  = useRef<any>(null);
+  const emailRef = useRef<any>(null);
+  const phoneRef = useRef<any>(null);
+  const tableRef = useRef<any>(null);
 
   // Load ID verification threshold from event doc
   useEffect(() => {
@@ -250,14 +262,18 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       {isWalkin && (
         <>
-          <TextInput style={styles.field} placeholder="Guest name *" placeholderTextColor="#555"
-            value={holderName} onChangeText={setHolderName} autoCapitalize="words" />
-          <TextInput style={styles.field} placeholder="Email (optional)" placeholderTextColor="#555"
-            value={holderEmail} onChangeText={setHolderEmail} keyboardType="email-address" autoCapitalize="none" />
-          <TextInput style={styles.field} placeholder="Phone (optional)" placeholderTextColor="#555"
-            value={holderPhone} onChangeText={setHolderPhone} keyboardType="phone-pad" />
-          <TextInput style={styles.field} placeholder="Table assignment (optional)" placeholderTextColor="#555"
-            value={tableAssign} onChangeText={setTableAssign} />
+          <TextInput ref={nameRef} style={styles.field} placeholder="Guest name *" placeholderTextColor="#555"
+            value={holderName} onChangeText={setHolderName} autoCapitalize="words"
+            returnKeyType="next" onSubmitEditing={() => emailRef.current?.focus()} blurOnSubmit={false} />
+          <TextInput ref={emailRef} style={styles.field} placeholder="Email (optional)" placeholderTextColor="#555"
+            value={holderEmail} onChangeText={setHolderEmail} keyboardType="email-address" autoCapitalize="none"
+            returnKeyType="next" onSubmitEditing={() => phoneRef.current?.focus()} blurOnSubmit={false} />
+          <TextInput ref={phoneRef} style={styles.field} placeholder="Phone (optional)" placeholderTextColor="#555"
+            value={holderPhone} onChangeText={v => setHolderPhone(formatPhone(v))} keyboardType="phone-pad"
+            returnKeyType="next" onSubmitEditing={() => tableRef.current?.focus()} blurOnSubmit={false} />
+          <TextInput ref={tableRef} style={styles.field} placeholder="Table assignment (optional)" placeholderTextColor="#555"
+            value={tableAssign} onChangeText={setTableAssign}
+            returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
         </>
       )}
 
