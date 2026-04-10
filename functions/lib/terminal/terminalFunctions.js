@@ -87,7 +87,7 @@ exports.createTerminalPaymentIntent = functions
     .https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Auth required');
-    const { amountCents, venueId, eventId, ticketId, description, customerName, customerEmail } = data;
+    const { amountCents, venueId, eventId, ticketId, description, statementDescriptor, customerName, customerEmail } = data;
     if (!amountCents || amountCents < 50)
         throw new functions.https.HttpsError('invalid-argument', 'Minimum charge is $0.50');
     const paymentIntent = await stripeUtils_1.stripe.paymentIntents.create({
@@ -96,6 +96,7 @@ exports.createTerminalPaymentIntent = functions
         payment_method_types: ['card_present'],
         capture_method: 'automatic',
         description: description || 'Wugi door payment',
+        ...(statementDescriptor ? { statement_descriptor: statementDescriptor } : {}),
         metadata: {
             venueId,
             eventId,

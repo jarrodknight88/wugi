@@ -116,8 +116,9 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         eventId: session.eventId,
         ticketId: mode.type === 'balance' ? mode.ticketId : undefined,
         description: mode.type === 'balance'
-          ? `Balance due — ${mode.holderName}`
-          : `Door sale — ${(mode as any).ticketTypeName}`,
+          ? `${session.venueName} — Balance due`
+          : `${session.venueName} — ${(mode as any).ticketTypeName}`,
+        statementDescriptor: session.venueName.slice(0, 22).replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'WUGI',
         customerName: holderName || undefined,
         customerEmail: holderEmail || undefined,
       });
