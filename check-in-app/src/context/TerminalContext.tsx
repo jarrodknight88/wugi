@@ -47,10 +47,7 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
     if (connectedReader) return;
     setIsConnecting(true); setError(null);
     try {
-      if (!locationIdCache[vid]) {
-        await fetchConnectionToken(vid);
-      }
-      const locationId = locationIdCache[vid];
+      const { locationId } = await fetchConnectionTokenAndLocation(vid);
       if (!locationId) {
         setError('Could not retrieve terminal location. Check venue setup.');
         return;
