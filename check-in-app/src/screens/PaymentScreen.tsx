@@ -100,20 +100,33 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     startPayment(null);
   }
 
-  async function handleInstantRefund() {
+  async function handleVoidAuthorization() {
+    // Voids the manual authorization — customer never sees a charge at all
     if (!paymentIntentId || isRefunding) return;
     setIsRefunding(true);
     try {
-      const refundFn = httpsCallable(getFunctions(), 'refundDoorSale');
-      await refundFn({
+      const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
+      await cancelFn({
         paymentIntentId,
         reason: 'id_mismatch',
-        staffNote: 'ID verification failed at door — instant refund issued',
+        staffNote: 'ID verification failed at door — authorization voided',
       });
       setStep('error');
-      setErrorMsg('ID verification failed. Card has been refunded. The customer should see the refund within minutes.');
+      setErrorMsg('Authorization voided. No charge was made — the hold will disappear from the customer\'s account within minutes.');
     } catch (e: any) {
-      Alert.alert('Refund Failed', 'Could not process refund automatically. Please contact support.');
+      // If void fails (e.g., already captured by auto-settler), fall back to refund
+      try {
+        const refundFn = httpsCallable(getFunctions(), 'refundDoorSale');
+        await refundFn({
+          paymentIntentId,
+          reason: 'id_mismatch',
+          staffNote: 'ID verification failed — void failed, issued refund instead',
+        });
+        setStep('error');
+        setErrorMsg('ID verification failed. Card has been refunded. The customer should see the credit within minutes.');
+      } catch {
+        Alert.alert('Error', 'Could not void or refund automatically. Please contact support.');
+      }
     } finally {
       setIsRefunding(false);
     }
@@ -232,7 +245,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         minAge={21}
         onVerified={onIDVerified}
         onSkip={onIDSkipped}
-        onRefund={paymentIntentId ? handleInstantRefund : undefined}
+        onRefund={paymentIntentId ? handleVoidAuthorization : undefined}
       />
     );
   }

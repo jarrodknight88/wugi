@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.refundDoorSale = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = void 0;
+exports.autoSettlePendingDoorSales = exports.cancelDoorSale = exports.refundDoorSale = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Stripe Terminal: Connection Token + PaymentIntent
 // Used exclusively by Wugi Door for Tap to Pay
@@ -101,7 +101,7 @@ exports.createTerminalPaymentIntent = functions
         amount: amountCents,
         currency: 'usd',
         payment_method_types: ['card_present'],
-        capture_method: 'automatic',
+        capture_method: 'manual', // Manual — authorize now, capture after ID verification
         description: description || 'Wugi door payment',
         ...(cleanDescriptor ? { statement_descriptor: cleanDescriptor } : {}),
         metadata: {
@@ -113,6 +113,26 @@ exports.createTerminalPaymentIntent = functions
             source: 'wugi_door',
             staffUid: context.auth.uid,
         },
+    });
+    // Store pending authorization record for auto-settlement safety net
+    await db.collection('terminalPendingAuths').doc(paymentIntent.id).set({
+        paymentIntentId: paymentIntent.id,
+        venueId,
+        eventId,
+        ticketId: ticketId || null,
+        amountCents,
+        staffUid: context.auth.uid,
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Auto-settle deadline: 6am ET next morning
+        autoSettleAt: (() => {
+            const now = new Date();
+            const settle = new Date();
+            settle.setUTCHours(11, 0, 0, 0); // 6am ET = 11am UTC
+            if (settle <= now)
+                settle.setDate(settle.getDate() + 1);
+            return admin.firestore.Timestamp.fromDate(settle);
+        })(),
     });
     return {
         paymentIntentId: paymentIntent.id,
@@ -128,10 +148,16 @@ exports.captureTerminalPayment = functions
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Auth required');
     const { paymentIntentId, ticketId, eventId, venueId, amountCents, newTicketData, idScanData } = data;
-    // Confirm payment succeeded
+    // Retrieve PI — for manual capture it should be 'requires_capture'
     const pi = await stripeUtils_1.stripe.paymentIntents.retrieve(paymentIntentId);
-    if (pi.status !== 'succeeded') {
-        throw new functions.https.HttpsError('failed-precondition', `Payment not succeeded: ${pi.status}`);
+    const isAlreadyCaptured = pi.status === 'succeeded';
+    const canCapture = pi.status === 'requires_capture' || isAlreadyCaptured;
+    if (!canCapture) {
+        throw new functions.https.HttpsError('failed-precondition', `Payment cannot be captured: ${pi.status}`);
+    }
+    // Capture the payment (if not already captured by auto-settler)
+    if (pi.status === 'requires_capture') {
+        await stripeUtils_1.stripe.paymentIntents.capture(paymentIntentId);
     }
     // Look up venue for Stripe Connect account ID
     const venueSnap = await db.collection('venues').doc(venueId).get();
@@ -233,6 +259,11 @@ exports.captureTerminalPayment = functions
             admin.firestore().collection('config').doc('admin').set({ emailErrors: admin.firestore.FieldValue.increment(1) }, { merge: true });
         }
     }
+    // Mark pending auth as captured
+    await db.collection('terminalPendingAuths').doc(paymentIntentId).update({
+        status: 'captured',
+        capturedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }).catch(() => { }); // non-blocking
     return { success: true };
 });
 // ── refundDoorSale ────────────────────────────────────────────────────
@@ -287,5 +318,141 @@ exports.refundDoorSale = functions
         });
     }
     return { success: true, refundId: refund.id, status: refund.status };
+});
+// ── cancelDoorSale ────────────────────────────────────────────────────
+// Voids a manual authorization — guest never sees a charge at all.
+// Use when ID verification fails and venue does not override.
+exports.cancelDoorSale = functions
+    .https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Auth required');
+    const { paymentIntentId, reason, staffNote } = data;
+    const pi = await stripeUtils_1.stripe.paymentIntents.retrieve(paymentIntentId);
+    // Can only cancel if not yet captured
+    if (pi.status === 'succeeded') {
+        throw new functions.https.HttpsError('failed-precondition', 'Payment already captured — use refundDoorSale instead');
+    }
+    if (!['requires_capture', 'requires_payment_method', 'requires_confirmation'].includes(pi.status)) {
+        throw new functions.https.HttpsError('failed-precondition', `Cannot cancel PI with status: ${pi.status}`);
+    }
+    // Cancel = void. Authorization drops off customer's account within minutes.
+    await stripeUtils_1.stripe.paymentIntents.cancel(paymentIntentId);
+    // Record the void
+    await db.collection('terminalVoids').add({
+        paymentIntentId,
+        reason,
+        staffNote: staffNote || null,
+        staffUid: context.auth.uid,
+        source: 'id_verification_failure',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    // Update pending auth record
+    await db.collection('terminalPendingAuths').doc(paymentIntentId).update({
+        status: 'cancelled',
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelReason: reason,
+    }).catch(() => { });
+    return { success: true };
+});
+// ── autoSettlePendingDoorSales ────────────────────────────────────────
+// Scheduled function — runs daily at 6am ET.
+// Captures any door sale authorizations that were not explicitly approved
+// or cancelled (e.g., app crash, staff forgot, connectivity issue).
+// This is the safety net that guarantees venues always get their money.
+exports.autoSettlePendingDoorSales = functions.pubsub
+    .schedule('0 11 * * *') // 11am UTC = 6am ET
+    .timeZone('America/New_York')
+    .onRun(async () => {
+    const now = admin.firestore.Timestamp.now();
+    // Find all pending auths past their auto-settle time
+    const pendingSnap = await db.collection('terminalPendingAuths')
+        .where('status', '==', 'pending')
+        .where('autoSettleAt', '<=', now)
+        .get();
+    if (pendingSnap.empty) {
+        functions.logger.info('autoSettle: no pending auths to settle');
+        return;
+    }
+    functions.logger.info(`autoSettle: found ${pendingSnap.size} pending auths to settle`);
+    for (const doc of pendingSnap.docs) {
+        const auth = doc.data();
+        try {
+            // Check current PI status
+            const pi = await stripeUtils_1.stripe.paymentIntents.retrieve(auth.paymentIntentId);
+            if (pi.status === 'succeeded') {
+                // Already captured manually — just mark it
+                await doc.ref.update({ status: 'captured', capturedAt: now });
+                continue;
+            }
+            if (pi.status === 'canceled') {
+                await doc.ref.update({ status: 'cancelled' });
+                continue;
+            }
+            if (pi.status !== 'requires_capture') {
+                await doc.ref.update({
+                    status: 'auto_settle_skipped',
+                    skipReason: `Unexpected status: ${pi.status}`,
+                });
+                continue;
+            }
+            // Capture it
+            await stripeUtils_1.stripe.paymentIntents.capture(auth.paymentIntentId);
+            // Get venue Connect account for transfer
+            const venueSnap = await db.collection('venues').doc(auth.venueId).get();
+            const stripeConnectAccountId = venueSnap.data()?.stripeConnectAccountId || '';
+            const bookingFeeCents = (0, stripeUtils_1.calculateBookingFee)(auth.amountCents);
+            const venuePayout = auth.amountCents - bookingFeeCents;
+            // Transfer to venue
+            let stripeTransferId = null;
+            if (stripeConnectAccountId && venuePayout > 0) {
+                const capturedPi = await stripeUtils_1.stripe.paymentIntents.retrieve(auth.paymentIntentId);
+                const transfer = await stripeUtils_1.stripe.transfers.create({
+                    amount: venuePayout,
+                    currency: 'usd',
+                    destination: stripeConnectAccountId,
+                    source_transaction: capturedPi.latest_charge,
+                    metadata: {
+                        type: 'door_sale_auto_settled',
+                        paymentIntentId: auth.paymentIntentId,
+                        venueId: auth.venueId,
+                        eventId: auth.eventId,
+                    },
+                });
+                stripeTransferId = transfer.id;
+            }
+            // Write payment record
+            await db.collection('terminalPayments').add({
+                paymentIntentId: auth.paymentIntentId,
+                eventId: auth.eventId,
+                venueId: auth.venueId,
+                ticketId: auth.ticketId || null,
+                amountCents: auth.amountCents,
+                bookingFeeCents,
+                venuePayout,
+                stripeConnectAccountId: stripeConnectAccountId || null,
+                stripeTransferId,
+                staffUid: auth.staffUid,
+                status: 'succeeded',
+                source: 'tap_to_pay_auto_settled',
+                autoSettled: true,
+                idVerification: null, // no ID data — auto settled
+                createdAt: now,
+            });
+            await doc.ref.update({
+                status: 'captured',
+                capturedAt: now,
+                autoSettled: true,
+                stripeTransferId,
+            });
+            functions.logger.info(`autoSettle: captured ${auth.paymentIntentId} for venue ${auth.venueId}`);
+        }
+        catch (err) {
+            functions.logger.error(`autoSettle: failed for ${auth.paymentIntentId}:`, err.message);
+            await doc.ref.update({
+                status: 'auto_settle_failed',
+                failureReason: err.message,
+            });
+        }
+    }
 });
 //# sourceMappingURL=terminalFunctions.js.map
