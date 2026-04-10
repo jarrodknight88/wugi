@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   ActivityIndicator, Alert, Modal, SectionList, ScrollView,
+  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
@@ -22,7 +23,7 @@ const COLORS = [
 ];
 
 interface Ticket {
-  id: string; holderName: string; holderEmail: string;
+  id: string; holderName: string; holderEmail: string; holderPhone?: string;
   ticketTypeName: string; ticketTypeId: string; color: string;
   quantity: number; checkedIn: boolean; balanceDue: number; tableAssignment?: string;
 }
@@ -61,12 +62,13 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
   { visible: boolean; onClose: () => void; onCharge: (mode: PaymentMode) => void; ticketTypes: TicketType[]; eventName: string }) {
   const [name,   setName]   = useState('');
   const [email,  setEmail]  = useState('');
+  const [phone,  setPhone]  = useState('');
   const [table,  setTable]  = useState('');
   const [picked, setPicked] = useState<TicketType | null>(null);
   const [custom, setCustom] = useState('');
   const [useCustom, setUseCustom] = useState(false);
 
-  function reset() { setName(''); setEmail(''); setTable(''); setPicked(null); setCustom(''); setUseCustom(false); }
+  function reset() { setName(''); setEmail(''); setPhone(''); setTable(''); setPicked(null); setCustom(''); setUseCustom(false); }
 
   function handleClose() { reset(); onClose(); }
 
@@ -85,6 +87,7 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
       color:          picked.color,
       holderName:     name.trim(),
       holderEmail:    email.trim(),
+      holderPhone:    phone.trim(),
       tableAssignment: table.trim(),
     });
     reset();
@@ -98,6 +101,8 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <View style={s.guestModal}>
         <View style={s.guestHeader}>
           <Text style={s.guestTitle}>Add Guest</Text>
@@ -115,6 +120,11 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
           <TextInput style={s.guestInput} value={email} onChangeText={setEmail}
             placeholder="guest@email.com" placeholderTextColor="#555"
             keyboardType="email-address" autoCapitalize="none" />
+
+          <Text style={s.guestLabel}>Phone (optional)</Text>
+          <TextInput style={s.guestInput} value={phone} onChangeText={setPhone}
+            placeholder="(555) 000-0000" placeholderTextColor="#555"
+            keyboardType="phone-pad" />
 
           <Text style={s.guestLabel}>Table Assignment (optional)</Text>
           <TextInput style={s.guestInput} value={table} onChangeText={setTable}
@@ -174,6 +184,8 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
           </TouchableOpacity>
         </ScrollView>
       </View>
+      </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -194,7 +206,7 @@ export default function ManualLookupScreen() {
 
   // Load ticket types for Add Guest modal
   useEffect(() => {
-    if (!session?.eventId || session.isSuperAdmin) return;
+    if (!session?.eventId) return;
     firestore().collection('events').doc(session.eventId)
       .collection('ticketTypes').get()
       .then(snap => {
@@ -228,13 +240,14 @@ export default function ManualLookupScreen() {
     setSelected(new Set()); setMultiSelect(false);
     try {
       const ref = session.isSuperAdmin
-        ? firestore().collection('tickets')
+        ? firestore().collectionGroup('tickets')
         : firestore().collection('events').doc(session.eventId).collection('tickets');
       const snap = await ref.orderBy('holderName')
         .startAt(query.trim()).endAt(query.trim() + '\uf8ff').get();
       setResults(snap.docs.map(d => ({
         id: d.id, holderName: d.data().holderName || '',
         holderEmail: d.data().holderEmail || '',
+        holderPhone: d.data().holderPhone || '',
         ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
         ticketTypeId: d.data().ticketTypeId || '',
         color: d.data().color || '#2a7a5a',
@@ -315,7 +328,7 @@ export default function ManualLookupScreen() {
           <View style={s.cardTop}>
             <View style={s.cardLeft}>
               <Text style={s.name}>{item.holderName}</Text>
-              <Text style={s.sub}>{item.holderEmail || 'no email'}</Text>
+              <Text style={s.sub}>{item.holderEmail || 'no email'}{item.holderPhone ? ` · ${item.holderPhone}` : ''}</Text>
               <Text style={s.type}>{item.ticketTypeName}</Text>
             </View>
             {!multiSelect && (
@@ -353,6 +366,8 @@ export default function ManualLookupScreen() {
   }
 
   return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <View style={s.container}>
       {/* Payment modal */}
       <Modal visible={TAP_TO_PAY_ENABLED && !!paymentMode} animationType="slide" presentationStyle="pageSheet">
@@ -373,13 +388,13 @@ export default function ManualLookupScreen() {
         ticketTypes={ticketTypes} eventName={session?.eventName || ''}
         onCharge={(mode) => { setAddGuest(false); setPaymentMode(mode); }} />
 
-      {/* Header with + button */}
+      {/* Header with back + add button */}
       <View style={s.headerRow}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={s.title}>Manual Lookup</Text>
           <Text style={s.subtitle}>{session?.eventName}{multiSelect ? ` · ${selected.size} selected` : ''}</Text>
         </View>
-        {!multiSelect && !session?.isSuperAdmin && (
+        {!multiSelect && (
           <TouchableOpacity style={s.addBtn} onPress={() => setAddGuest(true)}>
             <Text style={s.addBtnText}>+ Add Guest</Text>
           </TouchableOpacity>
@@ -421,6 +436,8 @@ export default function ManualLookupScreen() {
         </View>
       )}
     </View>
+    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 

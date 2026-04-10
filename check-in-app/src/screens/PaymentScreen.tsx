@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, ScrollView, Vibration,
+  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform,
 } from 'react-native';
 import { useStripeTerminal } from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
@@ -38,6 +39,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [amountInput, setAmountInput] = useState((defaultAmount / 100).toFixed(2));
   const [holderName, setHolderName]   = useState(mode.type === 'balance' ? mode.holderName : '');
   const [holderEmail, setHolderEmail] = useState(mode.type === 'balance' ? (mode.holderEmail || '') : '');
+  const [holderPhone, setHolderPhone] = useState('');
   const [tableAssign, setTableAssign] = useState('');
   const [step, setStep]               = useState<PaymentStep>('details');
   const [errorMsg, setErrorMsg]       = useState('');
@@ -130,6 +132,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         newTicketData: mode.type === 'walkin' ? {
           holderName: holderName.trim(),
           holderEmail: holderEmail.trim(),
+          holderPhone: holderPhone.trim(),
           ticketTypeId: mode.ticketTypeId,
           ticketTypeName: mode.ticketTypeName,
           color: mode.color,
@@ -233,7 +236,9 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Details form (initial step)
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.form}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>{isWalkin ? '💳 Door Sale' : '💳 Collect Balance'}</Text>
       {!isWalkin && <Text style={styles.subtitle}>{mode.holderName}</Text>}
 
@@ -249,6 +254,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
             value={holderName} onChangeText={setHolderName} autoCapitalize="words" />
           <TextInput style={styles.field} placeholder="Email (optional)" placeholderTextColor="#555"
             value={holderEmail} onChangeText={setHolderEmail} keyboardType="email-address" autoCapitalize="none" />
+          <TextInput style={styles.field} placeholder="Phone (optional)" placeholderTextColor="#555"
+            value={holderPhone} onChangeText={setHolderPhone} keyboardType="phone-pad" />
           <TextInput style={styles.field} placeholder="Table assignment (optional)" placeholderTextColor="#555"
             value={tableAssign} onChangeText={setTableAssign} />
         </>
@@ -289,6 +296,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         <Text style={styles.cancelBtnText}>Cancel</Text>
       </TouchableOpacity>
     </ScrollView>
+    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -10,10 +10,16 @@ import {
 } from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 
+// Cache locationId per venueId for connectReader calls
+const locationIdCache: Record<string, string> = {};
+
 async function fetchConnectionToken(venueId: string): Promise<string> {
   const fn = httpsCallable(getFunctions(), 'createTerminalConnectionToken');
   const result = await fn({ venueId });
-  return (result.data as any).secret;
+  const data = result.data as any;
+  // Cache locationId so connectReader can use it
+  if (data.locationId) locationIdCache[venueId] = data.locationId;
+  return data.secret;
 }
 
 interface TerminalContextType {
@@ -35,7 +41,13 @@ function TerminalInner({ children }: { children: ReactNode }) {
     if (connectedReader) return;
     setIsConnecting(true); setError(null);
     try {
-      const { error: connErr } = await connectLocalMobileReader({ onBehalfOf: venueId });
+      // Fetch a connection token first to populate locationId cache if needed
+      if (!locationIdCache[venueId]) {
+        await fetchConnectionToken(venueId);
+      }
+      const locationId = locationIdCache[venueId];
+      const connectParams: any = { locationId };
+      const { error: connErr } = await connectLocalMobileReader(connectParams);
       if (connErr) setError(connErr.message);
     } catch (e: any) {
       setError(e.message || 'Failed to connect reader');

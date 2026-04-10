@@ -154,6 +154,12 @@ service cloud.firestore {
       allow write: if false;  // Cloud Functions only
     }
 
+    // ── Tickets collection group — for super admin cross-event queries ─
+    // Door app is PIN-based (no Firebase Auth), so allow read: if true
+    match /{path=**}/tickets/{ticketId} {
+      allow read: if true;
+    }
+
     // ── Event Galleries ──────────────────────────────────────────────
     match /eventGalleries/{galleryId} {
       allow read: if true;

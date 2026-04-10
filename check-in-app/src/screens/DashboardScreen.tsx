@@ -16,34 +16,49 @@ interface TicketTypeStat {
 
 export default function DashboardScreen() {
   const { session, clearSession, setSession } = useSession();
-  const [totalTickets, setTotalTickets]   = useState(0);
+  const [totalTickets, setTotalTickets]     = useState(0);
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [balanceDueCount, setBalanceDueCount] = useState(0);
-  const [typeStats, setTypeStats]         = useState<TicketTypeStat[]>([]);
-  const [lastUpdated, setLastUpdated]     = useState<Date>(new Date());
-  const [paymentMode, setPaymentMode]     = useState<PaymentMode | null>(null);
+  const [typeStats, setTypeStats]           = useState<TicketTypeStat[]>([]);
+  const [lastUpdated, setLastUpdated]       = useState<Date>(new Date());
+  const [paymentMode, setPaymentMode]       = useState<PaymentMode | null>(null);
 
-  // Live ticket stats from per-event subcollection
+  // Live ticket stats — venue event OR super admin aggregate
   useEffect(() => {
     if (!session) return;
-    if (session.isSuperAdmin) return; // no event to query in super admin mode
+
+    if (session.isSuperAdmin) {
+      // Super admin: aggregate across all events by listening to each event's tickets subcollection
+      // We use a collection group query for efficiency
+      const unsub = firestore()
+        .collectionGroup('tickets')
+        .onSnapshot(snap => {
+          const docs = snap.docs.map(d => d.data() as any);
+          setTotalTickets(docs.length);
+          setCheckedInCount(docs.filter(d => d.checkedIn).length);
+          setBalanceDueCount(docs.filter(d => (d.balanceDue ?? 0) > 0).length);
+          setLastUpdated(new Date());
+        }, () => {});
+      return unsub;
+    }
+
+    // Venue staff: single event
     const unsub = firestore()
       .collection('events').doc(session.eventId)
       .collection('tickets')
       .onSnapshot(snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        const docs = snap.docs.map(d => d.data() as any);
         setTotalTickets(docs.length);
-        setCheckedInCount(docs.filter((d: any) => d.checkedIn).length);
-        setBalanceDueCount(docs.filter((d: any) => (d.balanceDue ?? 0) > 0).length);
+        setCheckedInCount(docs.filter(d => d.checkedIn).length);
+        setBalanceDueCount(docs.filter(d => (d.balanceDue ?? 0) > 0).length);
         setLastUpdated(new Date());
-      }, () => {}); // silent error handler
+      }, () => {});
     return unsub;
   }, [session]);
 
-  // Live ticket type breakdown
+  // Live ticket type breakdown (venue only — super admin shows aggregate counts instead)
   useEffect(() => {
-    if (!session) return;
-    if (session.isSuperAdmin) return; // no event to query in super admin mode
+    if (!session || session.isSuperAdmin) return;
     const unsub = firestore()
       .collection('events').doc(session.eventId)
       .collection('ticketTypes')
@@ -57,12 +72,19 @@ export default function DashboardScreen() {
           price: d.data().price || 0,
           remaining: d.data().remaining ?? d.data().capacity ?? 0,
         })));
-      }, () => {}); // silent error handler
+      }, () => {});
     return unsub;
   }, [session]);
 
   const remaining = totalTickets - checkedInCount;
   const pct = totalTickets > 0 ? (checkedInCount / totalTickets) * 100 : 0;
+
+  function handleLogOut() {
+    Alert.alert('Log Out', 'Return to PIN entry screen?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log Out', style: 'destructive', onPress: clearSession },
+    ]);
+  }
 
   function handleEndSession() {
     Alert.alert('End Session', 'This will log you out of the current event.', [
@@ -74,7 +96,7 @@ export default function DashboardScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
-      {/* Payment modal — active once Tap to Pay entitlement approved */}
+      {/* Payment modal */}
       <Modal visible={TAP_TO_PAY_ENABLED && !!paymentMode} animationType="slide" presentationStyle="pageSheet">
         {TAP_TO_PAY_ENABLED && paymentMode && (() => {
           const PaymentScreen = require('./PaymentScreen').default;
@@ -99,7 +121,6 @@ export default function DashboardScreen() {
               </View>
               <TouchableOpacity
                 onPress={() => {
-                  // Return to event selector by resetting eventId
                   if (session) setSession({ ...session, eventId: '__super_admin__', eventName: 'All Events', venueName: 'Super Admin', venueId: '__super_admin__' });
                 }}
                 style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#7c3aed' }}>
@@ -108,9 +129,15 @@ export default function DashboardScreen() {
             </View>
           )}
         </View>
-        <TouchableOpacity style={styles.endBtn} onPress={handleEndSession}>
-          <Text style={styles.endBtnText}>End</Text>
-        </TouchableOpacity>
+        {session?.isSuperAdmin ? (
+          <TouchableOpacity style={styles.endBtn} onPress={handleLogOut}>
+            <Text style={styles.endBtnText}>Log Out</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.endBtn} onPress={handleEndSession}>
+            <Text style={styles.endBtnText}>End</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Stat cards */}
@@ -129,7 +156,7 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Balance due warning card */}
+      {/* Balance due warning */}
       {balanceDueCount > 0 && (
         <View style={styles.balanceCard}>
           <Text style={styles.balanceCardText}>⚠️  {balanceDueCount} ticket{balanceDueCount !== 1 ? 's' : ''} with balance due at door</Text>
@@ -144,42 +171,55 @@ export default function DashboardScreen() {
         <Text style={styles.progressPct}>{Math.round(pct)}% checked in</Text>
       </View>
 
-      {/* Ticket type breakdown + door sale buttons */}
-      <Text style={styles.sectionTitle}>Ticket Types</Text>
-      {typeStats.map(stat => (
-        <View key={stat.id} style={styles.typeRow}>
-          <View style={[styles.typeAccent, { backgroundColor: stat.color }]} />
-          <View style={styles.typeBody}>
-            <View style={styles.typeTop}>
-              <View>
-                <Text style={styles.typeName}>{stat.name}</Text>
-                <Text style={styles.typeSub}>
-                  {stat.remaining} left · ${(stat.price / 100).toFixed(2)}
-                </Text>
+      {/* Ticket type breakdown — venue only */}
+      {!session?.isSuperAdmin && (
+        <>
+          <Text style={styles.sectionTitle}>Ticket Types</Text>
+          {typeStats.map(stat => (
+            <View key={stat.id} style={styles.typeRow}>
+              <View style={[styles.typeAccent, { backgroundColor: stat.color }]} />
+              <View style={styles.typeBody}>
+                <View style={styles.typeTop}>
+                  <View>
+                    <Text style={styles.typeName}>{stat.name}</Text>
+                    <Text style={styles.typeSub}>
+                      {stat.remaining} left · ${(stat.price / 100).toFixed(2)}
+                    </Text>
+                  </View>
+                  {stat.remaining > 0 && (
+                    <TouchableOpacity
+                      style={[styles.doorSaleBtn, { backgroundColor: stat.color }]}
+                      onPress={() => setPaymentMode({
+                        type: 'walkin',
+                        ticketTypeName: stat.name,
+                        ticketTypeId: stat.id,
+                        price: stat.price,
+                        color: stat.color,
+                      })}>
+                      <Text style={styles.doorSaleBtnText}>💳 Door Sale</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={styles.typeBarBg}>
+                  <View style={[styles.typeBarFill, {
+                    width: `${stat.total > 0 ? ((stat.total - stat.remaining) / stat.total) * 100 : 0}%` as any,
+                    backgroundColor: stat.color,
+                  }]} />
+                </View>
               </View>
-              {stat.remaining > 0 && (
-                <TouchableOpacity
-                  style={[styles.doorSaleBtn, { backgroundColor: stat.color }]}
-                  onPress={() => setPaymentMode({
-                    type: 'walkin',
-                    ticketTypeName: stat.name,
-                    ticketTypeId: stat.id,
-                    price: stat.price,
-                    color: stat.color,
-                  })}>
-                  <Text style={styles.doorSaleBtnText}>💳 Door Sale</Text>
-                </TouchableOpacity>
-              )}
             </View>
-            <View style={styles.typeBarBg}>
-              <View style={[styles.typeBarFill, {
-                width: `${stat.total > 0 ? ((stat.total - stat.remaining) / stat.total) * 100 : 0}%` as any,
-                backgroundColor: stat.color,
-              }]} />
-            </View>
-          </View>
+          ))}
+        </>
+      )}
+
+      {/* Super admin note */}
+      {session?.isSuperAdmin && (
+        <View style={{ backgroundColor: '#1a1a2e', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#7c3aed33', marginTop: 8 }}>
+          <Text style={{ color: '#a78bfa', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>
+            ⚡ Showing aggregate across all active events
+          </Text>
         </View>
-      ))}
+      )}
 
       <Text style={styles.updated}>Live · Updated {lastUpdated.toLocaleTimeString()}</Text>
     </ScrollView>

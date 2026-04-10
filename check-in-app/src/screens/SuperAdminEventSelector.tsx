@@ -39,7 +39,7 @@ function isUpcoming(dateStr: string): boolean {
 }
 
 export default function SuperAdminEventSelector() {
-  const { session, setSession } = useSession();
+  const { session, setSession, clearSession } = useSession();
   const [events, setEvents]       = useState<EventOption[]>([]);
   const [loading, setLoading]     = useState(true);
   const [query, setQuery]         = useState('');
@@ -144,12 +144,17 @@ export default function SuperAdminEventSelector() {
       <SafeAreaView>
         {/* Header */}
         <View style={styles.header}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>Select Event</Text>
             <View style={styles.superAdminBadge}>
               <Text style={styles.superAdminText}>⚡ SUPER ADMIN</Text>
             </View>
           </View>
+          <TouchableOpacity
+            onPress={clearSession}
+            style={styles.logOutBtn}>
+            <Text style={styles.logOutBtnText}>Log Out</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Search bar */}
@@ -219,7 +224,7 @@ export default function SuperAdminEventSelector() {
 const styles = StyleSheet.create({
   container:        { flex: 1, backgroundColor: '#0a0a0a' },
   centered:         { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
-  header:           { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  header:           { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   headerTitle:      { fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 6 },
   superAdminBadge:  { backgroundColor: '#7c3aed', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
   superAdminText:   { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
@@ -249,4 +254,6 @@ const styles = StyleSheet.create({
   emptyText:        { color: '#555', fontSize: 15, textAlign: 'center', paddingHorizontal: 32 },
   showAllLink:      { marginTop: 16, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, borderWidth: 1, borderColor: '#7c3aed' },
   showAllLinkText:  { color: '#a78bfa', fontWeight: '600', fontSize: 14 },
+  logOutBtn:        { backgroundColor: '#2a1a1a', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cc3333', alignSelf: 'flex-start' },
+  logOutBtnText:    { color: '#cc3333', fontWeight: '700', fontSize: 14 },
 });
