@@ -32,7 +32,7 @@ interface TerminalContextType {
 const TerminalContext = createContext<TerminalContextType | null>(null);
 
 function TerminalInner({ children, venueId }: { children: ReactNode; venueId: string }) {
-  const { connectReader: sdkConnectReader, disconnectReader, connectedReader, isInitialized } = useStripeTerminal();
+  const { connectReader: sdkConnectReader, disconnectReader, connectedReader, initialize } = useStripeTerminal();
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,12 +62,21 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
     } finally { setIsConnecting(false); }
   }, [connectedReader, sdkConnectReader]);
 
-  // Auto-connect once SDK is initialized
+  // Initialize SDK then auto-connect
   React.useEffect(() => {
-    if (isInitialized && venueId && venueId !== '__super_admin__' && !connectedReader) {
-      connectReader(venueId);
+    if (!venueId || venueId === '__super_admin__') return;
+    let cancelled = false;
+    async function initAndConnect() {
+      try {
+        await initialize();
+        if (!cancelled) await connectReader(venueId);
+      } catch (e: any) {
+        console.warn('Terminal init error:', e.message);
+      }
     }
-  }, [isInitialized, venueId]);
+    initAndConnect();
+    return () => { cancelled = true; };
+  }, [venueId]);
 
   const disconnect = useCallback(async () => {
     await disconnectReader();
