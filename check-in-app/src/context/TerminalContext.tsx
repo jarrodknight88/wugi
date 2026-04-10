@@ -60,7 +60,7 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
       console.warn('Terminal connect exception:', e.message);
       setError(e.message || 'Failed to connect reader');
     } finally { setIsConnecting(false); }
-  }, [connectedReader, connectLocalMobileReader]);
+  }, [connectedReader, sdkConnectReader]);
 
   // Auto-connect on mount
   React.useEffect(() => {
