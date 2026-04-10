@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = void 0;
+exports.refundDoorSale = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Stripe Terminal: Connection Token + PaymentIntent
 // Used exclusively by Wugi Door for Tap to Pay
@@ -90,13 +90,20 @@ exports.createTerminalPaymentIntent = functions
     const { amountCents, venueId, eventId, ticketId, description, statementDescriptor, customerName, customerEmail } = data;
     if (!amountCents || amountCents < 50)
         throw new functions.https.HttpsError('invalid-argument', 'Minimum charge is $0.50');
+    // Fetch venue for custom descriptor
+    const venueSnap = await db.collection('venues').doc(venueId).get();
+    // Use venue's custom payment descriptor if set (for discretion)
+    const venueDescriptor = venueSnap.exists
+        ? venueSnap.data()?.paymentDescriptor || statementDescriptor || ''
+        : statementDescriptor || '';
+    const cleanDescriptor = venueDescriptor.slice(0, 22).replace(/[^a-zA-Z0-9 ]/g, '').trim();
     const paymentIntent = await stripeUtils_1.stripe.paymentIntents.create({
         amount: amountCents,
         currency: 'usd',
         payment_method_types: ['card_present'],
         capture_method: 'automatic',
         description: description || 'Wugi door payment',
-        ...(statementDescriptor ? { statement_descriptor: statementDescriptor } : {}),
+        ...(cleanDescriptor ? { statement_descriptor: cleanDescriptor } : {}),
         metadata: {
             venueId,
             eventId,
@@ -120,7 +127,7 @@ exports.captureTerminalPayment = functions
     .https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Auth required');
-    const { paymentIntentId, ticketId, eventId, venueId, amountCents, newTicketData } = data;
+    const { paymentIntentId, ticketId, eventId, venueId, amountCents, newTicketData, idScanData } = data;
     // Confirm payment succeeded
     const pi = await stripeUtils_1.stripe.paymentIntents.retrieve(paymentIntentId);
     if (pi.status !== 'succeeded') {
@@ -196,9 +203,89 @@ exports.captureTerminalPayment = functions
         staffUid: context.auth.uid,
         status: 'succeeded',
         source: 'tap_to_pay',
+        // ID scan evidence stored with payment for chargeback disputes
+        idVerification: idScanData || null,
         createdAt: now,
     });
     await batch.commit();
+    // Send receipt via email or SMS (non-blocking)
+    const recipientEmail = newTicketData?.holderEmail;
+    const recipientPhone = newTicketData?.holderPhone;
+    if (recipientEmail || recipientPhone) {
+        try {
+            const { sendDoorSaleReceipt } = await Promise.resolve().then(() => __importStar(require('../email/emailService')));
+            const venueData2 = (await db.collection('venues').doc(venueId).get()).data();
+            const eventData2 = (await db.collection('events').doc(eventId).get()).data();
+            if (recipientEmail) {
+                await sendDoorSaleReceipt({
+                    to: recipientEmail,
+                    holderName: newTicketData?.holderName || '',
+                    eventTitle: eventData2?.title || '',
+                    venueName: venueData2?.name || '',
+                    ticketType: newTicketData?.ticketTypeName || '',
+                    amountCents,
+                    paymentIntentId,
+                    tableAssignment: newTicketData?.tableAssignment,
+                });
+            }
+        }
+        catch (emailErr) {
+            admin.firestore().collection('config').doc('admin').set({ emailErrors: admin.firestore.FieldValue.increment(1) }, { merge: true });
+        }
+    }
     return { success: true };
+});
+// ── refundDoorSale ────────────────────────────────────────────────────
+// Instant refund for door sales where ID verification fails/denied.
+// Stripe card_present refunds appear within minutes on most banks.
+exports.refundDoorSale = functions
+    .https.onCall(async (data, context) => {
+    if (!context.auth)
+        throw new functions.https.HttpsError('unauthenticated', 'Auth required');
+    const { paymentIntentId, reason, staffNote } = data;
+    // Retrieve PI to get the charge ID
+    const pi = await stripeUtils_1.stripe.paymentIntents.retrieve(paymentIntentId);
+    if (pi.status !== 'succeeded') {
+        throw new functions.https.HttpsError('failed-precondition', 'Payment not succeeded — cannot refund');
+    }
+    const chargeId = typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge?.id;
+    if (!chargeId)
+        throw new functions.https.HttpsError('not-found', 'No charge found on payment intent');
+    // Issue instant refund
+    const refund = await stripeUtils_1.stripe.refunds.create({
+        charge: chargeId,
+        reason: 'fraudulent',
+        metadata: {
+            refundReason: reason,
+            staffUid: context.auth.uid,
+            staffNote: staffNote || '',
+            source: 'wugi_door_id_verification',
+        },
+    });
+    // Record refund in Firestore
+    await db.collection('terminalRefunds').add({
+        paymentIntentId,
+        chargeId,
+        stripeRefundId: refund.id,
+        amount: refund.amount,
+        reason,
+        staffNote: staffNote || null,
+        staffUid: context.auth.uid,
+        status: refund.status,
+        source: 'id_verification_failure',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    // Also update the terminalPayment doc if it exists
+    const paymentSnap = await db.collection('terminalPayments')
+        .where('paymentIntentId', '==', paymentIntentId).limit(1).get();
+    if (!paymentSnap.empty) {
+        await paymentSnap.docs[0].ref.update({
+            status: 'refunded',
+            refundId: refund.id,
+            refundReason: reason,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+    return { success: true, refundId: refund.id, status: refund.status };
 });
 //# sourceMappingURL=terminalFunctions.js.map

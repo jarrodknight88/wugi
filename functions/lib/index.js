@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onTicketColorChange = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = exports.generateSeriesEventsScheduled = exports.generateSeriesEvents = exports.createDashboardUser = exports.validateSuperAdminPin = exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
+exports.onTicketColorChange = exports.refundDoorSale = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = exports.generateSeriesEventsScheduled = exports.generateSeriesEvents = exports.createDashboardUser = exports.validateSuperAdminPin = exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Cloud Functions Index
 // ─────────────────────────────────────────────────────────────────────
@@ -86,6 +86,7 @@ var terminalFunctions_1 = require("./terminal/terminalFunctions");
 Object.defineProperty(exports, "createTerminalConnectionToken", { enumerable: true, get: function () { return terminalFunctions_1.createTerminalConnectionToken; } });
 Object.defineProperty(exports, "createTerminalPaymentIntent", { enumerable: true, get: function () { return terminalFunctions_1.createTerminalPaymentIntent; } });
 Object.defineProperty(exports, "captureTerminalPayment", { enumerable: true, get: function () { return terminalFunctions_1.captureTerminalPayment; } });
+Object.defineProperty(exports, "refundDoorSale", { enumerable: true, get: function () { return terminalFunctions_1.refundDoorSale; } });
 var ticketColorSync_1 = require("./passes/ticketColorSync");
 Object.defineProperty(exports, "onTicketColorChange", { enumerable: true, get: function () { return ticketColorSync_1.onTicketColorChange; } });
 //# sourceMappingURL=index.js.map

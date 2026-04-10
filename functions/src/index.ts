@@ -25,5 +25,5 @@ export { generateDoorPin }      from './door/generateDoorPin';
 export { validateSuperAdminPin } from './door/validateSuperAdminPin';
 export { createDashboardUser }  from './users/createDashboardUser';
 export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
-export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment } from './terminal/terminalFunctions';
+export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment, refundDoorSale } from './terminal/terminalFunctions';
 export { onTicketColorChange } from './passes/ticketColorSync';

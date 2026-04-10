@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendPurchaseConfirmation = sendPurchaseConfirmation;
 exports.sendTransferNotification = sendTransferNotification;
 exports.sendReclaimEmail = sendReclaimEmail;
+exports.sendDoorSaleReceipt = sendDoorSaleReceipt;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — emailService.ts
 // Sends transactional emails via Resend
@@ -186,5 +187,39 @@ async function sendReclaimEmail(data) {
         html,
     });
     functions.logger.info('Reclaim email sent to:', data.to);
+}
+async function sendDoorSaleReceipt(data) {
+    const resend = getResend();
+    const amount = `$${(data.amountCents / 100).toFixed(2)}`;
+    const html = wrap(`
+    <h2 style="color:#111;font-size:22px;font-weight:800;margin:0 0 4px">Payment Confirmed 💳</h2>
+    <p style="color:#666;margin:0 0 24px">Thank you! Your entry has been processed.</p>
+
+    <div style="background:#f5f3ef;border-radius:${RADIUS};padding:20px;margin-bottom:24px">
+      <p style="color:#111;font-size:18px;font-weight:800;margin:0 0 4px">${data.eventTitle}</p>
+      <p style="color:#666;font-size:14px;margin:0">${data.venueName}</p>
+    </div>
+
+    <table width="100%" cellpadding="0" cellspacing="0">
+      ${row('Guest', data.holderName)}
+      ${row('Ticket Type', data.ticketType)}
+      ${data.tableAssignment ? row('Table', data.tableAssignment) : ''}
+      ${divider}
+      ${row('Amount Charged', amount)}
+      ${row('Reference', data.paymentIntentId.slice(-8).toUpperCase())}
+    </table>
+
+    ${divider}
+    <p style="color:#999;font-size:12px;text-align:center;margin:0">
+      All sales are final · No refunds · Valid ID required
+    </p>
+  `);
+    await resend.emails.send({
+        from: FROM,
+        to: data.to,
+        subject: `Receipt — ${data.venueName} · ${amount}`,
+        html,
+    });
+    functions.logger.info('Door sale receipt sent to:', data.to);
 }
 //# sourceMappingURL=emailService.js.map

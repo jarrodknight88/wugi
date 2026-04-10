@@ -22,6 +22,7 @@ export interface IDScanProps {
   amountCents?: number;   // used in bypass warning
   onVerified: (result: VerificationResult) => void;
   onSkip: () => void;
+  onRefund?: () => void;
 }
 
 export interface VerificationResult {
@@ -74,7 +75,7 @@ function BypassModal({
 
 export default function IDScanScreen({
   ticketId, holderName, cardLast4, cardholderName, minAge = 21,
-  amountCents = 0, onVerified, onSkip,
+  amountCents = 0, onVerified, onSkip, onRefund,
 }: IDScanProps) {
   const { session } = useSession();
   const [permission, requestPermission] = useCameraPermissions();
@@ -275,16 +276,26 @@ export default function IDScanScreen({
           {expired && <Warn text="This ID is expired — do not accept" />}
           {verification.cardNameMatch === false && <Warn text="Card name doesn't match ID — verify with guest" />}
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.skipBtn} onPress={handleSkipRequest}>
-              <Text style={styles.skipBtnText}>Skip</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.rescanBtn} onPress={() => { scanned.current = false; setScanState('scanning'); }}>
               <Text style={styles.rescanBtnText}>Rescan</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: overallOk ? '#2a7a5a' : '#b45309' }]}
-              onPress={overallOk ? saveAndContinue : handleSkipRequest} disabled={saving}>
-              <Text style={styles.confirmBtnText}>{saving ? 'Saving…' : overallOk ? 'Confirm' : 'Override & Save'}</Text>
-            </TouchableOpacity>
+            {!overallOk && onRefund && (
+              <TouchableOpacity style={styles.refundBtn} onPress={onRefund}>
+                <Text style={styles.refundBtnText}>↩ Refund</Text>
+              </TouchableOpacity>
+            )}
+            {!overallOk && (
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: '#b45309' }]}
+                onPress={handleSkipRequest} disabled={saving}>
+                <Text style={styles.confirmBtnText}>Override</Text>
+              </TouchableOpacity>
+            )}
+            {overallOk && (
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: '#2a7a5a', flex: 2 }]}
+                onPress={saveAndContinue} disabled={saving}>
+                <Text style={styles.confirmBtnText}>{saving ? 'Saving…' : 'Confirm & Proceed'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </Animated.ScrollView>
       )}
@@ -349,6 +360,8 @@ const styles = StyleSheet.create({
   skipBtnText: { color: '#555', fontWeight: '600', fontSize: 14 },
   rescanBtn: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#1a1a2a', borderWidth: 1, borderColor: '#2a2a4a' },
   rescanBtnText: { color: '#7c8aed', fontWeight: '600', fontSize: 14 },
+  refundBtn:     { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#2a1a1a', borderWidth: 1, borderColor: '#cc3333' },
+  refundBtnText: { color: '#cc3333', fontWeight: '700', fontSize: 14 },
   confirmBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
   confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   permText: { color: '#aaa', textAlign: 'center', marginBottom: 20, fontSize: 15, paddingHorizontal: 32 },

@@ -54,6 +54,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [idVerification, setIdVerification] = useState<VerificationResult | null>(null);
   const [completedTicketId, setCompletedTicketId] = useState('');
   const [cardholderName, setCardholderName] = useState('');
+  const [isRefunding, setIsRefunding] = useState(false);
   const [collectedPaymentIntent, setCollectedPaymentIntent] = useState<any>(null);
   const [paymentIntentId, setPaymentIntentId] = useState('');
   const [idThreshold, setIdThreshold] = useState(30000); // default $300
@@ -97,6 +98,25 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   }
   function onIDSkipped() {
     startPayment(null);
+  }
+
+  async function handleInstantRefund() {
+    if (!paymentIntentId || isRefunding) return;
+    setIsRefunding(true);
+    try {
+      const refundFn = httpsCallable(getFunctions(), 'refundDoorSale');
+      await refundFn({
+        paymentIntentId,
+        reason: 'id_mismatch',
+        staffNote: 'ID verification failed at door — instant refund issued',
+      });
+      setStep('error');
+      setErrorMsg('ID verification failed. Card has been refunded. The customer should see the refund within minutes.');
+    } catch (e: any) {
+      Alert.alert('Refund Failed', 'Could not process refund automatically. Please contact support.');
+    } finally {
+      setIsRefunding(false);
+    }
   }
 
   async function startPayment(verification: VerificationResult | null) {
@@ -170,6 +190,16 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
             cardNameMatch: verification.cardNameMatch,
             scannedAt: new Date().toISOString(),
           } : null,
+        idScanData: verification ? {
+          idName: verification.idName,
+          idNumberLast4: verification.idNumberLast4,
+          idState: verification.idState,
+          age: verification.age,
+          nameMatchScore: Math.round(verification.nameMatchScore * 100),
+          cardNameMatch: verification.cardNameMatch,
+          verified: verification.verified,
+          scannedAt: new Date().toISOString(),
+        } : undefined,
         } : undefined,
       });
 
@@ -202,6 +232,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         minAge={21}
         onVerified={onIDVerified}
         onSkip={onIDSkipped}
+        onRefund={paymentIntentId ? handleInstantRefund : undefined}
       />
     );
   }
