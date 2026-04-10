@@ -34,7 +34,8 @@ interface Props {
   onCancel: () => void;
 }
 
-// Steps: details form → id_scan → collecting payment → processing → success/error
+// New flow: details → connecting → collecting (card tap) → id_scan → processing (capture) → success/error
+// Card tap FIRST so cardholder name is available for ID comparison. Manual capture = no charge until approved.
 type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'processing' | 'success' | 'error';
 
 export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
@@ -76,63 +77,12 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
-  // ── Step 1: Validate form → ID scan (if needed) → card tap → capture
-  function handleCharge() {
+  // ── Step 1: Validate form → card tap (manual auth) → ID scan → approve/void
+  async function handleCharge() {
     if (amountCents < 50) { Alert.alert('Minimum charge is $0.50'); return; }
     if (mode.type === 'walkin' && !holderName.trim()) {
       Alert.alert('Name required', 'Please enter the guest name.'); return;
     }
-    // ID scan FIRST so staff verifies identity before charging
-    const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
-    if (needsID) {
-      setStep('id_scan');
-    } else {
-      startPayment(null);
-    }
-  }
-
-  // ── Step 2: ID scan done → card tap → confirm → capture ──────────
-  function onIDVerified(result: VerificationResult) {
-    setIdVerification(result);
-    startPayment(result);
-  }
-  function onIDSkipped() {
-    startPayment(null);
-  }
-
-  async function handleVoidAuthorization() {
-    // Voids the manual authorization — customer never sees a charge at all
-    if (!paymentIntentId || isRefunding) return;
-    setIsRefunding(true);
-    try {
-      const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
-      await cancelFn({
-        paymentIntentId,
-        reason: 'id_mismatch',
-        staffNote: 'ID verification failed at door — authorization voided',
-      });
-      setStep('error');
-      setErrorMsg('Authorization voided. No charge was made — the hold will disappear from the customer\'s account within minutes.');
-    } catch (e: any) {
-      // If void fails (e.g., already captured by auto-settler), fall back to refund
-      try {
-        const refundFn = httpsCallable(getFunctions(), 'refundDoorSale');
-        await refundFn({
-          paymentIntentId,
-          reason: 'id_mismatch',
-          staffNote: 'ID verification failed — void failed, issued refund instead',
-        });
-        setStep('error');
-        setErrorMsg('ID verification failed. Card has been refunded. The customer should see the credit within minutes.');
-      } catch {
-        Alert.alert('Error', 'Could not void or refund automatically. Please contact support.');
-      }
-    } finally {
-      setIsRefunding(false);
-    }
-  }
-
-  async function startPayment(verification: VerificationResult | null) {
     if (!session) return;
     setStep('connecting');
     try {
@@ -142,6 +92,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         if (!isReady) throw new Error('Reader not connected. Tap the status indicator to retry.');
       }
 
+      // Create PI with manual capture — authorization only, no charge yet
       const createPI = httpsCallable(getFunctions(), 'createTerminalPaymentIntent');
       const result = await createPI({
         amountCents,
@@ -164,28 +115,45 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       const { paymentIntent: retrievedPI, error: retrieveErr } = await retrievePaymentIntent(clientSecret);
       if (retrieveErr) throw new Error(retrieveErr.message);
 
-      // Card tap
+      // STEP 1: Card tap — authorize only (manual capture = $0 charged yet)
       const { paymentIntent: collectedPI, error: collectErr } = await collectPaymentMethod({ paymentIntent: retrievedPI! });
       if (collectErr) throw new Error(collectErr.message);
 
-      setCollectedPaymentIntent(collectedPI);
-      setStep('processing');
-
-      // Confirm — card is charged here
+      // STEP 2: Confirm — this authorizes the card but does NOT charge (manual capture)
       const { error: confirmErr } = await confirmPaymentIntent({ paymentIntent: collectedPI! });
       if (confirmErr) throw new Error(confirmErr.message);
 
-      // Extract card name from confirmed PI for the record
+      // Extract cardholder name NOW (available after confirm on manual capture)
       const pm = (collectedPI as any)?.paymentMethod;
       const piCardName = pm?.cardPresent?.name || pm?.card?.cardholderName || pm?.billingDetails?.name || '';
       setCardholderName(piCardName);
+      setCollectedPaymentIntent(collectedPI);
+      setPaymentIntentId(piId);
 
+      // STEP 3: ID scan — now we have the real card name to compare against
+      const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+      if (needsID) {
+        setStep('id_scan'); // ID scan callbacks handle approve (capture) or deny (void)
+      } else {
+        await captureAfterApproval(piId, null); // No ID required — capture immediately
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Payment failed');
+      setStep('error');
+    }
+  }
+
+  // ── Step 4a: ID approved → capture payment ────────────────────────
+  async function captureAfterApproval(piId: string, verification: VerificationResult | null) {
+    setIdVerification(verification);
+    setStep('processing');
+    try {
       const capture = httpsCallable(getFunctions(), 'captureTerminalPayment');
       await capture({
         paymentIntentId: piId,
         ticketId: mode.type === 'balance' ? mode.ticketId : undefined,
-        eventId: session.eventId,
-        venueId: session.venueId,
+        eventId: session!.eventId,
+        venueId: session!.venueId,
         amountCents,
         newTicketData: mode.type === 'walkin' ? {
           holderName: holderName.trim(),
@@ -203,6 +171,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
             cardNameMatch: verification.cardNameMatch,
             scannedAt: new Date().toISOString(),
           } : null,
+        } : undefined,
         idScanData: verification ? {
           idName: verification.idName,
           idNumberLast4: verification.idNumberLast4,
@@ -213,16 +182,55 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
           verified: verification.verified,
           scannedAt: new Date().toISOString(),
         } : undefined,
-        } : undefined,
       });
-
       Vibration.vibrate(200);
       setStep('success');
       setTimeout(onSuccess, 1800);
     } catch (e: any) {
-      setErrorMsg(e.message || 'Payment failed');
+      setErrorMsg(e.message || 'Capture failed');
       setStep('error');
     }
+  }
+
+  // ── Step 4b: ID denied → void authorization ───────────────────────
+  async function handleVoidAuthorization() {
+    if (!paymentIntentId || isRefunding) return;
+    setIsRefunding(true);
+    try {
+      const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
+      await cancelFn({
+        paymentIntentId,
+        reason: 'id_mismatch',
+        staffNote: 'ID verification failed at door — authorization voided',
+      });
+      setStep('error');
+      setErrorMsg('Authorization voided. No charge was made — the hold will disappear from the customer\'s account within minutes.');
+    } catch (e: any) {
+      // Fallback to refund if void fails (e.g., auto-settler already captured)
+      try {
+        const refundFn = httpsCallable(getFunctions(), 'refundDoorSale');
+        await refundFn({
+          paymentIntentId,
+          reason: 'id_mismatch',
+          staffNote: 'ID verification failed — void failed, issued refund instead',
+        });
+        setStep('error');
+        setErrorMsg('ID verification failed. Card has been refunded. The customer should see the credit within minutes.');
+      } catch {
+        Alert.alert('Error', 'Could not void automatically. Please contact support.');
+      }
+    } finally {
+      setIsRefunding(false);
+    }
+  }
+
+  // ID scan callbacks
+  function onIDVerified(result: VerificationResult) {
+    captureAfterApproval(paymentIntentId, result);
+  }
+  function onIDSkipped() {
+    // Override accepted — capture anyway, liability on staff
+    captureAfterApproval(paymentIntentId, null);
   }
 
   async function handleCancel() {
@@ -234,7 +242,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const isWalkin = mode.type === 'walkin';
   const guestName = holderName || (mode.type === 'balance' ? mode.holderName : '');
 
-  // ID Scan — step between form and payment
+  // ID Scan — shown AFTER card tap. Card is authorized but NOT charged yet.
+  // Staff approves → capture. Staff denies → void (no charge ever).
   if (step === 'id_scan') {
     return (
       <IDScanScreen
@@ -354,7 +363,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         if (!needsID) return null;
         return (
           <View style={styles.idNotice}>
-            <Text style={styles.idNoticeText}>🪪  Guest ID scan required before charging</Text>
+            <Text style={styles.idNoticeText}>🪪  ID scan required — card tap happens first, then ID verified before charge settles</Text>
           </View>
         );
       })()}
@@ -369,9 +378,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         disabled={amountCents < 50}
       >
         <Text style={styles.chargeBtnText}>
-          {(idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold))
-            ? `Scan ID & Charge $${(amountCents / 100).toFixed(2)}`
-            : `Charge $${(amountCents / 100).toFixed(2)}`}
+          Charge ${(amountCents / 100).toFixed(2)}
         </Text>
       </TouchableOpacity>
 
