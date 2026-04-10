@@ -90,9 +90,6 @@ exports.createTerminalPaymentIntent = functions
     const { amountCents, venueId, eventId, ticketId, description, customerName, customerEmail } = data;
     if (!amountCents || amountCents < 50)
         throw new functions.https.HttpsError('invalid-argument', 'Minimum charge is $0.50');
-    // Look up Stripe location for this venue
-    const venueSnap = await db.collection('venues').doc(venueId).get();
-    const stripeLocationId = venueSnap.data()?.stripeTerminalLocationId;
     const paymentIntent = await stripeUtils_1.stripe.paymentIntents.create({
         amount: amountCents,
         currency: 'usd',
@@ -108,7 +105,6 @@ exports.createTerminalPaymentIntent = functions
             source: 'wugi_door',
             staffUid: context.auth.uid,
         },
-        ...(stripeLocationId ? { terminal_id: stripeLocationId } : {}),
     });
     return {
         paymentIntentId: paymentIntent.id,

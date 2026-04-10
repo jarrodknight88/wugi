@@ -66,8 +66,8 @@ function ColorPickerModal({ visible, onSelect, onClose, selectedColor }:
 }
 
 // ── Add Guest Modal ───────────────────────────────────────────────────
-function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
-  { visible: boolean; onClose: () => void; onCharge: (mode: PaymentMode) => void; ticketTypes: TicketType[]; eventName: string }) {
+function AddGuestModal({ visible, onClose, onCharge, ticketTypes, venueTables, eventName }:
+  { visible: boolean; onClose: () => void; onCharge: (mode: PaymentMode) => void; ticketTypes: TicketType[]; venueTables: string[]; eventName: string }) {
   const guestEmailRef = useRef<any>(null);
   const guestPhoneRef = useRef<any>(null);
   const guestTableRef = useRef<any>(null);
@@ -141,9 +141,21 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, eventName }:
             returnKeyType="next" onSubmitEditing={() => guestTableRef.current?.focus()} blurOnSubmit={false} />
 
           <Text style={s.guestLabel}>Table Assignment (optional)</Text>
-          <TextInput ref={guestTableRef} style={s.guestInput} value={table} onChangeText={setTable}
-            placeholder="e.g. Table 5" placeholderTextColor="#555"
-            returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
+          {venueTables.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}
+              contentContainerStyle={{ gap: 8, paddingVertical: 4 }} keyboardShouldPersistTaps="handled">
+              {['None', ...venueTables].map(t => (
+                <TouchableOpacity key={t} onPress={() => setTable(t === 'None' ? '' : t)}
+                  style={[s.tableChip, table === (t === 'None' ? '' : t) && s.tableChipSelected]}>
+                  <Text style={[s.tableChipText, table === (t === 'None' ? '' : t) && s.tableChipTextSelected]}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <TextInput ref={guestTableRef} style={s.guestInput} value={table} onChangeText={setTable}
+              placeholder="e.g. Table 5" placeholderTextColor="#555"
+              returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
+          )}
 
           {/* Ticket type selection */}
           <Text style={s.guestLabel}>Ticket Type *</Text>
@@ -217,11 +229,12 @@ export default function ManualLookupScreen() {
   const [saving, setSaving]           = useState(false);
   const [addGuest, setAddGuest]       = useState(false);
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
+  const [venueTables, setVenueTables] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
 
-  // Load ticket types for Add Guest modal
+  // Load ticket types + venue tables for Add Guest modal
   useEffect(() => {
-    if (!session?.eventId) return;
+    if (!session?.eventId || session.eventId === '__super_admin__') return;
     firestore().collection('events').doc(session.eventId)
       .collection('ticketTypes').get()
       .then(snap => {
@@ -235,18 +248,29 @@ export default function ManualLookupScreen() {
           active: d.data().active !== false,
         })));
       }).catch(() => {});
+    if (session?.venueId && session.venueId !== '__super_admin__') {
+      firestore().collection('venues').doc(session.venueId)
+        .collection('tables').get()
+        .then(snap => {
+          const names = snap.docs
+            .map(d => d.data().name || d.data().label || d.id)
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+          setVenueTables(names);
+        }).catch(() => {});
+    }
   }, [session?.eventId]);
 
-  // Load ALL tickets on mount so list is populated without needing to search
+  // Live ticket list — real-time listener sorted client-side
   useEffect(() => {
-    if (!session) return;
+    if (!session?.eventId || session.eventId === '__super_admin__') return;
     setLoading(true);
-    const ref = session.isSuperAdmin
-      ? firestore().collectionGroup('tickets')
-      : firestore().collection('events').doc(session.eventId).collection('tickets');
-    ref.orderBy('holderName').limit(200).get()
-      .then(snap => {
-        setResults(snap.docs.map(d => ({
+    const ref = firestore()
+      .collection('events').doc(session.eventId)
+      .collection('tickets');
+    const unsub = ref.onSnapshot(
+      snap => {
+        const docs = snap.docs.map(d => ({
           id: d.id, holderName: d.data().holderName || '',
           holderEmail: d.data().holderEmail || '',
           holderPhone: d.data().holderPhone || '',
@@ -257,9 +281,18 @@ export default function ManualLookupScreen() {
           checkedIn: d.data().checkedIn === true,
           balanceDue: d.data().balanceDue ?? 0,
           tableAssignment: d.data().tableAssignment || '',
-        })));
-      }).catch(() => {})
-      .finally(() => setLoading(false));
+        }));
+        // Sort client-side — no index required
+        docs.sort((a, b) => a.holderName.localeCompare(b.holderName));
+        setResults(docs);
+        setLoading(false);
+      },
+      err => {
+        console.warn('Ticket load error:', err.message);
+        setLoading(false);
+      }
+    );
+    return unsub;
   }, [session?.eventId]);
 
   const sections = useMemo(() => {
@@ -282,9 +315,9 @@ export default function ManualLookupScreen() {
       const ref = session.isSuperAdmin
         ? firestore().collectionGroup('tickets')
         : firestore().collection('events').doc(session.eventId).collection('tickets');
-      const snap = await ref.orderBy('holderName')
-        .startAt(query.trim()).endAt(query.trim() + '\uf8ff').get();
-      setResults(snap.docs.map(d => ({
+      const snap = await ref.get();
+      const q = query.trim().toLowerCase();
+      const all = snap.docs.map(d => ({
         id: d.id, holderName: d.data().holderName || '',
         holderEmail: d.data().holderEmail || '',
         holderPhone: d.data().holderPhone || '',
@@ -295,7 +328,10 @@ export default function ManualLookupScreen() {
         checkedIn: d.data().checkedIn === true,
         balanceDue: d.data().balanceDue ?? 0,
         tableAssignment: d.data().tableAssignment || '',
-      })));
+      }));
+      const filtered = all.filter(t => t.holderName.toLowerCase().includes(q));
+      filtered.sort((a, b) => a.holderName.localeCompare(b.holderName));
+      setResults(filtered);
     } catch { Alert.alert('Error', 'Search failed. Try again.'); }
     finally { setLoading(false); }
   }
@@ -425,7 +461,7 @@ export default function ManualLookupScreen() {
 
       {/* Add Guest modal */}
       <AddGuestModal visible={addGuest} onClose={() => setAddGuest(false)}
-        ticketTypes={ticketTypes} eventName={session?.eventName || ''}
+        ticketTypes={ticketTypes} venueTables={venueTables} eventName={session?.eventName || ''}
         onCharge={(mode) => { setAddGuest(false); setPaymentMode(mode); }} />
 
       {/* Header with back + add button */}
@@ -561,4 +597,8 @@ const s = StyleSheet.create({
   chargeGuestBtn:   { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
   chargeGuestBtnDisabled: { opacity: 0.4 },
   chargeGuestText:  { color: '#fff', fontSize: 18, fontWeight: '800' },
+  tableChip:        { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
+  tableChipSelected:{ backgroundColor: '#0d1f16', borderColor: '#2a7a5a' },
+  tableChipText:    { color: '#555', fontSize: 14, fontWeight: '600' },
+  tableChipTextSelected: { color: '#2a7a5a' },
 });

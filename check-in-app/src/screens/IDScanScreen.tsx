@@ -126,7 +126,10 @@ export default function IDScanScreen({
     const id = parseAAMVA(data);
     if (!id) { scanned.current = false; return; }
     Vibration.vibrate(100);
-    const score = nameMatchScore(id.fullName, holderName);
+    // Primary match: ID vs card name (most fraud-resistant)
+    // Fallback: ID vs ticket holder name if no card name yet
+    const primaryName = cardholderName?.trim() || holderName;
+    const score = nameMatchScore(id.fullName, primaryName);
     const ageVerified = id.age >= minAge;
     let cardNameMatch: boolean | null = null;
     if (cardholderName?.trim()) {
@@ -244,7 +247,7 @@ export default function IDScanScreen({
           </View>
           <View style={styles.idCard}>
             <Row label="Name on ID" value={parsedID.fullName} />
-            <Row label="Ticket Holder" value={holderName} />
+            <Row label="Card Name" value={cardholderName || holderName} />
             <Row label="Date of Birth" value={parsedID.dobDisplay} />
             <Row label="Age" value={`${parsedID.age}`} highlight={!ageOk ? 'warn' : 'ok'} />
             <Row label="State" value={parsedID.state} />
