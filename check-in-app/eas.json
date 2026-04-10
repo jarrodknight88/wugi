@@ -15,6 +15,9 @@
       "distribution": "internal",
       "ios": {
         "buildConfiguration": "Release"
+      },
+      "env": {
+        "TAP_TO_PAY": "true"
       }
     },
     "preview": {
