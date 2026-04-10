@@ -71,11 +71,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     }).catch(() => {});
   }, [session?.eventId]);
 
-  useEffect(() => {
-    if (!isReady && !isConnecting && session?.venueId) {
-      connectReader(session.venueId);
-    }
-  }, []);
+  // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
   // ── Step 1: Validate form — decide whether ID scan is needed ─────
   function proceedToIDScan() {
@@ -106,7 +102,12 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     if (!session) return;
     setStep('connecting');
     try {
-      if (!isReady) await connectReader(session.venueId);
+      if (!isReady) {
+        // Give it one more attempt with a short wait
+        await connectReader(session.venueId);
+        await new Promise(r => setTimeout(r, 1500));
+        if (!isReady) throw new Error('Reader not connected. Tap "Reader not connected" to retry.');
+      }
 
       const createPI = httpsCallable(getFunctions(), 'createTerminalPaymentIntent');
       const result = await createPI({

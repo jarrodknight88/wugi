@@ -6,7 +6,6 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 import {
   StripeTerminalProvider,
   useStripeTerminal,
-  Reader,
 } from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 
@@ -32,27 +31,41 @@ interface TerminalContextType {
 
 const TerminalContext = createContext<TerminalContextType | null>(null);
 
-function TerminalInner({ children }: { children: ReactNode }) {
+function TerminalInner({ children, venueId }: { children: ReactNode; venueId: string }) {
   const { connectLocalMobileReader, disconnectReader, connectedReader } = useStripeTerminal();
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const connectReader = useCallback(async (venueId: string) => {
+  const connectReader = useCallback(async (vid: string) => {
     if (connectedReader) return;
     setIsConnecting(true); setError(null);
     try {
-      // Fetch a connection token first to populate locationId cache if needed
-      if (!locationIdCache[venueId]) {
-        await fetchConnectionToken(venueId);
+      if (!locationIdCache[vid]) {
+        await fetchConnectionToken(vid);
       }
-      const locationId = locationIdCache[venueId];
+      const locationId = locationIdCache[vid];
+      if (!locationId) {
+        setError('Could not retrieve terminal location. Check venue setup.');
+        return;
+      }
       const connectParams: any = { locationId };
       const { error: connErr } = await connectLocalMobileReader(connectParams);
-      if (connErr) setError(connErr.message);
+      if (connErr) {
+        console.warn('Terminal connect error:', connErr.message, connErr.code);
+        setError(connErr.message);
+      }
     } catch (e: any) {
+      console.warn('Terminal connect exception:', e.message);
       setError(e.message || 'Failed to connect reader');
     } finally { setIsConnecting(false); }
   }, [connectedReader, connectLocalMobileReader]);
+
+  // Auto-connect on mount
+  React.useEffect(() => {
+    if (venueId && venueId !== '__super_admin__') {
+      connectReader(venueId);
+    }
+  }, [venueId]);
 
   const disconnect = useCallback(async () => {
     await disconnectReader();
@@ -75,7 +88,7 @@ export function TerminalProvider({ children, venueId }: { children: ReactNode; v
   const tokenProvider = useCallback(() => fetchConnectionToken(venueId), [venueId]);
   return (
     <StripeTerminalProvider logLevel="verbose" tokenProvider={tokenProvider}>
-      <TerminalInner>{children}</TerminalInner>
+      <TerminalInner venueId={venueId}>{children}</TerminalInner>
     </StripeTerminalProvider>
   );
 }
