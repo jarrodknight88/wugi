@@ -40,7 +40,7 @@ type PaymentStep = 'details' | 'id_scan' | 'connecting' | 'collecting' | 'proces
 export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const { session } = useSession();
   const { isReady, isConnecting, connectReader } = useTerminal();
-  const { collectPaymentMethod, confirmPaymentIntent, cancelCollectPaymentMethod } = useStripeTerminal();
+  const { collectPaymentMethod, confirmPaymentIntent, cancelCollectPaymentMethod, retrievePaymentIntent } = useStripeTerminal();
 
   const defaultAmount = mode.type === 'balance' ? mode.balanceDue : mode.price;
   const [amountCents, setAmountCents] = useState(defaultAmount);
@@ -122,18 +122,22 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         customerEmail: holderEmail || undefined,
       });
 
-      const { paymentIntentId: piId } = result.data as any;
+      const { paymentIntentId: piId, clientSecret } = result.data as any;
       setStep('collecting');
 
-      const { paymentIntent, error: collectErr } = await collectPaymentMethod({ paymentIntentId: piId });
+      // Retrieve the full PaymentIntent object (required by beta.29 SDK)
+      const { paymentIntent: retrievedPI, error: retrieveErr } = await retrievePaymentIntent(clientSecret);
+      if (retrieveErr) throw new Error(retrieveErr.message);
+
+      const { paymentIntent: collectedPI, error: collectErr } = await collectPaymentMethod({ paymentIntent: retrievedPI! });
       if (collectErr) throw new Error(collectErr.message);
 
       setStep('processing');
 
-      const { error: confirmErr } = await confirmPaymentIntent({ paymentIntent: paymentIntent! });
+      const { error: confirmErr } = await confirmPaymentIntent({ paymentIntent: collectedPI! });
       if (confirmErr) throw new Error(confirmErr.message);
 
-      const piCardName = (paymentIntent as any)?.paymentMethod?.card?.cardholderName || '';
+      const piCardName = (collectedPI as any)?.paymentMethod?.card?.cardholderName || '';
       setCardholderName(piCardName);
 
       const capture = httpsCallable(getFunctions(), 'captureTerminalPayment');
