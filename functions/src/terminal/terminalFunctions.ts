@@ -92,28 +92,38 @@ export const createTerminalPaymentIntent = functions
 
 // ── captureTerminalPayment ────────────────────────────────────────────
 // Called after the Terminal SDK confirms the payment.
-// Updates Firestore: clears balanceDue, writes payment record.
+// Applies 12% booking fee, transfers venue payout via Stripe Connect,
+// updates Firestore tickets, writes payment record.
 export const captureTerminalPayment = functions
   .https.onCall(async (data: {
     paymentIntentId: string;
     ticketId?: string;
     eventId: string;
+    venueId: string;
     amountCents: number;
     newTicketData?: {
-      holderName: string; holderEmail: string;
+      holderName: string; holderEmail: string; holderPhone?: string;
       ticketTypeId: string; ticketTypeName: string;
       color: string; tableAssignment: string;
     };
   }, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth required');
 
-    const { paymentIntentId, ticketId, eventId, amountCents, newTicketData } = data;
+    const { paymentIntentId, ticketId, eventId, venueId, amountCents, newTicketData } = data;
 
-    // Retrieve PI to confirm it was captured
+    // Confirm payment succeeded
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
     if (pi.status !== 'succeeded') {
       throw new functions.https.HttpsError('failed-precondition', `Payment not succeeded: ${pi.status}`);
     }
+
+    // Look up venue for Stripe Connect account ID
+    const venueSnap = await db.collection('venues').doc(venueId).get();
+    const stripeConnectAccountId: string = venueSnap.data()?.stripeConnectAccountId || '';
+
+    // Calculate booking fee (12%, min $1.99, max $100)
+    const bookingFeeCents = calculateBookingFee(amountCents);
+    const venuePayout = amountCents - bookingFeeCents;
 
     const batch = db.batch();
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -130,7 +140,6 @@ export const captureTerminalPayment = functions
         source: 'door', price: amountCents, depositPaid: amountCents, balanceDue: 0,
         createdAt: now, updatedAt: now,
       });
-      // Decrement remaining on ticket type
       const ttRef = db.collection('events').doc(eventId)
         .collection('ticketTypes').doc(newTicketData.ticketTypeId);
       batch.update(ttRef, {
@@ -140,20 +149,50 @@ export const captureTerminalPayment = functions
       });
     }
 
-    // Calculate booking fee (same logic as online purchases)
-    const bookingFeeCents = calculateBookingFee(amountCents);
-    const venuePayout = amountCents - bookingFeeCents;
+    // Initiate Stripe Connect transfer (next-day settlement via Stripe default T+1)
+    let stripeTransferId: string | null = null;
+    if (stripeConnectAccountId && venuePayout > 0) {
+      try {
+        const transfer = await stripe.transfers.create({
+          amount: venuePayout,
+          currency: 'usd',
+          destination: stripeConnectAccountId,
+          source_transaction: pi.latest_charge as string,
+          metadata: {
+            type: 'door_sale',
+            paymentIntentId,
+            eventId,
+            venueId,
+            ticketId: ticketId || '',
+            bookingFeeCents: bookingFeeCents.toString(),
+          },
+        });
+        stripeTransferId = transfer.id;
+      } catch (transferErr: any) {
+        // Log but don't fail the whole transaction — payment already succeeded
+        console.error('Transfer failed:', transferErr.message);
+      }
+    }
 
     // Write payment record
     const paymentRef = db.collection('terminalPayments').doc();
     batch.set(paymentRef, {
-      paymentIntentId, eventId, ticketId: ticketId || null,
-      amountCents, bookingFeeCents, venuePayout,
+      paymentIntentId,
+      eventId,
+      venueId,
+      ticketId: ticketId || null,
+      amountCents,
+      bookingFeeCents,
+      venuePayout,
+      stripeConnectAccountId: stripeConnectAccountId || null,
+      stripeTransferId,
+      transferStatus: stripeTransferId ? 'transferred' : (stripeConnectAccountId ? 'transfer_failed' : 'no_connect_account'),
       staffUid: context.auth.uid,
-      status: 'succeeded', source: 'tap_to_pay', createdAt: now,
+      status: 'succeeded',
+      source: 'tap_to_pay',
+      createdAt: now,
     });
-    // TODO: Initiate Stripe Connect transfer of venuePayout to venue's connected account
 
     await batch.commit();
-    return { success: true, ticketId: ticketId || (newTicketData ? paymentRef.id : null) };
+    return { success: true };
   });

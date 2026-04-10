@@ -152,6 +152,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         paymentIntentId: piId,
         ticketId: mode.type === 'balance' ? mode.ticketId : undefined,
         eventId: session!.eventId,
+        venueId: session!.venueId,
         amountCents,
         newTicketData: mode.type === 'walkin' ? {
           holderName: holderName.trim(),
