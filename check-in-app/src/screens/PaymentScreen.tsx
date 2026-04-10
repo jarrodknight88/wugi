@@ -35,7 +35,7 @@ interface Props {
 }
 
 // Steps: details form → id_scan → collecting payment → processing → success/error
-type PaymentStep = 'details' | 'id_scan' | 'connecting' | 'collecting' | 'processing' | 'success' | 'error';
+type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'processing' | 'success' | 'error';
 
 export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const { session } = useSession();
@@ -54,6 +54,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [idVerification, setIdVerification] = useState<VerificationResult | null>(null);
   const [completedTicketId, setCompletedTicketId] = useState('');
   const [cardholderName, setCardholderName] = useState('');
+  const [collectedPaymentIntent, setCollectedPaymentIntent] = useState<any>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState('');
   const [idThreshold, setIdThreshold] = useState(30000); // default $300
   const nameRef  = useRef<any>(null);
   const emailRef = useRef<any>(null);
@@ -73,40 +75,19 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
-  // ── Step 1: Validate form — decide whether ID scan is needed ─────
-  function proceedToIDScan() {
+  // ── Step 1: Validate form → collect card → ID scan → capture ────
+  async function handleCharge() {
     if (amountCents < 50) { Alert.alert('Minimum charge is $0.50'); return; }
     if (mode.type === 'walkin' && !holderName.trim()) {
       Alert.alert('Name required', 'Please enter the guest name.'); return;
     }
-    // Check threshold: -1=never, 0=always, >0=require if amount >= threshold
-    const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
-    if (needsID) {
-      setStep('id_scan');
-    } else {
-      startPayment(null); // skip ID scan entirely
-    }
-  }
-
-  // ── Step 2: ID scan complete → proceed to payment ────────────────
-  function onIDVerified(result: VerificationResult) {
-    setIdVerification(result);
-    startPayment(result);
-  }
-  function onIDSkipped() {
-    startPayment(null);
-  }
-
-  // ── Step 3: Collect payment ───────────────────────────────────────
-  async function startPayment(verification: VerificationResult | null) {
     if (!session) return;
     setStep('connecting');
     try {
       if (!isReady) {
-        // Give it one more attempt with a short wait
         await connectReader(session.venueId);
         await new Promise(r => setTimeout(r, 1500));
-        if (!isReady) throw new Error('Reader not connected. Tap "Reader not connected" to retry.');
+        if (!isReady) throw new Error('Reader not connected. Tap the status indicator to retry.');
       }
 
       const createPI = httpsCallable(getFunctions(), 'createTerminalPaymentIntent');
@@ -117,42 +98,68 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         ticketId: mode.type === 'balance' ? mode.ticketId : undefined,
         description: mode.type === 'balance'
           ? `Balance due — ${mode.holderName}`
-          : `Door sale — ${mode.ticketTypeName}`,
+          : `Door sale — ${(mode as any).ticketTypeName}`,
         customerName: holderName || undefined,
         customerEmail: holderEmail || undefined,
       });
 
       const { paymentIntentId: piId, clientSecret } = result.data as any;
+      setPaymentIntentId(piId);
       setStep('collecting');
 
-      // Retrieve the full PaymentIntent object (required by beta.29 SDK)
+      // Retrieve full PI object (beta.29 SDK requirement)
       const { paymentIntent: retrievedPI, error: retrieveErr } = await retrievePaymentIntent(clientSecret);
       if (retrieveErr) throw new Error(retrieveErr.message);
 
+      // STEP 1: Collect card — get cardholderName BEFORE ID scan
       const { paymentIntent: collectedPI, error: collectErr } = await collectPaymentMethod({ paymentIntent: retrievedPI! });
       if (collectErr) throw new Error(collectErr.message);
 
-      setStep('processing');
-
-      const { error: confirmErr } = await confirmPaymentIntent({ paymentIntent: collectedPI! });
-      if (confirmErr) throw new Error(confirmErr.message);
-
-      const piCardName = (collectedPI as any)?.paymentMethod?.card?.cardholderName || '';
+      // Extract cardholder name from the tapped card
+      const piCardName = (collectedPI as any)?.paymentMethod?.cardPresent?.name
+        || (collectedPI as any)?.paymentMethod?.card?.cardholderName
+        || '';
       setCardholderName(piCardName);
+      setCollectedPaymentIntent(collectedPI);
+
+      // STEP 2: ID scan (now we have card name to compare against)
+      const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+      if (needsID) {
+        setStep('id_scan'); // ID scan will call continueAfterIDScan when done
+      } else {
+        await continueAfterIDScan(collectedPI, piId, null);
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Payment failed');
+      setStep('error');
+    }
+  }
+
+  // ── Step 2: After ID scan → confirm + capture ─────────────────────
+  async function continueAfterIDScan(
+    collectedPI: any,
+    piId: string,
+    verification: VerificationResult | null
+  ) {
+    setIdVerification(verification);
+    setStep('processing');
+    try {
+      const { error: confirmErr } = await confirmPaymentIntent({ paymentIntent: collectedPI });
+      if (confirmErr) throw new Error(confirmErr.message);
 
       const capture = httpsCallable(getFunctions(), 'captureTerminalPayment');
       await capture({
         paymentIntentId: piId,
         ticketId: mode.type === 'balance' ? mode.ticketId : undefined,
-        eventId: session.eventId,
+        eventId: session!.eventId,
         amountCents,
         newTicketData: mode.type === 'walkin' ? {
           holderName: holderName.trim(),
           holderEmail: holderEmail.trim(),
           holderPhone: holderPhone.trim(),
-          ticketTypeId: mode.ticketTypeId,
-          ticketTypeName: mode.ticketTypeName,
-          color: mode.color,
+          ticketTypeId: (mode as any).ticketTypeId,
+          ticketTypeName: (mode as any).ticketTypeName,
+          color: (mode as any).color,
           tableAssignment: tableAssign.trim(),
         } : undefined,
       });
@@ -164,6 +171,13 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       setErrorMsg(e.message || 'Payment failed');
       setStep('error');
     }
+  }
+
+  function onIDVerified(result: VerificationResult) {
+    continueAfterIDScan(collectedPaymentIntent, paymentIntentId, result);
+  }
+  function onIDSkipped() {
+    continueAfterIDScan(collectedPaymentIntent, paymentIntentId, null);
   }
 
   async function handleCancel() {
@@ -189,6 +203,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       />
     );
   }
+  // Processing after ID scan — show spinner
+  
 
   // Success
   if (step === 'success') {
@@ -303,13 +319,12 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       <TouchableOpacity
         style={[styles.chargeBtn, amountCents < 50 && styles.chargeBtnDisabled]}
-        onPress={proceedToIDScan}
+        onPress={handleCharge}
         disabled={amountCents < 50}
       >
         <Text style={styles.chargeBtnText}>
-          {(idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold))
-            ? `Scan ID & Charge $${(amountCents / 100).toFixed(2)}`
-            : `Charge $${(amountCents / 100).toFixed(2)}`}
+          Charge ${(amountCents / 100).toFixed(2)}
+          {(idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold)) ? ' · ID Required' : ''}
         </Text>
       </TouchableOpacity>
 

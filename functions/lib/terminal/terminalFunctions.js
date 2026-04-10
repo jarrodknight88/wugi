@@ -148,13 +148,18 @@ exports.captureTerminalPayment = functions
             updatedAt: now,
         });
     }
+    // Calculate booking fee (same logic as online purchases)
+    const bookingFeeCents = (0, stripeUtils_1.calculateBookingFee)(amountCents);
+    const venuePayout = amountCents - bookingFeeCents;
     // Write payment record
     const paymentRef = db.collection('terminalPayments').doc();
     batch.set(paymentRef, {
         paymentIntentId, eventId, ticketId: ticketId || null,
-        amountCents, staffUid: context.auth.uid,
+        amountCents, bookingFeeCents, venuePayout,
+        staffUid: context.auth.uid,
         status: 'succeeded', source: 'tap_to_pay', createdAt: now,
     });
+    // TODO: Initiate Stripe Connect transfer of venuePayout to venue's connected account
     await batch.commit();
     return { success: true, ticketId: ticketId || (newTicketData ? paymentRef.id : null) };
 });
