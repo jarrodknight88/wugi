@@ -19,6 +19,11 @@ type Venue = {
   neighborhood: string; phone: string; website: string; instagram: string
   about: string; status: string; isFeatured: boolean; vibes: string[]
   venueLatitude?: number; venueLongitude?: number
+  // Payment settings
+  paymentDescriptor?: string
+  idVerificationThreshold?: number
+  stripeConnectAccountId?: string
+  paymentDescriptorNote?: string
 }
 
 const INPUT: React.CSSProperties = {
@@ -128,7 +133,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   const { user, loading, hasDashboardAccess, canWrite, canManageTables } = useAuthContext()
   const [venueId, setVenueId] = useState("")
   const [venue, setVenue] = useState<Venue | null>(null)
-  const [tab, setTab] = useState<"info" | "door" | "tables">("info")
+  const [tab, setTab] = useState<"info" | "door" | "tables" | "payments">("info")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -154,6 +159,10 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
         phone: d.phone || "", website: d.website || "", instagram: d.instagram || "",
         about: d.about || "", status: d.status || "", isFeatured: d.isFeatured || false,
         vibes: d.vibes || [], venueLatitude: d.venueLatitude, venueLongitude: d.venueLongitude,
+        paymentDescriptor: d.paymentDescriptor || "",
+        idVerificationThreshold: d.idVerificationThreshold ?? 30000,
+        stripeConnectAccountId: d.stripeConnectAccountId || "",
+        paymentDescriptorNote: d.paymentDescriptorNote || "",
       }
       setVenue(v); setForm(v)
     })
@@ -182,9 +191,10 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   )
 
   const TABS = [
-    { key: "info",   label: "Venue Info" },
-    { key: "door",   label: "Door Access" },
-    { key: "tables", label: "Tables" },
+    { key: "info",     label: "Venue Info" },
+    { key: "door",     label: "Door Access" },
+    { key: "tables",   label: "Tables" },
+    { key: "payments", label: "Payments & ID" },
   ] as const
 
   return (
@@ -315,6 +325,139 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
         {/* ── Tables Tab ── */}
         {tab === "tables" && (
           <TableGroupManager venueId={venueId} canWrite={canManageTables} />
+        )}
+
+        {/* ── Payments & ID Tab ── */}
+        {tab === "payments" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+            {/* Payment descriptor card */}
+            <div style={CARD}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+                Billing Statement Descriptor
+              </h3>
+              <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 20px", lineHeight: 1.5 }}>
+                This is what appears on your guests' bank and credit card statements. Keep it recognizable but discreet if needed. Max 22 characters, letters and numbers only.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div>
+                  <label style={LABEL}>Payment Descriptor</label>
+                  <input
+                    style={INPUT}
+                    maxLength={22}
+                    value={form.paymentDescriptor || ""}
+                    placeholder={form.name?.slice(0, 22) || "VENUE NAME"}
+                    onChange={e => setForm(f => ({ ...f, paymentDescriptor: e.target.value.replace(/[^a-zA-Z0-9 ]/g, "").slice(0, 22) }))}
+                  />
+                  <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                    {(form.paymentDescriptor || "").length}/22 characters used
+                  </p>
+                </div>
+                <div>
+                  <label style={LABEL}>Internal Note (optional)</label>
+                  <input
+                    style={INPUT}
+                    value={form.paymentDescriptorNote || ""}
+                    placeholder="e.g. Adult venue — using discreet descriptor"
+                    onChange={e => setForm(f => ({ ...f, paymentDescriptorNote: e.target.value }))}
+                  />
+                  <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                    For your records only — not shown to guests
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* ID Verification threshold card */}
+            <div style={CARD}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+                ID Verification Threshold
+              </h3>
+              <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 20px", lineHeight: 1.5 }}>
+                Set the minimum transaction amount that requires an ID scan at the door. Set to $0 to require ID on every transaction. Set to a very high value to never require ID.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div>
+                  <label style={LABEL}>Require ID when charge is at least</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: "#2a7a5a" }}>$</span>
+                    <input
+                      style={{ ...INPUT, width: 120 }}
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={((form.idVerificationThreshold ?? 30000) / 100).toFixed(0)}
+                      onChange={e => setForm(f => ({ ...f, idVerificationThreshold: Math.round(parseFloat(e.target.value || "0") * 100) }))}
+                    />
+                  </div>
+                  <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                    Currently: ID required for charges ≥ ${((form.idVerificationThreshold ?? 30000) / 100).toFixed(0)}
+                  </p>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 24 }}>
+                  <button
+                    onClick={() => setForm(f => ({ ...f, idVerificationThreshold: 0 }))}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb", cursor: "pointer", fontSize: 13, textAlign: "left" }}
+                  >
+                    🪪 Always require ID ($0+)
+                  </button>
+                  <button
+                    onClick={() => setForm(f => ({ ...f, idVerificationThreshold: 30000 }))}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb", cursor: "pointer", fontSize: 13, textAlign: "left" }}
+                  >
+                    💳 $300+ (default)
+                  </button>
+                  <button
+                    onClick={() => setForm(f => ({ ...f, idVerificationThreshold: 9999999 }))}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb", cursor: "pointer", fontSize: 13, textAlign: "left" }}
+                  >
+                    🚫 Never require ID
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Stripe Connect card */}
+            <div style={CARD}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>
+                Stripe Connect Account
+              </h3>
+              <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 20px", lineHeight: 1.5 }}>
+                The venue's Stripe connected account ID. Door sale payouts are transferred here after each transaction. Starts with <code>acct_</code>.
+              </p>
+              <div>
+                <label style={LABEL}>Stripe Connect Account ID</label>
+                <input
+                  style={INPUT}
+                  value={form.stripeConnectAccountId || ""}
+                  placeholder="acct_1234567890"
+                  onChange={e => setForm(f => ({ ...f, stripeConnectAccountId: e.target.value.trim() }))}
+                />
+                {form.stripeConnectAccountId && !form.stripeConnectAccountId.startsWith("acct_") && (
+                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>⚠️ Should start with acct_</p>
+                )}
+                {form.stripeConnectAccountId?.startsWith("acct_") && (
+                  <p style={{ fontSize: 12, color: "#2a7a5a", marginTop: 4 }}>✓ Valid format</p>
+                )}
+              </div>
+            </div>
+
+            {/* Save */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {canWrite ? (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{ padding: "10px 24px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", cursor: saving ? "default" : "pointer", fontWeight: 600, fontSize: 14, opacity: saving ? 0.7 : 1 }}
+                >
+                  {saving ? "Saving…" : saved ? "✓ Saved!" : "Save Payment Settings"}
+                </button>
+              ) : (
+                <p style={{ fontSize: 13, color: "#9ca3af" }}>You don't have permission to edit venues.</p>
+              )}
+              {saveError && <p style={{ fontSize: 13, color: "#ef4444", margin: 0 }}>⚠️ {saveError}</p>}
+            </div>
+          </div>
         )}
       </div>
     </DashboardLayout>
