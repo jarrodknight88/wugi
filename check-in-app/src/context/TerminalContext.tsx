@@ -32,7 +32,7 @@ interface TerminalContextType {
 const TerminalContext = createContext<TerminalContextType | null>(null);
 
 function TerminalInner({ children, venueId }: { children: ReactNode; venueId: string }) {
-  const { connectLocalMobileReader, disconnectReader, connectedReader } = useStripeTerminal();
+  const { connectReader, disconnectReader, connectedReader } = useStripeTerminal();
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,8 +48,10 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
         setError('Could not retrieve terminal location. Check venue setup.');
         return;
       }
-      const connectParams: any = { locationId };
-      const { error: connErr } = await connectLocalMobileReader(connectParams);
+      const { error: connErr } = await connectReader({
+        discoveryMethod: 'tapToPay',
+        locationId,
+      });
       if (connErr) {
         console.warn('Terminal connect error:', connErr.message, connErr.code);
         setError(connErr.message);
