@@ -149,26 +149,34 @@ export default function IDScanScreen({
     if (!verification || !session) return;
     setSaving(true);
     try {
-      await firestore()
-        .collection('events').doc(session.eventId)
-        .collection('tickets').doc(ticketId)
-        .update({
-          idVerification: {
-            verified: verification.verified,
-            idName: verification.idName, idDob: verification.idDob,
-            idState: verification.idState, idNumberLast4: verification.idNumberLast4,
-            age: verification.age, ageVerified: verification.ageVerified,
-            nameMatchScore: Math.round(verification.nameMatchScore * 100),
-            cardNameMatch: verification.cardNameMatch,
-            cardLast4: verification.cardLast4 || null,
-            scannedAt: firestore.FieldValue.serverTimestamp(),
-          },
-          updatedAt: firestore.FieldValue.serverTimestamp(),
-        });
+      // Only write to Firestore if we have a real ticketId (balance collection on existing ticket)
+      // Walk-up sales: no ticket yet — ID data is passed back via onVerified for capture to include
+      if (ticketId) {
+        await firestore()
+          .collection('events').doc(session.eventId)
+          .collection('tickets').doc(ticketId)
+          .update({
+            idVerification: {
+              verified: verification.verified,
+              idName: verification.idName, idDob: verification.idDob,
+              idState: verification.idState, idNumberLast4: verification.idNumberLast4,
+              age: verification.age, ageVerified: verification.ageVerified,
+              nameMatchScore: Math.round(verification.nameMatchScore * 100),
+              cardNameMatch: verification.cardNameMatch,
+              cardLast4: verification.cardLast4 || null,
+              scannedAt: firestore.FieldValue.serverTimestamp(),
+            },
+            updatedAt: firestore.FieldValue.serverTimestamp(),
+          });
+      }
       setScanState('done');
       setTimeout(() => onVerified(verification), 800);
-    } catch (e) { setScanState('error'); }
-    finally { setSaving(false); }
+    } catch (e) {
+      console.warn('ID save error:', e);
+      // Even if Firestore write fails, still proceed — don't block payment
+      setScanState('done');
+      setTimeout(() => onVerified(verification), 800);
+    } finally { setSaving(false); }
   }
 
   if (!permission) return <View style={styles.container} />;

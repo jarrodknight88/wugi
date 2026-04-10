@@ -116,9 +116,14 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       if (collectErr) throw new Error(collectErr.message);
 
       // Extract cardholder name from the tapped card
-      const piCardName = (collectedPI as any)?.paymentMethod?.cardPresent?.name
-        || (collectedPI as any)?.paymentMethod?.card?.cardholderName
+      // In beta.29, card details are nested under paymentMethod
+      const pm = (collectedPI as any)?.paymentMethod;
+      const piCardName = pm?.cardPresent?.name
+        || pm?.cardPresent?.cardholderName
+        || pm?.card?.cardholderName
+        || pm?.billingDetails?.name
         || '';
+      console.log('Card payment method data:', JSON.stringify(pm, null, 2));
       setCardholderName(piCardName);
       setCollectedPaymentIntent(collectedPI);
 
@@ -162,6 +167,15 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
           ticketTypeName: (mode as any).ticketTypeName,
           color: (mode as any).color,
           tableAssignment: tableAssign.trim(),
+          // Include ID verification result if available
+          idVerification: verification ? {
+            verified: verification.verified,
+            idName: verification.idName,
+            age: verification.age,
+            nameMatchScore: Math.round(verification.nameMatchScore * 100),
+            cardNameMatch: verification.cardNameMatch,
+            scannedAt: new Date().toISOString(),
+          } : null,
         } : undefined,
       });
 

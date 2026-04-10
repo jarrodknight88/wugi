@@ -105,6 +105,7 @@ export const captureTerminalPayment = functions
       holderName: string; holderEmail: string; holderPhone?: string;
       ticketTypeId: string; ticketTypeName: string;
       color: string; tableAssignment: string;
+      idVerification?: any;
     };
   }, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth required');
