@@ -8,7 +8,7 @@ import SuperAdminEventSelector from './src/screens/SuperAdminEventSelector';
 
 const TAP_TO_PAY_ENABLED = true;
 
-function RootNavigator() {
+function RootNavigator({ authReady }: { authReady: boolean }) {
   const { session } = useSession();
 
   // No session — show PIN entry
@@ -20,7 +20,8 @@ function RootNavigator() {
   }
 
   // Regular staff or super admin with event selected — show main tabs
-  if (TAP_TO_PAY_ENABLED) {
+  // Wait for anonymous auth before initializing Stripe Terminal SDK
+  if (TAP_TO_PAY_ENABLED && authReady) {
     const { TerminalProvider } = require('./src/context/TerminalContext');
     return (
       <TerminalProvider venueId={session.venueId}>
@@ -29,19 +30,30 @@ function RootNavigator() {
     );
   }
 
+  // Auth not ready yet or Tap to Pay disabled — show tabs without Terminal
   return <MainTabs />;
 }
 
 export default function App() {
-  // Sign in anonymously so Cloud Functions receive a valid auth context
+  const [authReady, setAuthReady] = React.useState(false);
+
   useEffect(() => {
-    auth().signInAnonymously().catch(() => {});
+    // Sign in anonymously so Cloud Functions receive a valid auth context.
+    // Wait until auth is ready before rendering Terminal-dependent components.
+    const unsub = auth().onAuthStateChanged(user => {
+      if (user) {
+        setAuthReady(true);
+      } else {
+        auth().signInAnonymously().catch(() => setAuthReady(true));
+      }
+    });
+    return unsub;
   }, []);
 
   return (
     <SessionProvider>
       <StatusBar style="light" />
-      <RootNavigator />
+      <RootNavigator authReady={authReady} />
     </SessionProvider>
   );
 }

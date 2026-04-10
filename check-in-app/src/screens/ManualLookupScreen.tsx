@@ -31,7 +31,7 @@ const COLORS = [
 ];
 
 interface Ticket {
-  id: string; holderName: string; holderEmail: string; holderPhone?: string;
+  id: string; eventId: string; holderName: string; holderEmail: string; holderPhone?: string;
   ticketTypeName: string; ticketTypeId: string; color: string;
   quantity: number; checkedIn: boolean; balanceDue: number; tableAssignment?: string;
 }
@@ -271,7 +271,8 @@ export default function ManualLookupScreen() {
     const unsub = ref.onSnapshot(
       snap => {
         const docs = snap.docs.map(d => ({
-          id: d.id, holderName: d.data().holderName || '',
+          id: d.id, eventId: session?.eventId || '',
+          holderName: d.data().holderName || '',
           holderEmail: d.data().holderEmail || '',
           holderPhone: d.data().holderPhone || '',
           ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
@@ -318,7 +319,8 @@ export default function ManualLookupScreen() {
       const snap = await ref.get();
       const q = query.trim().toLowerCase();
       const all = snap.docs.map(d => ({
-        id: d.id, holderName: d.data().holderName || '',
+        id: d.id, eventId: d.ref.parent.parent?.id || session?.eventId || '',
+        holderName: d.data().holderName || '',
         holderEmail: d.data().holderEmail || '',
         holderPhone: d.data().holderPhone || '',
         ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
@@ -356,11 +358,11 @@ export default function ManualLookupScreen() {
     try {
       const batch = firestore().batch();
       const now = firestore.FieldValue.serverTimestamp();
-      const eventId = session.isSuperAdmin ? null : session.eventId;
       selected.forEach(id => {
-        const ref = eventId
-          ? firestore().collection('events').doc(eventId).collection('tickets').doc(id)
-          : firestore().collection('tickets').doc(id);
+        const ticket = results.find(t => t.id === id);
+        const eventId = ticket?.eventId || session.eventId;
+        if (!eventId) return;
+        const ref = firestore().collection('events').doc(eventId).collection('tickets').doc(id);
         batch.update(ref, { color, passUpdatedAt: now, updatedAt: now });
       });
       await batch.commit();
@@ -376,7 +378,7 @@ export default function ManualLookupScreen() {
     Alert.alert('Check In', `Check in ${ticket.holderName}?\n${ticket.ticketTypeName}`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm', onPress: async () => {
-        const eventId = session?.isSuperAdmin ? (ticket as any).eventId : session?.eventId;
+        const eventId = ticket.eventId || (session?.isSuperAdmin ? (ticket as any).eventId : session?.eventId);
         if (!eventId) return;
         await firestore().collection('events').doc(eventId).collection('tickets').doc(ticket.id)
           .update({ checkedIn: true, checkedInAt: firestore.FieldValue.serverTimestamp(), checkedInBy: session?.pin });
