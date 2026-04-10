@@ -110,6 +110,7 @@ export type FSEvent = {
   vibes: string[];
   media: { type: string; uri: string }[];
   status: string;
+  hasTickets?: boolean;
   createdAt: any;
 };
 

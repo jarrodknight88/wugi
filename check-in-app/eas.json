@@ -22,11 +22,22 @@
       },
       "environment": "preview"
     },
+    "testflight": {
+      "distribution": "store",
+      "autoIncrement": true
+    },
     "production": {
       "autoIncrement": true
     }
   },
   "submit": {
+    "testflight": {
+      "ios": {
+        "appleId": "rodk.music@gmail.com",
+        "ascAppId": "6761620569",
+        "appleTeamId": "D9438V8855"
+      }
+    },
     "production": {
       "ios": {
         "appleId": "rodk.music@gmail.com",
