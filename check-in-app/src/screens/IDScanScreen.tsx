@@ -282,7 +282,7 @@ export default function IDScanScreen({
               <Text style={styles.rescanBtnText}>Rescan</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: overallOk ? '#2a7a5a' : '#b45309' }]}
-              onPress={saveAndContinue} disabled={saving}>
+              onPress={overallOk ? saveAndContinue : handleSkipRequest} disabled={saving}>
               <Text style={styles.confirmBtnText}>{saving ? 'Saving…' : overallOk ? 'Confirm' : 'Override & Save'}</Text>
             </TouchableOpacity>
           </View>
