@@ -9,16 +9,23 @@ import {
 } from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 
-// Cache locationId per venueId for connectReader calls
-const locationIdCache: Record<string, string> = {};
-
+// Always fetch fresh — no caching so live/test mode switches work correctly
 async function fetchConnectionToken(venueId: string): Promise<string> {
   const fn = httpsCallable(getFunctions(), 'createTerminalConnectionToken');
   const result = await fn({ venueId });
   const data = result.data as any;
-  // Cache locationId so connectReader can use it
-  if (data.locationId) locationIdCache[venueId] = data.locationId;
   return data.secret;
+}
+
+// Store locationId per session (not module level)
+let _locationId: string = '';
+
+async function fetchConnectionTokenAndLocation(venueId: string): Promise<{ secret: string; locationId: string }> {
+  const fn = httpsCallable(getFunctions(), 'createTerminalConnectionToken');
+  const result = await fn({ venueId });
+  const data = result.data as any;
+  if (data.locationId) _locationId = data.locationId;
+  return { secret: data.secret, locationId: data.locationId || '' };
 }
 
 interface TerminalContextType {
@@ -96,7 +103,7 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
 }
 
 export function TerminalProvider({ children, venueId }: { children: ReactNode; venueId: string }) {
-  const tokenProvider = useCallback(() => fetchConnectionToken(venueId), [venueId]);
+  const tokenProvider = useCallback(() => fetchConnectionToken(venueId), [venueId]); // SDK calls this for auth
   return (
     <StripeTerminalProvider logLevel="verbose" tokenProvider={tokenProvider}>
       <TerminalInner venueId={venueId}>{children}</TerminalInner>
