@@ -80,13 +80,18 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     // Always fetch threshold fresh before proceeding — guarantees correct value
     try {
       if (session.venueId && !session.isSuperAdmin) {
+        console.log('[Threshold] Fetching for venueId:', session.venueId);
         const snap = await firestore().collection('venues').doc(session.venueId).get();
-        const threshold = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
-        idThresholdRef.current = typeof threshold === 'number' ? threshold : 999999;
+        const raw = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
+        const val = typeof raw === 'number' ? raw : 999999;
+        console.log('[Threshold] Raw value from Firestore:', raw, '→ using:', val);
+        idThresholdRef.current = val;
       } else {
+        console.log('[Threshold] Skipping — venueId:', session.venueId, 'isSuperAdmin:', session.isSuperAdmin);
         idThresholdRef.current = 999999;
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.log('[Threshold] Fetch error:', e.message);
       idThresholdRef.current = 999999;
     }
     setIdThreshold(idThresholdRef.current); // sync state for UI
@@ -283,6 +288,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   if (step === 'review') {
     const t = idThresholdRef.current ?? 999999;
     const needsID = t === 0 || amountCents >= t;
+    console.log('[Review] idThresholdRef.current:', idThresholdRef.current, 't:', t, 'amountCents:', amountCents, 'needsID:', needsID);
     return (
       <View style={[styles.container, styles.centered]}>
         <View style={styles.reviewCard}>
