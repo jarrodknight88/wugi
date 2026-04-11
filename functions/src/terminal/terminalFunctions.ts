@@ -198,6 +198,16 @@ export const captureTerminalPayment = functions
       });
     }
 
+    // Retrieve charge to get card details (last4, cardholder name)
+    const capturedPi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ['latest_charge'],
+    });
+    const charge = capturedPi.latest_charge as any;
+    const cardLast4 = charge?.payment_method_details?.card_present?.last4 || null;
+    const cardBrand = charge?.payment_method_details?.card_present?.brand || null;
+    const cardholderName = charge?.payment_method_details?.card_present?.cardholder_name || null;
+    const chargeId = charge?.id || null;
+
     // Initiate Stripe Connect transfer (next-day settlement via Stripe default T+1)
     let stripeTransferId: string | null = null;
     if (stripeConnectAccountId && venuePayout > 0) {
@@ -206,7 +216,7 @@ export const captureTerminalPayment = functions
           amount: venuePayout,
           currency: 'usd',
           destination: stripeConnectAccountId,
-          source_transaction: pi.latest_charge as string,
+          source_transaction: chargeId || pi.latest_charge as string,
           metadata: {
             type: 'door_sale',
             paymentIntentId,
@@ -258,6 +268,10 @@ export const captureTerminalPayment = functions
       staffUid: context.auth.uid,
       status: 'succeeded',
       source: ticketId ? 'balance_payment' : 'tap_to_pay',
+      cardLast4,
+      cardBrand,
+      cardholderName,
+      chargeId,
       // ID scan evidence stored with payment for chargeback disputes
       idVerification: idScanData || null,
       createdAt: now,
@@ -314,14 +328,33 @@ export const refundDoorSale = functions
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth required');
     const { paymentIntentId, reason, staffNote } = data;
 
-    // Retrieve PI to get the charge ID
-    const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
-    if (pi.status !== 'succeeded') {
-      throw new functions.https.HttpsError('failed-precondition', 'Payment not succeeded — cannot refund');
+    // First check our Firestore record for the chargeId (faster and works if PI was test mode)
+    const refundPaymentSnap = await db.collection('terminalPayments')
+      .where('paymentIntentId', '==', paymentIntentId).limit(1).get();
+    
+    let chargeId: string | null = null;
+    
+    if (!refundPaymentSnap.empty) {
+      const paymentData = refundPaymentSnap.docs[0].data();
+      chargeId = paymentData.chargeId || null;
     }
-
-    const chargeId = typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge?.id;
-    if (!chargeId) throw new functions.https.HttpsError('not-found', 'No charge found on payment intent');
+    
+    // Fall back to retrieving from Stripe if not in Firestore
+    if (!chargeId) {
+      try {
+        const pi = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] });
+        if (pi.status !== 'succeeded') {
+          throw new functions.https.HttpsError('failed-precondition', 'Payment not succeeded — cannot refund');
+        }
+        const charge = pi.latest_charge as any;
+        chargeId = typeof charge === 'string' ? charge : charge?.id;
+      } catch (stripeErr: any) {
+        throw new functions.https.HttpsError('not-found', 
+          `Cannot find payment to refund. The transaction may have been created in test mode. Error: ${stripeErr.message}`);
+      }
+    }
+    
+    if (!chargeId) throw new functions.https.HttpsError('not-found', 'No charge ID found for this payment');
 
     // Issue instant refund
     const refund = await stripe.refunds.create({
@@ -350,10 +383,10 @@ export const refundDoorSale = functions
     });
 
     // Also update the terminalPayment doc if it exists
-    const paymentSnap = await db.collection('terminalPayments')
+    const updatePaymentSnap = await db.collection('terminalPayments')
       .where('paymentIntentId', '==', paymentIntentId).limit(1).get();
-    if (!paymentSnap.empty) {
-      await paymentSnap.docs[0].ref.update({
+    if (!updatePaymentSnap.empty) {
+      await updatePaymentSnap.docs[0].ref.update({
         status: 'refunded',
         refundId: refund.id,
         refundReason: reason,

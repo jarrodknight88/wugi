@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, Alert, Modal, RefreshControl,
+  ActivityIndicator, Alert, Modal, RefreshControl, TextInput,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
@@ -28,6 +28,10 @@ interface Transaction {
   eventId: string;
   venueId: string;
   isBalance?: boolean;
+  cardLast4?: string | null;
+  cardBrand?: string | null;
+  cardholderName?: string | null;
+  chargeId?: string | null;
 }
 
 export default function TransactionsScreen() {
@@ -37,6 +41,7 @@ export default function TransactionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   function load(isRefresh = false) {
     if (!session) return;
@@ -70,6 +75,10 @@ export default function TransactionsScreen() {
           eventId: data.eventId,
           venueId: data.venueId,
           isBalance: !!data.ticketId && !data.newTicketData,
+          cardLast4: data.cardLast4 || null,
+          cardBrand: data.cardBrand || null,
+          cardholderName: data.cardholderName || null,
+          chargeId: data.chargeId || null,
         } as Transaction;
       });
       // Sort newest first
@@ -140,6 +149,18 @@ export default function TransactionsScreen() {
     return tx.status?.toUpperCase() || 'UNKNOWN';
   }
 
+  // Filter transactions by search query (name or last 4)
+  const filteredTransactions = searchQuery.trim()
+    ? transactions.filter(t => {
+        const q = searchQuery.trim().toLowerCase();
+        return (
+          (t.holderName || '').toLowerCase().includes(q) ||
+          (t.cardholderName || '').toLowerCase().includes(q) ||
+          (t.cardLast4 || '').includes(q)
+        );
+      })
+    : transactions;
+
   const totalRevenue = transactions
     .filter(t => t.status === 'succeeded')
     .reduce((sum, t) => sum + t.amountCents, 0);
@@ -186,6 +207,12 @@ export default function TransactionsScreen() {
               <DetailRow label="Venue Payout" value={`$${((selected.venuePayout || 0) / 100).toFixed(2)}`} />
               <DetailRow label="Transfer" value={selected.transferStatus || 'N/A'} />
               <DetailRow label="Reference" value={selected.paymentIntentId.slice(-8).toUpperCase()} />
+              {selected.cardLast4 && (
+                <DetailRow label="Card" value={`${selected.cardBrand ? selected.cardBrand.toUpperCase() + ' ' : ''}••••${selected.cardLast4}`} />
+              )}
+              {selected.cardholderName && (
+                <DetailRow label="Card Name" value={selected.cardholderName} />
+              )}
               {selected.idVerification && (
                 <>
                   <DetailRow label="ID Name" value={selected.idVerification.idName || 'N/A'} />
@@ -222,6 +249,19 @@ export default function TransactionsScreen() {
         <Text style={styles.headerSub}>{transactions.length} transactions · ${(totalRevenue / 100).toFixed(2)} total</Text>
       </View>
 
+      {/* Search bar */}
+      <View style={styles.searchRow}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by name or last 4 of card…"
+          placeholderTextColor="#555"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+        />
+      </View>
+
       {/* Summary cards */}
       {transactions.length > 0 && (
         <View style={styles.summaryRow}>
@@ -248,7 +288,7 @@ export default function TransactionsScreen() {
         </View>
       ) : (
         <FlatList
-          data={transactions}
+          data={filteredTransactions}
           keyExtractor={t => t.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor="#2a7a5a" />}
           contentContainerStyle={{ paddingBottom: 40 }}
@@ -329,4 +369,6 @@ const styles = StyleSheet.create({
   refundBtnText: { color: '#cc3333', fontWeight: '800', fontSize: 16 },
   refundedBadge: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 14, alignItems: 'center' },
   refundedText: { color: '#555', fontSize: 13 },
+  searchRow: { paddingHorizontal: 16, paddingBottom: 12 },
+  searchInput: { backgroundColor: '#161616', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: '#fff', fontSize: 15, borderWidth: 1, borderColor: '#2a2a2a' },
 });
