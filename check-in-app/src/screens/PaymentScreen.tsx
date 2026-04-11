@@ -53,6 +53,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [step, setStep]               = useState<PaymentStep>('details');
   const [errorMsg, setErrorMsg]       = useState('');
   const [idVerification, setIdVerification] = useState<VerificationResult | null>(null);
+  const [tableInfo, setTableInfo] = useState<{ table: string; remaining: number } | null>(null);
   const [completedTicketId, setCompletedTicketId] = useState('');
   const [cardholderName, setCardholderName] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
@@ -156,7 +157,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     setStep('processing');
     try {
       const capture = httpsCallable(getFunctions(), 'captureTerminalPayment');
-      await capture({
+      const captureResult = await capture({
         paymentIntentId: piId,
         ticketId: mode.type === 'balance' ? mode.ticketId : undefined,
         eventId: session!.eventId,
@@ -191,9 +192,12 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
           scannedAt: new Date().toISOString(),
         } : undefined,
       });
+      const captureData = (captureResult.data as any);
+      if (captureData?.tableAssignment && captureData?.tableGuestCount > 0) {
+        setTableInfo({ table: captureData.tableAssignment, remaining: captureData.tableGuestCount });
+      }
       Vibration.vibrate(200);
-      setStep('success');
-      setTimeout(onSuccess, 1800);
+      setStep('success'); // No auto-dismiss — staff needs to see check-in info
     } catch (e: any) {
       setErrorMsg(e.message || 'Capture failed');
       setStep('error');
@@ -364,11 +368,27 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         <Text style={styles.successText}>Payment Accepted</Text>
         <Text style={styles.successAmount}>${(amountCents / 100).toFixed(2)}</Text>
         {guestName ? <Text style={styles.successSub}>{guestName}</Text> : null}
+        {mode.type === 'balance' && (
+          <View style={styles.checkedInBadge}>
+            <Text style={styles.checkedInText}>✓ {guestName || 'Guest'} checked in</Text>
+          </View>
+        )}
         {idVerification && (
           <Text style={{ color: idVerification.verified ? '#2a7a5a' : '#e6a817', fontSize: 13, marginTop: 8 }}>
-            {idVerification.verified ? '✓ ID Verified' : '⚠️ ID issue flagged'}
+            {idVerification.verified ? '✓ ID Verified' : '⚠️ ID override recorded'}
           </Text>
         )}
+        {tableInfo && (
+          <View style={styles.tableNotice}>
+            <Text style={styles.tableNoticeTitle}>🪑 {tableInfo.table}</Text>
+            <Text style={styles.tableNoticeText}>
+              {tableInfo.remaining} other guest{tableInfo.remaining !== 1 ? 's' : ''} at this table still need to scan their tickets at the door
+            </Text>
+          </View>
+        )}
+        <TouchableOpacity style={styles.doneBtn} onPress={onSuccess}>
+          <Text style={styles.doneBtnText}>Done</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -527,6 +547,13 @@ const styles = StyleSheet.create({
   cancelledSub: { fontSize: 14, color: '#555', textAlign: 'center', paddingHorizontal: 32, marginBottom: 32, lineHeight: 20 },
   cancelledBtn: { backgroundColor: '#1a1a1a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, borderWidth: 1, borderColor: '#2a2a2a' },
   cancelledBtnText: { color: '#888', fontWeight: '700', fontSize: 16 },
+  checkedInBadge: { backgroundColor: '#0d1f16', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 8, marginTop: 12, borderWidth: 1, borderColor: '#2a7a5a' },
+  checkedInText: { color: '#4ade80', fontWeight: '700', fontSize: 14 },
+  tableNotice: { backgroundColor: '#1a1a00', borderRadius: 12, padding: 16, marginTop: 16, marginHorizontal: 32, borderWidth: 1, borderColor: '#e6a817', alignItems: 'center' },
+  tableNoticeTitle: { color: '#e6a817', fontWeight: '800', fontSize: 15, marginBottom: 6 },
+  tableNoticeText: { color: '#aaa', fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  doneBtn: { marginTop: 28, backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 48 },
+  doneBtnText: { color: '#fff', fontWeight: '800', fontSize: 17 },
   // Review screen
   reviewCard: { backgroundColor: '#161616', borderRadius: 20, padding: 28, margin: 24, borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', width: '88%' },
   reviewTitle: { fontSize: 16, fontWeight: '700', color: '#888', marginBottom: 12, letterSpacing: 1 },

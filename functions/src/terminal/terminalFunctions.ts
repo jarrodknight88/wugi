@@ -189,30 +189,7 @@ export const captureTerminalPayment = functions
         updatedAt: now,
       });
 
-      // Also check in all other tickets at the same table for this event
-      try {
-        const paidTicketSnap = await db.collection('events').doc(eventId)
-          .collection('tickets').doc(ticketId).get();
-        const tableAssignment = paidTicketSnap.data()?.tableAssignment;
-        if (tableAssignment) {
-          const tableTickets = await db.collection('events').doc(eventId)
-            .collection('tickets')
-            .where('tableAssignment', '==', tableAssignment)
-            .get();
-          tableTickets.docs.forEach(t => {
-            if (t.id !== ticketId) {
-              batch.update(t.ref, {
-                checkedIn: true,
-                checkedInAt: now,
-                checkedInBy: 'door_payment_table',
-                updatedAt: now,
-              });
-            }
-          });
-        }
-      } catch (tableErr: any) {
-        console.warn('Table check-in error:', tableErr.message);
-      }
+      // Note: other guests at the same table still need to scan their own tickets
     } else if (newTicketData) {
       // Walk-up — create new ticket
       const ticketRef = db.collection('events').doc(eventId).collection('tickets').doc();
@@ -344,7 +321,24 @@ export const captureTerminalPayment = functions
       capturedAt: admin.firestore.FieldValue.serverTimestamp(),
     }).catch(() => {}); // non-blocking
 
-    return { success: true };
+    // Return table info so app can show remaining guests notice
+    let tableAssignment: string | null = null;
+    let tableGuestCount = 0;
+    if (ticketId) {
+      try {
+        const paidTicket = await db.collection('events').doc(eventId)
+          .collection('tickets').doc(ticketId).get();
+        tableAssignment = paidTicket.data()?.tableAssignment || null;
+        if (tableAssignment) {
+          const tableSnap = await db.collection('events').doc(eventId)
+            .collection('tickets')
+            .where('tableAssignment', '==', tableAssignment)
+            .get();
+          tableGuestCount = tableSnap.size - 1; // exclude the payer
+        }
+      } catch (e) {}
+    }
+    return { success: true, checkedIn: !!ticketId, tableAssignment, tableGuestCount };
   });
 
 
