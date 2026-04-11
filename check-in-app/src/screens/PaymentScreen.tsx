@@ -36,7 +36,7 @@ interface Props {
 
 // New flow: details → connecting → collecting (card tap) → id_scan → processing (capture) → success/error
 // Card tap FIRST so cardholder name is available for ID comparison. Manual capture = no charge until approved.
-type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'processing' | 'success' | 'error';
+type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'review' | 'processing' | 'success' | 'error';
 
 export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const { session } = useSession();
@@ -64,16 +64,16 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const phoneRef = useRef<any>(null);
   const tableRef = useRef<any>(null);
 
-  // Load ID verification threshold from event doc
+  // Load ID verification threshold from VENUE doc (applies to all payment types)
   useEffect(() => {
-    if (!session?.eventId || session.isSuperAdmin) return;
-    firestore().collection('events').doc(session.eventId).get().then(snap => {
+    if (!session?.venueId || session.isSuperAdmin) return;
+    firestore().collection('venues').doc(session.venueId).get().then(snap => {
       if (snap.exists) {
         const threshold = snap.data()?.idVerificationThreshold;
         if (typeof threshold === 'number') setIdThreshold(threshold);
       }
     }).catch(() => {});
-  }, [session?.eventId]);
+  }, [session?.venueId]);
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
@@ -130,13 +130,9 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       setCollectedPaymentIntent(collectedPI);
       setPaymentIntentId(piId);
 
-      // STEP 3: ID scan — now we have the real card name to compare against
-      const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
-      if (needsID) {
-        setStep('id_scan'); // ID scan callbacks handle approve (capture) or deny (void)
-      } else {
-        await captureAfterApproval(piId, null); // No ID required — capture immediately
-      }
+      // STEP 3: Show review screen — staff confirms before charge settles
+      // ID scan happens from review if threshold requires it
+      setStep('review');
     } catch (e: any) {
       setErrorMsg(e.message || 'Payment failed');
       setStep('error');
@@ -224,12 +220,31 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     }
   }
 
+  // Review screen callbacks
+  async function handleReviewApprove() {
+    const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+    if (needsID) {
+      setStep('id_scan');
+    } else {
+      await captureAfterApproval(paymentIntentId, null);
+    }
+  }
+
+  async function handleReviewCancel() {
+    // Void the authorization — customer never sees a charge
+    if (!paymentIntentId) { onCancel(); return; }
+    try {
+      const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
+      await cancelFn({ paymentIntentId, reason: 'staff_cancelled', staffNote: 'Cancelled at review screen' });
+    } catch (e) {}
+    onCancel();
+  }
+
   // ID scan callbacks
   function onIDVerified(result: VerificationResult) {
     captureAfterApproval(paymentIntentId, result);
   }
   function onIDSkipped() {
-    // Override accepted — capture anyway, liability on staff
     captureAfterApproval(paymentIntentId, null);
   }
 
@@ -241,6 +256,43 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   // ── Render ────────────────────────────────────────────────────────
   const isWalkin = mode.type === 'walkin';
   const guestName = holderName || (mode.type === 'balance' ? mode.holderName : '');
+
+  // Review screen — shown after card tap, before ID scan/capture
+  // Staff sees summary and confirms or cancels. Card authorized but NOT charged yet.
+  if (step === 'review') {
+    const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <View style={styles.reviewCard}>
+          <Text style={styles.reviewTitle}>Review Payment</Text>
+          <Text style={styles.reviewAmount}>${(amountCents / 100).toFixed(2)}</Text>
+          <Text style={styles.reviewGuest}>{guestName || 'Guest'}</Text>
+          {cardholderName ? (
+            <Text style={styles.reviewCardName}>💳 {cardholderName}</Text>
+          ) : null}
+          {mode.type === 'walkin' && (mode as any).ticketTypeName ? (
+            <Text style={styles.reviewType}>{(mode as any).ticketTypeName}</Text>
+          ) : (
+            <Text style={styles.reviewType}>Balance Payment</Text>
+          )}
+          {needsID && (
+            <View style={styles.idRequiredBadge}>
+              <Text style={styles.idRequiredText}>🪪 ID verification required</Text>
+            </View>
+          )}
+          <View style={styles.reviewActions}>
+            <TouchableOpacity style={styles.reviewCancelBtn} onPress={handleReviewCancel}>
+              <Text style={styles.reviewCancelText}>✕ Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.reviewAcceptBtn} onPress={handleReviewApprove}>
+              <Text style={styles.reviewAcceptText}>{needsID ? '🪪 Scan ID' : '✓ Accept'}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.reviewNote}>Card authorized · No charge until accepted</Text>
+        </View>
+      </View>
+    );
+  }
 
   // ID Scan — shown AFTER card tap. Card is authorized but NOT charged yet.
   // Staff approves → capture. Staff denies → void (no charge ever).
@@ -426,4 +478,19 @@ const styles = StyleSheet.create({
   errorMsg: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 32, paddingHorizontal: 32 },
   retryBtn: { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 12 },
   retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  // Review screen
+  reviewCard: { backgroundColor: '#161616', borderRadius: 20, padding: 28, margin: 24, borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', width: '88%' },
+  reviewTitle: { fontSize: 16, fontWeight: '700', color: '#888', marginBottom: 12, letterSpacing: 1 },
+  reviewAmount: { fontSize: 56, fontWeight: '800', color: '#2a7a5a', marginBottom: 4 },
+  reviewGuest: { fontSize: 20, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  reviewCardName: { fontSize: 14, color: '#888', marginBottom: 4 },
+  reviewType: { fontSize: 13, color: '#555', marginBottom: 16 },
+  idRequiredBadge: { backgroundColor: '#0d1f16', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 20, borderWidth: 1, borderColor: '#2a7a5a' },
+  idRequiredText: { color: '#4ade80', fontSize: 13, fontWeight: '600' },
+  reviewActions: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 16 },
+  reviewCancelBtn: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: '#2a1a1a', alignItems: 'center', borderWidth: 1, borderColor: '#cc3333' },
+  reviewCancelText: { color: '#cc3333', fontWeight: '800', fontSize: 16 },
+  reviewAcceptBtn: { flex: 2, paddingVertical: 16, borderRadius: 14, backgroundColor: '#2a7a5a', alignItems: 'center' },
+  reviewAcceptText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  reviewNote: { fontSize: 11, color: '#444', textAlign: 'center' },
 });

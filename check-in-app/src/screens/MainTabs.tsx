@@ -6,8 +6,9 @@ import { useSession } from '../context/SessionContext';
 import ScannerScreen from './ScannerScreen';
 import ManualLookupScreen from './ManualLookupScreen';
 import DashboardScreen from './DashboardScreen';
+import TransactionsScreen from './TransactionsScreen';
 
-type Tab = 'scan' | 'lookup' | 'dashboard';
+type Tab = 'scan' | 'lookup' | 'dashboard' | 'transactions';
 
 export default function MainTabs() {
   const [activeTab, setActiveTab] = React.useState<Tab>('scan');
@@ -17,6 +18,7 @@ export default function MainTabs() {
     { id: 'scan', label: 'Scan', icon: '⬛' },
     { id: 'lookup', label: 'Lookup', icon: '🔍' },
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'transactions', label: 'Sales', icon: '💳' },
   ];
 
   return (
@@ -30,6 +32,9 @@ export default function MainTabs() {
         </View>
         <View style={{ display: activeTab === 'dashboard' ? 'flex' : 'none', flex: 1 }}>
           <DashboardScreen />
+        </View>
+        <View style={{ display: activeTab === 'transactions' ? 'flex' : 'none', flex: 1 }}>
+          <TransactionsScreen />
         </View>
       </View>
 

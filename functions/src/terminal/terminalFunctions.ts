@@ -44,6 +44,11 @@ export const createTerminalConnectionToken = functions
       location: stripeLocationId,
     });
 
+    functions.logger.info('Connection token created', {
+      livemode: (connectionToken as any).livemode,
+      stripeKey: process.env.STRIPE_SECRET_KEY?.slice(0, 12),
+    });
+
     return { secret: connectionToken.secret, locationId: stripeLocationId };
   });
 

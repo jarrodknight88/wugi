@@ -77,6 +77,10 @@ exports.createTerminalConnectionToken = functions
     const connectionToken = await stripeUtils_1.stripe.terminal.connectionTokens.create({
         location: stripeLocationId,
     });
+    functions.logger.info('Connection token created', {
+        livemode: connectionToken.livemode,
+        stripeKey: process.env.STRIPE_SECRET_KEY?.slice(0, 12),
+    });
     return { secret: connectionToken.secret, locationId: stripeLocationId };
 });
 // ── createTerminalPaymentIntent ───────────────────────────────────────
