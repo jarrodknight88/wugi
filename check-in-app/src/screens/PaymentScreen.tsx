@@ -77,18 +77,17 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     }
     if (!session) return;
 
-    // Always fetch threshold fresh before proceeding — guarantees correct value
+    // Always fetch threshold fresh from venue doc — applies to all roles including super admin
     try {
-      if (session.venueId && !session.isSuperAdmin) {
-        console.log('[Threshold] Fetching for venueId:', session.venueId);
-        const snap = await firestore().collection('venues').doc(session.venueId).get();
+      const vid = session.venueId && session.venueId !== '__super_admin__' ? session.venueId : null;
+      if (vid) {
+        const snap = await firestore().collection('venues').doc(vid).get();
         const raw = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
-        const val = typeof raw === 'number' ? raw : 999999;
-        console.log('[Threshold] Raw value from Firestore:', raw, '→ using:', val);
-        idThresholdRef.current = val;
+        idThresholdRef.current = typeof raw === 'number' ? raw : 999999;
+        console.log('[Threshold] venueId:', vid, 'raw:', raw, 'using:', idThresholdRef.current);
       } else {
-        console.log('[Threshold] Skipping — venueId:', session.venueId, 'isSuperAdmin:', session.isSuperAdmin);
         idThresholdRef.current = 999999;
+        console.log('[Threshold] No venue — skipping threshold');
       }
     } catch (e: any) {
       console.log('[Threshold] Fetch error:', e.message);
