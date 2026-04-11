@@ -54,6 +54,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [errorMsg, setErrorMsg]       = useState('');
   const [idVerification, setIdVerification] = useState<VerificationResult | null>(null);
   const [tableInfo, setTableInfo] = useState<{ table: string; remaining: number } | null>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkedIn, setCheckedIn] = useState(false);
   const [completedTicketId, setCompletedTicketId] = useState('');
   const [cardholderName, setCardholderName] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
@@ -362,27 +364,69 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Success
   if (step === 'success') {
+    async function handleCheckInNow() {
+      if (!session || mode.type !== 'balance' || checkedIn || checkingIn) return;
+      setCheckingIn(true);
+      try {
+        const firestore = require('@react-native-firebase/firestore').default;
+        await firestore()
+          .collection('events').doc(session.eventId)
+          .collection('tickets').doc(mode.ticketId)
+          .update({
+            checkedIn: true,
+            checkedInAt: firestore.FieldValue.serverTimestamp(),
+            checkedInBy: 'door_payment_manual',
+            updatedAt: firestore.FieldValue.serverTimestamp(),
+          });
+        setCheckedIn(true);
+      } catch (e) {
+        Alert.alert('Error', 'Could not check in. Try scanning their ticket.');
+      } finally {
+        setCheckingIn(false);
+      }
+    }
+
     return (
       <View style={[styles.container, styles.centered]}>
         <Text style={styles.successIcon}>✓</Text>
         <Text style={styles.successText}>Payment Accepted</Text>
         <Text style={styles.successAmount}>${(amountCents / 100).toFixed(2)}</Text>
         {guestName ? <Text style={styles.successSub}>{guestName}</Text> : null}
-        {mode.type === 'balance' && (
-          <View style={styles.checkedInBadge}>
-            <Text style={styles.checkedInText}>✓ {guestName || 'Guest'} checked in</Text>
-          </View>
-        )}
         {idVerification && (
           <Text style={{ color: idVerification.verified ? '#2a7a5a' : '#e6a817', fontSize: 13, marginTop: 8 }}>
             {idVerification.verified ? '✓ ID Verified' : '⚠️ ID override recorded'}
           </Text>
         )}
-        {tableInfo && (
+        {mode.type === 'balance' && (
+          checkedIn ? (
+            <View style={styles.checkedInBadge}>
+              <Text style={styles.checkedInText}>✓ {guestName || 'Guest'} checked in</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.checkInNowBtn, checkingIn && { opacity: 0.6 }]}
+              onPress={handleCheckInNow}
+              disabled={checkingIn}>
+              {checkingIn
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.checkInNowText}>✓ Check In Now</Text>
+              }
+            </TouchableOpacity>
+          )
+        )}
+        {tableInfo && !checkedIn && (
           <View style={styles.tableNotice}>
             <Text style={styles.tableNoticeTitle}>🪑 {tableInfo.table}</Text>
             <Text style={styles.tableNoticeText}>
-              {tableInfo.remaining} other guest{tableInfo.remaining !== 1 ? 's' : ''} at this table still need to scan their tickets at the door
+              {tableInfo.remaining} other guest{tableInfo.remaining !== 1 ? 's' : ''} at this table will need to scan at the door
+            </Text>
+          </View>
+        )}
+        {tableInfo && checkedIn && (
+          <View style={styles.tableNotice}>
+            <Text style={styles.tableNoticeTitle}>🪑 {tableInfo.table}</Text>
+            <Text style={styles.tableNoticeText}>
+              {tableInfo.remaining} other guest{tableInfo.remaining !== 1 ? 's' : ''} still need to scan at the door
             </Text>
           </View>
         )}
@@ -548,6 +592,8 @@ const styles = StyleSheet.create({
   cancelledBtn: { backgroundColor: '#1a1a1a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, borderWidth: 1, borderColor: '#2a2a2a' },
   cancelledBtnText: { color: '#888', fontWeight: '700', fontSize: 16 },
   checkedInBadge: { backgroundColor: '#0d1f16', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 8, marginTop: 12, borderWidth: 1, borderColor: '#2a7a5a' },
+  checkInNowBtn: { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 36, marginTop: 16 },
+  checkInNowText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   checkedInText: { color: '#4ade80', fontWeight: '700', fontSize: 14 },
   tableNotice: { backgroundColor: '#1a1a00', borderRadius: 12, padding: 16, marginTop: 16, marginHorizontal: 32, borderWidth: 1, borderColor: '#e6a817', alignItems: 'center' },
   tableNoticeTitle: { color: '#e6a817', fontWeight: '800', fontSize: 15, marginBottom: 6 },

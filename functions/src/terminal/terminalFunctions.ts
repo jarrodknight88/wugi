@@ -178,18 +178,15 @@ export const captureTerminalPayment = functions
     const now = admin.firestore.FieldValue.serverTimestamp();
 
     if (ticketId) {
-      // Existing ticket — clear balance due + check in
+      // Existing ticket — clear balance due only (check-in happens on demand from the app)
       const ticketRef = db.collection('events').doc(eventId).collection('tickets').doc(ticketId);
       batch.update(ticketRef, {
         balanceDue: 0,
         depositPaid: amountCents,
-        checkedIn: true,
-        checkedInAt: now,
-        checkedInBy: 'door_payment',
         updatedAt: now,
       });
 
-      // Note: other guests at the same table still need to scan their own tickets
+      // Note: check-in is handled by the app after staff confirms guest is present
     } else if (newTicketData) {
       // Walk-up — create new ticket
       const ticketRef = db.collection('events').doc(eventId).collection('tickets').doc();
