@@ -58,7 +58,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [isRefunding, setIsRefunding] = useState(false);
   const [collectedPaymentIntent, setCollectedPaymentIntent] = useState<any>(null);
   const [paymentIntentId, setPaymentIntentId] = useState('');
-  const [idThreshold, setIdThreshold] = useState(30000); // default $300
+  const [idThreshold, setIdThreshold] = useState<number | null>(null); // null = not yet loaded
   const nameRef  = useRef<any>(null);
   const emailRef = useRef<any>(null);
   const phoneRef = useRef<any>(null);
@@ -66,13 +66,16 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Load ID verification threshold from VENUE doc (applies to all payment types)
   useEffect(() => {
-    if (!session?.venueId || session.isSuperAdmin) return;
+    if (!session?.venueId) { setIdThreshold(999999); return; } // no venue = no threshold
+    if (session.isSuperAdmin) { setIdThreshold(999999); return; }
     firestore().collection('venues').doc(session.venueId).get().then(snap => {
       if (snap.exists) {
         const threshold = snap.data()?.idVerificationThreshold;
-        if (typeof threshold === 'number') setIdThreshold(threshold);
+        setIdThreshold(typeof threshold === 'number' ? threshold : 999999);
+      } else {
+        setIdThreshold(999999);
       }
-    }).catch(() => {});
+    }).catch(() => setIdThreshold(999999));
   }, [session?.venueId]);
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
@@ -132,6 +135,15 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       // STEP 3: Show review screen — staff confirms before charge settles
       // ID scan happens from review if threshold requires it
+      // Wait for threshold to load if still null
+      if (idThreshold === null) {
+        // Re-fetch synchronously if not loaded yet
+        if (session?.venueId) {
+          const vSnap = await firestore().collection('venues').doc(session.venueId).get();
+          const t = vSnap.data()?.idVerificationThreshold;
+          setIdThreshold(typeof t === 'number' ? t : 999999);
+        }
+      }
       setStep('review');
     } catch (e: any) {
       setErrorMsg(e.message || 'Payment failed');
@@ -222,7 +234,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Review screen callbacks
   async function handleReviewApprove() {
-    const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+    const needsID = idThreshold !== null && (idThreshold === 0 || amountCents >= idThreshold);
     if (needsID) {
       setStep('id_scan');
     } else {
@@ -260,7 +272,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   // Review screen — shown after card tap, before ID scan/capture
   // Staff sees summary and confirms or cancels. Card authorized but NOT charged yet.
   if (step === 'review') {
-    const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+    const needsID = idThreshold !== null && (idThreshold === 0 || amountCents >= idThreshold);
     return (
       <View style={[styles.container, styles.centered]}>
         <View style={styles.reviewCard}>
@@ -411,7 +423,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       {/* ID scan notice — only shown when ID will be required */}
       {(() => {
-        const needsID = idThreshold === 0 || (idThreshold > 0 && amountCents >= idThreshold);
+        const needsID = idThreshold !== null && (idThreshold === 0 || amountCents >= idThreshold);
         if (!needsID) return null;
         return (
           <View style={styles.idNotice}>
@@ -427,10 +439,10 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       <TouchableOpacity
         style={[styles.chargeBtn, amountCents < 50 && styles.chargeBtnDisabled]}
         onPress={handleCharge}
-        disabled={amountCents < 50}
+        disabled={amountCents < 50 || idThreshold === null}
       >
         <Text style={styles.chargeBtnText}>
-          Charge ${(amountCents / 100).toFixed(2)}
+          {idThreshold === null ? 'Loading…' : `Charge $${(amountCents / 100).toFixed(2)}`}
         </Text>
       </TouchableOpacity>
 

@@ -217,6 +217,24 @@ exports.captureTerminalPayment = functions
             console.error('Transfer failed:', transferErr.message);
         }
     }
+    // For balance payments, look up ticket to get holder info
+    let holderName = null;
+    let ticketTypeName = null;
+    if (ticketId) {
+        try {
+            const ticketSnap = await db.collection('events').doc(eventId)
+                .collection('tickets').doc(ticketId).get();
+            if (ticketSnap.exists) {
+                holderName = ticketSnap.data()?.holderName || null;
+                ticketTypeName = ticketSnap.data()?.ticketTypeName || null;
+            }
+        }
+        catch (e) { }
+    }
+    else if (newTicketData) {
+        holderName = newTicketData.holderName || null;
+        ticketTypeName = newTicketData.ticketTypeName || null;
+    }
     // Write payment record
     const paymentRef = db.collection('terminalPayments').doc();
     batch.set(paymentRef, {
@@ -227,12 +245,14 @@ exports.captureTerminalPayment = functions
         amountCents,
         bookingFeeCents,
         venuePayout,
+        holderName,
+        ticketTypeName,
         stripeConnectAccountId: stripeConnectAccountId || null,
         stripeTransferId,
         transferStatus: stripeTransferId ? 'transferred' : (stripeConnectAccountId ? 'transfer_failed' : 'no_connect_account'),
         staffUid: context.auth.uid,
         status: 'succeeded',
-        source: 'tap_to_pay',
+        source: ticketId ? 'balance_payment' : 'tap_to_pay',
         // ID scan evidence stored with payment for chargeback disputes
         idVerification: idScanData || null,
         createdAt: now,

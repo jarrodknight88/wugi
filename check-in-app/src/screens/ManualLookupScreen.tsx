@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   ActivityIndicator, Alert, Modal, SectionList, ScrollView,
-  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform,
+  RefreshControl, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
@@ -231,6 +231,7 @@ export default function ManualLookupScreen() {
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
   const [venueTables, setVenueTables] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Load ticket types + venue tables for Add Guest modal
   useEffect(() => {
@@ -260,6 +261,32 @@ export default function ManualLookupScreen() {
         }).catch(() => {});
     }
   }, [session?.eventId]);
+
+  async function handleRefresh() {
+    if (!session?.eventId || session.eventId === '__super_admin__') return;
+    setRefreshing(true);
+    try {
+      const snap = await firestore()
+        .collection('events').doc(session.eventId)
+        .collection('tickets').get();
+      const docs = snap.docs.map(d => ({
+        id: d.id, eventId: session?.eventId || '',
+        holderName: d.data().holderName || '',
+        holderEmail: d.data().holderEmail || '',
+        holderPhone: d.data().holderPhone || '',
+        ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
+        ticketTypeId: d.data().ticketTypeId || '',
+        color: d.data().color || '#2a7a5a',
+        quantity: d.data().quantity ?? 1,
+        checkedIn: d.data().checkedIn === true,
+        balanceDue: d.data().balanceDue ?? 0,
+        tableAssignment: d.data().tableAssignment || '',
+      }));
+      docs.sort((a, b) => a.holderName.localeCompare(b.holderName));
+      setResults(docs);
+    } catch (e) {}
+    finally { setRefreshing(false); }
+  }
 
   // Live ticket list — real-time listener sorted client-side
   useEffect(() => {

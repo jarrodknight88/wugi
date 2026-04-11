@@ -27,6 +27,7 @@ interface Transaction {
   createdAt: any;
   eventId: string;
   venueId: string;
+  isBalance?: boolean;
 }
 
 export default function TransactionsScreen() {
@@ -42,18 +43,45 @@ export default function TransactionsScreen() {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
-    // Query terminalPayments for this event/venue tonight
-    // Order by createdAt desc to show most recent first
+    // Query terminalPayments — covers both walk-up sales and balance collections
     const query = session.isSuperAdmin
-      ? firestore().collection('terminalPayments').orderBy('createdAt', 'desc').limit(50)
+      ? firestore().collection('terminalPayments').orderBy('createdAt', 'desc').limit(100)
       : firestore().collection('terminalPayments')
           .where('eventId', '==', session.eventId)
-          .orderBy('createdAt', 'desc').limit(50);
+          .orderBy('createdAt', 'desc').limit(100);
 
     query.get().then(snap => {
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction));
+      const docs = snap.docs.map(d => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          paymentIntentId: data.paymentIntentId || '',
+          amountCents: data.amountCents || 0,
+          bookingFeeCents: data.bookingFeeCents || 0,
+          venuePayout: data.venuePayout || 0,
+          holderName: data.newTicketData?.holderName || data.holderName || null,
+          ticketTypeName: data.newTicketData?.ticketTypeName || data.ticketTypeName || null,
+          ticketId: data.ticketId || null,
+          source: data.source || 'tap_to_pay',
+          status: data.status || 'succeeded',
+          transferStatus: data.transferStatus,
+          idVerification: data.idVerification || null,
+          createdAt: data.createdAt,
+          eventId: data.eventId,
+          venueId: data.venueId,
+          isBalance: !!data.ticketId && !data.newTicketData,
+        } as Transaction;
+      });
+      // Sort newest first
+      docs.sort((a: any, b: any) => {
+        const ta = a.createdAt?.toDate?.() || new Date(0);
+        const tb = b.createdAt?.toDate?.() || new Date(0);
+        return tb.getTime() - ta.getTime();
+      });
       setTransactions(docs);
-    }).catch(() => {}).finally(() => {
+    }).catch((e) => {
+      console.warn('Transaction load error:', e.message);
+    }).finally(() => {
       setLoading(false);
       setRefreshing(false);
     });
@@ -235,7 +263,7 @@ export default function TransactionsScreen() {
                   </Text>
                 </View>
                 <View style={styles.txBottom}>
-                  <Text style={styles.txType}>{item.ticketTypeName || (item.source === 'tap_to_pay' ? 'Door Sale' : item.source)}</Text>
+                  <Text style={styles.txType}>{item.isBalance ? '⚖️ Balance Payment' : item.ticketTypeName || 'Door Sale'}</Text>
                   <View style={styles.txMeta}>
                     <Text style={[styles.txStatus, { color: statusColor(item.status) }]}>{statusLabel(item)}</Text>
                     <Text style={styles.txTime}>{formatTime(item.createdAt)}</Text>
