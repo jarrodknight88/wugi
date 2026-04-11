@@ -64,34 +64,26 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const phoneRef = useRef<any>(null);
   const tableRef = useRef<any>(null);
 
+  // Threshold ref — always up to date, avoids stale closure issues
+  const idThresholdRef = useRef<number>(999999);
+
   // Load ID verification threshold from VENUE doc
-  // Use a ref to track if component is still mounted
-  const mountedRef = useRef(true);
   useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!session?.venueId) { setIdThreshold(999999); return; }
-    if (session.isSuperAdmin) { setIdThreshold(999999); return; }
+    if (!session?.venueId || session.isSuperAdmin) {
+      setIdThreshold(999999);
+      idThresholdRef.current = 999999;
+      return;
+    }
     firestore().collection('venues').doc(session.venueId).get().then(snap => {
-      if (!mountedRef.current) return;
       const threshold = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
-      setIdThreshold(typeof threshold === 'number' ? threshold : 999999);
-    }).catch(() => { if (mountedRef.current) setIdThreshold(999999); });
+      const val = typeof threshold === 'number' ? threshold : 999999;
+      setIdThreshold(val);
+      idThresholdRef.current = val;
+    }).catch(() => {
+      setIdThreshold(999999);
+      idThresholdRef.current = 999999;
+    });
   }, [session?.venueId]);
-
-  // For balance payments: no form needed, auto-start once threshold is loaded
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (mode.type !== 'balance') return;
-    if (idThreshold === null) return; // wait for threshold to load
-    if (autoStartedRef.current) return;
-    if (step !== 'details') return;
-    autoStartedRef.current = true;
-    handleCharge();
-  }, [idThreshold, mode.type, step]);
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
@@ -102,6 +94,20 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       Alert.alert('Name required', 'Please enter the guest name.'); return;
     }
     if (!session) return;
+
+    // Ensure threshold is loaded before proceeding (handles race condition on balance modal open)
+    if (idThreshold === null && session.venueId && !session.isSuperAdmin) {
+      try {
+        const snap = await firestore().collection('venues').doc(session.venueId).get();
+        const threshold = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
+        const val = typeof threshold === 'number' ? threshold : 999999;
+        setIdThreshold(val);
+        idThresholdRef.current = val;
+      } catch (e) {
+        idThresholdRef.current = 999999;
+      }
+    }
+
     setStep('connecting');
     try {
       if (!isReady) {
@@ -240,7 +246,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Review screen callbacks
   async function handleReviewApprove() {
-    const needsID = idThreshold !== null && (idThreshold === 0 || amountCents >= idThreshold);
+    const effectiveThreshold = idThresholdRef.current;
+    const needsID = effectiveThreshold === 0 || amountCents >= effectiveThreshold;
     if (needsID) {
       setStep('id_scan');
     } else {
@@ -278,7 +285,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   // Review screen — shown after card tap, before ID scan/capture
   // Staff sees summary and confirms or cancels. Card authorized but NOT charged yet.
   if (step === 'review') {
-    const needsID = idThreshold !== null && (idThreshold === 0 || amountCents >= idThreshold);
+    const effectiveThreshold = idThresholdRef.current;
+    const needsID = effectiveThreshold === 0 || amountCents >= effectiveThreshold;
     return (
       <View style={[styles.container, styles.centered]}>
         <View style={styles.reviewCard}>
@@ -303,7 +311,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
               <Text style={styles.reviewCancelText}>✕ Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.reviewAcceptBtn} onPress={handleReviewApprove}>
-              <Text style={styles.reviewAcceptText}>{needsID ? '🪪 Scan ID' : '✓ Accept'}</Text>
+              <Text style={styles.reviewAcceptText}>{needsID ? '🪪 Scan ID & Charge' : '✓ Accept & Charge'}</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.reviewNote}>Card authorized · No charge until accepted</Text>
