@@ -64,19 +64,34 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const phoneRef = useRef<any>(null);
   const tableRef = useRef<any>(null);
 
-  // Load ID verification threshold from VENUE doc (applies to all payment types)
+  // Load ID verification threshold from VENUE doc
+  // Use a ref to track if component is still mounted
+  const mountedRef = useRef(true);
   useEffect(() => {
-    if (!session?.venueId) { setIdThreshold(999999); return; } // no venue = no threshold
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!session?.venueId) { setIdThreshold(999999); return; }
     if (session.isSuperAdmin) { setIdThreshold(999999); return; }
     firestore().collection('venues').doc(session.venueId).get().then(snap => {
-      if (snap.exists) {
-        const threshold = snap.data()?.idVerificationThreshold;
-        setIdThreshold(typeof threshold === 'number' ? threshold : 999999);
-      } else {
-        setIdThreshold(999999);
-      }
-    }).catch(() => setIdThreshold(999999));
+      if (!mountedRef.current) return;
+      const threshold = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
+      setIdThreshold(typeof threshold === 'number' ? threshold : 999999);
+    }).catch(() => { if (mountedRef.current) setIdThreshold(999999); });
   }, [session?.venueId]);
+
+  // For balance payments: no form needed, auto-start once threshold is loaded
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (mode.type !== 'balance') return;
+    if (idThreshold === null) return; // wait for threshold to load
+    if (autoStartedRef.current) return;
+    if (step !== 'details') return;
+    autoStartedRef.current = true;
+    handleCharge();
+  }, [idThreshold, mode.type, step]);
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
@@ -135,15 +150,6 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       // STEP 3: Show review screen — staff confirms before charge settles
       // ID scan happens from review if threshold requires it
-      // Wait for threshold to load if still null
-      if (idThreshold === null) {
-        // Re-fetch synchronously if not loaded yet
-        if (session?.venueId) {
-          const vSnap = await firestore().collection('venues').doc(session.venueId).get();
-          const t = vSnap.data()?.idVerificationThreshold;
-          setIdThreshold(typeof t === 'number' ? t : 999999);
-        }
-      }
       setStep('review');
     } catch (e: any) {
       setErrorMsg(e.message || 'Payment failed');

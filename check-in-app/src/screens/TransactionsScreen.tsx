@@ -210,9 +210,7 @@ export default function TransactionsScreen() {
               {selected.cardLast4 && (
                 <DetailRow label="Card" value={`${selected.cardBrand ? selected.cardBrand.toUpperCase() + ' ' : ''}••••${selected.cardLast4}`} />
               )}
-              {selected.cardholderName && (
-                <DetailRow label="Card Name" value={selected.cardholderName} />
-              )}
+              <DetailRow label="Card Name" value={selected.cardholderName || 'Not on card'} />
               {selected.idVerification && (
                 <>
                   <DetailRow label="ID Name" value={selected.idVerification.idName || 'N/A'} />
