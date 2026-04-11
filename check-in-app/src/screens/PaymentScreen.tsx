@@ -36,7 +36,7 @@ interface Props {
 
 // New flow: details → connecting → collecting (card tap) → id_scan → processing (capture) → success/error
 // Card tap FIRST so cardholder name is available for ID comparison. Manual capture = no charge until approved.
-type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'review' | 'processing' | 'success' | 'error';
+type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'review' | 'processing' | 'success' | 'cancelled' | 'error';
 
 export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const { session } = useSession();
@@ -64,26 +64,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const phoneRef = useRef<any>(null);
   const tableRef = useRef<any>(null);
 
-  // Threshold ref — always up to date, avoids stale closure issues
-  const idThresholdRef = useRef<number>(999999);
-
-  // Load ID verification threshold from VENUE doc
-  useEffect(() => {
-    if (!session?.venueId || session.isSuperAdmin) {
-      setIdThreshold(999999);
-      idThresholdRef.current = 999999;
-      return;
-    }
-    firestore().collection('venues').doc(session.venueId).get().then(snap => {
-      const threshold = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
-      const val = typeof threshold === 'number' ? threshold : 999999;
-      setIdThreshold(val);
-      idThresholdRef.current = val;
-    }).catch(() => {
-      setIdThreshold(999999);
-      idThresholdRef.current = 999999;
-    });
-  }, [session?.venueId]);
+  // Threshold is fetched synchronously inside handleCharge — no async race conditions
+  const idThresholdRef = useRef<number | null>(null);
 
   // Reader auto-connects via TerminalContext on mount — no manual call needed here
 
@@ -95,18 +77,19 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     }
     if (!session) return;
 
-    // Ensure threshold is loaded before proceeding (handles race condition on balance modal open)
-    if (idThreshold === null && session.venueId && !session.isSuperAdmin) {
-      try {
+    // Always fetch threshold fresh before proceeding — guarantees correct value
+    try {
+      if (session.venueId && !session.isSuperAdmin) {
         const snap = await firestore().collection('venues').doc(session.venueId).get();
         const threshold = snap.exists ? snap.data()?.idVerificationThreshold : undefined;
-        const val = typeof threshold === 'number' ? threshold : 999999;
-        setIdThreshold(val);
-        idThresholdRef.current = val;
-      } catch (e) {
+        idThresholdRef.current = typeof threshold === 'number' ? threshold : 999999;
+      } else {
         idThresholdRef.current = 999999;
       }
+    } catch (e) {
+      idThresholdRef.current = 999999;
     }
+    setIdThreshold(idThresholdRef.current); // sync state for UI
 
     setStep('connecting');
     try {
@@ -246,8 +229,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
   // Review screen callbacks
   async function handleReviewApprove() {
-    const effectiveThreshold = idThresholdRef.current;
-    const needsID = effectiveThreshold === 0 || amountCents >= effectiveThreshold;
+    const t = idThresholdRef.current ?? 999999;
+    const needsID = t === 0 || amountCents >= t;
     if (needsID) {
       setStep('id_scan');
     } else {
@@ -256,13 +239,26 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   }
 
   async function handleReviewCancel() {
-    // Void the authorization — customer never sees a charge
-    if (!paymentIntentId) { onCancel(); return; }
-    try {
-      const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
-      await cancelFn({ paymentIntentId, reason: 'staff_cancelled', staffNote: 'Cancelled at review screen' });
-    } catch (e) {}
-    onCancel();
+    Alert.alert(
+      'Cancel Transaction',
+      'Are you sure you want to cancel? The card authorization will be voided and no charge will be made.',
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        {
+          text: 'Yes, Cancel', style: 'destructive',
+          onPress: async () => {
+            setStep('processing');
+            try {
+              if (paymentIntentId) {
+                const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
+                await cancelFn({ paymentIntentId, reason: 'staff_cancelled', staffNote: 'Cancelled at review screen' });
+              }
+            } catch (e) {}
+            setStep('cancelled');
+          }
+        }
+      ]
+    );
   }
 
   // ID scan callbacks
@@ -285,8 +281,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   // Review screen — shown after card tap, before ID scan/capture
   // Staff sees summary and confirms or cancels. Card authorized but NOT charged yet.
   if (step === 'review') {
-    const effectiveThreshold = idThresholdRef.current;
-    const needsID = effectiveThreshold === 0 || amountCents >= effectiveThreshold;
+    const t = idThresholdRef.current ?? 999999;
+    const needsID = t === 0 || amountCents >= t;
     return (
       <View style={[styles.container, styles.centered]}>
         <View style={styles.reviewCard}>
@@ -338,6 +334,20 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   }
   // Processing after ID scan — show spinner
   
+
+  // Cancelled
+  if (step === 'cancelled') {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Text style={styles.cancelledIcon}>✕</Text>
+        <Text style={styles.cancelledTitle}>Transaction Cancelled</Text>
+        <Text style={styles.cancelledSub}>No charge was made. The authorization has been voided.</Text>
+        <TouchableOpacity style={styles.cancelledBtn} onPress={onCancel}>
+          <Text style={styles.cancelledBtnText}>Back to Guest List</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   // Success
   if (step === 'success') {
@@ -437,7 +447,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       {/* ID scan notice — only shown when ID will be required */}
       {(() => {
-        const needsID = idThreshold !== null && (idThreshold === 0 || amountCents >= idThreshold);
+        const t = idThreshold ?? 999999;
+        const needsID = t === 0 || amountCents >= t;
         if (!needsID) return null;
         return (
           <View style={styles.idNotice}>
@@ -453,10 +464,10 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       <TouchableOpacity
         style={[styles.chargeBtn, amountCents < 50 && styles.chargeBtnDisabled]}
         onPress={handleCharge}
-        disabled={amountCents < 50 || idThreshold === null}
+        disabled={amountCents < 50}
       >
         <Text style={styles.chargeBtnText}>
-          {idThreshold === null ? 'Loading…' : `Charge $${(amountCents / 100).toFixed(2)}`}
+          Charge ${(amountCents / 100).toFixed(2)}
         </Text>
       </TouchableOpacity>
 
@@ -504,6 +515,11 @@ const styles = StyleSheet.create({
   errorMsg: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 32, paddingHorizontal: 32 },
   retryBtn: { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 12 },
   retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  cancelledIcon: { fontSize: 64, color: '#555', marginBottom: 16 },
+  cancelledTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 8 },
+  cancelledSub: { fontSize: 14, color: '#555', textAlign: 'center', paddingHorizontal: 32, marginBottom: 32, lineHeight: 20 },
+  cancelledBtn: { backgroundColor: '#1a1a1a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, borderWidth: 1, borderColor: '#2a2a2a' },
+  cancelledBtnText: { color: '#888', fontWeight: '700', fontSize: 16 },
   // Review screen
   reviewCard: { backgroundColor: '#161616', borderRadius: 20, padding: 28, margin: 24, borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', width: '88%' },
   reviewTitle: { fontSize: 16, fontWeight: '700', color: '#888', marginBottom: 12, letterSpacing: 1 },
