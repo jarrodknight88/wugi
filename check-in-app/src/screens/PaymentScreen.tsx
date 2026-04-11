@@ -187,6 +187,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
           nameMatchScore: Math.round(verification.nameMatchScore * 100),
           cardNameMatch: verification.cardNameMatch,
           verified: verification.verified,
+          bypassed: !verification.verified,  // true if staff overrode a failed verification
           scannedAt: new Date().toISOString(),
         } : undefined,
       });
@@ -269,8 +270,9 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   function onIDVerified(result: VerificationResult) {
     captureAfterApproval(paymentIntentId, result);
   }
-  function onIDSkipped() {
-    captureAfterApproval(paymentIntentId, null);
+  function onIDSkipped(bypassResult?: VerificationResult) {
+    // Pass bypass verification data (if scan happened) so it's recorded with the transaction
+    captureAfterApproval(paymentIntentId, bypassResult || null);
   }
 
   async function handleCancel() {

@@ -21,7 +21,7 @@ export interface IDScanProps {
   minAge?: number;
   amountCents?: number;   // used in bypass warning
   onVerified: (result: VerificationResult) => void;
-  onSkip: () => void;
+  onSkip: (result?: VerificationResult) => void;  // result present if scan happened but bypassed
   onRefund?: () => void;
 }
 
@@ -118,7 +118,17 @@ export default function IDScanScreen({
         // Non-blocking — proceed regardless
       }
     }
-    onSkip();
+    // Pass partial verification data if scan happened (so it gets stored with the transaction)
+    // Mark as bypassed so we know staff overrode it
+    if (verification) {
+      const bypassedResult: VerificationResult = {
+        ...verification,
+        verified: false,  // not verified — was bypassed
+      };
+      onSkip(bypassedResult);
+    } else {
+      onSkip();  // no scan happened at all
+    }
   }
 
   async function handleBarCodeScanned({ data }: { data: string }) {

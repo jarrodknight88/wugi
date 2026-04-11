@@ -172,9 +172,41 @@ exports.captureTerminalPayment = functions
     const batch = db.batch();
     const now = admin.firestore.FieldValue.serverTimestamp();
     if (ticketId) {
-        // Existing ticket — clear balance due
+        // Existing ticket — clear balance due + check in
         const ticketRef = db.collection('events').doc(eventId).collection('tickets').doc(ticketId);
-        batch.update(ticketRef, { balanceDue: 0, depositPaid: amountCents, updatedAt: now });
+        batch.update(ticketRef, {
+            balanceDue: 0,
+            depositPaid: amountCents,
+            checkedIn: true,
+            checkedInAt: now,
+            checkedInBy: 'door_payment',
+            updatedAt: now,
+        });
+        // Also check in all other tickets at the same table for this event
+        try {
+            const paidTicketSnap = await db.collection('events').doc(eventId)
+                .collection('tickets').doc(ticketId).get();
+            const tableAssignment = paidTicketSnap.data()?.tableAssignment;
+            if (tableAssignment) {
+                const tableTickets = await db.collection('events').doc(eventId)
+                    .collection('tickets')
+                    .where('tableAssignment', '==', tableAssignment)
+                    .get();
+                tableTickets.docs.forEach(t => {
+                    if (t.id !== ticketId) {
+                        batch.update(t.ref, {
+                            checkedIn: true,
+                            checkedInAt: now,
+                            checkedInBy: 'door_payment_table',
+                            updatedAt: now,
+                        });
+                    }
+                });
+            }
+        }
+        catch (tableErr) {
+            console.warn('Table check-in error:', tableErr.message);
+        }
     }
     else if (newTicketData) {
         // Walk-up — create new ticket
