@@ -55,7 +55,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read:   if isAuth();
       allow create: if isAuth() && request.auth.uid == userId;
-      allow update: if isAuth() && (isSuperAdmin() || isVenueAdmin() || request.auth.uid == userId);
+      // Check own-user update FIRST before calling userDoc() — avoids
+      // the race condition where userDoc() fails on brand-new accounts
+      // because the doc doesn't exist yet when username is being saved.
+      allow update: if isAuth() && (
+        request.auth.uid == userId
+        || isSuperAdmin()
+        || isVenueAdmin()
+      );
       allow delete: if isSuperAdmin();
 
       match /activity/{activityId} {
@@ -193,6 +200,27 @@ service cloud.firestore {
     match /config/{configId} {
       allow read:  if true;
       allow write: if isSuperAdmin();
+    }
+
+    // ── Usernames ────────────────────────────────────────────────────
+    // usernames/{username} → { uid, claimedAt }
+    // Any auth'd user can read (for availability checks).
+    // Only the owning user can claim/update their username doc.
+    match /usernames/{username} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuth() && resource.data.uid == request.auth.uid;
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── Phone Index ──────────────────────────────────────────────────
+    // phoneIndex/{e164Phone} → { uid, claimedAt }
+    // Written by Cloud Function or authenticated owner only.
+    match /phoneIndex/{phone} {
+      allow read:   if isAuth() && (isSuperAdmin() || resource.data.uid == request.auth.uid);
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuth() && resource.data.uid == request.auth.uid;
+      allow delete: if isSuperAdmin();
     }
 
     // ── Passes / Wallets / Transfers (Cloud Functions only) ──────────

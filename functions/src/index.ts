@@ -27,3 +27,4 @@ export { createDashboardUser }  from './users/createDashboardUser';
 export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
 export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment, refundDoorSale, cancelDoorSale, autoSettlePendingDoorSales } from './terminal/terminalFunctions';
 export { onTicketColorChange } from './passes/ticketColorSync';
+export { asanaWebhook }       from './asana/asanaWebhook';

@@ -24,6 +24,8 @@ export type UserProfile = {
   uid: string;
   email: string;
   displayName?: string;
+  username?: string;
+  phoneNumber?: string;
   role: 'consumer' | 'super_admin' | 'moderator' | 'support';
   vibes: string[];
   affinityScores?: Record<string, number>;
@@ -194,6 +196,84 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   } catch (e) {
     console.log('getUserProfile error:', e);
     return null;
+  }
+}
+
+// ── Username ──────────────────────────────────────────────────────────
+// usernames/{username} → { uid, claimedAt }
+// Lowercase-only for case-insensitive uniqueness checks.
+
+export async function checkUsernameAvailable(username: string): Promise<boolean> {
+  try {
+    const normalized = username.toLowerCase().trim();
+    const snap = await getDoc(doc(collection(db, 'usernames'), normalized));
+    return !snap.exists();
+  } catch (e) {
+    console.log('checkUsernameAvailable error:', e);
+    return false;
+  }
+}
+
+export async function saveUsername(uid: string, username: string): Promise<void> {
+  const normalized  = username.toLowerCase().trim();
+  const usernameRef = doc(collection(db, 'usernames'), normalized);
+  const userRef     = doc(collection(db, 'users'), uid);
+
+  // Final availability check
+  const usernameSnap = await getDoc(usernameRef);
+  if (usernameSnap.exists() && usernameSnap.data()?.uid !== uid) {
+    throw new Error('Username already taken');
+  }
+
+  // Retry up to 3 times — users/{uid} doc may not exist immediately after signup
+  // due to auth token propagation delay before upsertUserProfile completes
+  let lastError: any;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+          continue;
+        }
+        throw new Error('Profile not ready yet. Please try again.');
+      }
+      await Promise.all([
+        setDoc(usernameRef, { uid, claimedAt: serverTimestamp() }),
+        updateDoc(userRef, { username: normalized, updatedAt: serverTimestamp() }),
+      ]);
+      console.log('saveUsername: claimed', normalized, 'for', uid);
+      return;
+    } catch (e: any) {
+      lastError = e;
+      if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+    }
+  }
+  throw lastError;
+}
+
+// ── Phone Index ───────────────────────────────────────────────────────
+// phoneIndex/{E164PhoneNumber} → { uid, claimedAt }
+// Prevents recycled-number attacks. Old number freed after 30 days.
+
+export async function savePhoneNumber(uid: string, e164Phone: string): Promise<void> {
+  try {
+    const phoneRef = doc(collection(db, 'phoneIndex'), e164Phone);
+    const userRef  = doc(collection(db, 'users'), uid);
+
+    const existing = await getDoc(phoneRef);
+    if (existing.exists() && existing.data()?.uid !== uid) {
+      throw new Error('Phone number already linked to another account');
+    }
+
+    await Promise.all([
+      setDoc(phoneRef, { uid, claimedAt: serverTimestamp() }),
+      updateDoc(userRef, { phoneNumber: e164Phone, updatedAt: serverTimestamp() }),
+    ]);
+    console.log('savePhoneNumber: linked', e164Phone, 'to', uid);
+  } catch (e) {
+    console.log('savePhoneNumber error:', e);
+    throw e;
   }
 }
 

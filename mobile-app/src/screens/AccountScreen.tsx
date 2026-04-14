@@ -2,7 +2,7 @@
 // Wugi — AccountScreen
 // Wired to Firebase Auth via FirebaseContext
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   SafeAreaView, TextInput, ActivityIndicator, Alert, Linking,
@@ -12,6 +12,18 @@ import messaging from '@react-native-firebase/messaging';
 import type { Theme } from '../constants/colors';
 import { useFirebase } from '../context/FirebaseContext';
 import { ChevronRightIcon } from '../components/icons';
+import { checkUsernameAvailable, saveUsername, getUserProfile } from '../../firestoreService';
+import { getAuth, sendPasswordResetEmail } from '@react-native-firebase/auth';
+
+// ── Password strength (mirrors SignupScreen) ──────────────────────────
+type StrengthLevel = 'weak' | 'fair' | 'strong';
+function getPasswordStrength(pw: string): { level: StrengthLevel; score: number; checks: Record<string, boolean> } {
+  const checks = { length: pw.length >= 8, upper: /[A-Z]/.test(pw), lower: /[a-z]/.test(pw), number: /[0-9]/.test(pw), special: /[^A-Za-z0-9]/.test(pw) };
+  const score = Object.values(checks).filter(Boolean).length;
+  return { level: score <= 2 ? 'weak' : score <= 3 ? 'fair' : 'strong', score, checks };
+}
+const SC = { weak: '#e74c3c', fair: '#f39c12', strong: '#2a7a5a' };
+const SL = { weak: 'Weak', fair: 'Fair', strong: 'Strong' };
 
 const ACCOUNT_VIBES = [
   { label: 'Boujee',      accent: '#9b59b6' },
@@ -31,12 +43,25 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   const { user, userVibes, saveVibes, signIn, signUp, signOut, authError, clearAuthError } = useFirebase();
 
   // Auth form state
-  const [email,        setEmail]        = useState('');
-  const [password,     setPassword]     = useState('');
-  const [displayName,  setDisplayName]  = useState('');
-  const [isSignUp,     setIsSignUp]     = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [submitting,   setSubmitting]   = useState(false);
+  const [email,           setEmail]           = useState('');
+  const [password,        setPassword]        = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [displayName,     setDisplayName]     = useState('');
+  const [isSignUp,        setIsSignUp]        = useState(false);
+  const [showPassword,    setShowPassword]    = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
+  const [submitting,      setSubmitting]      = useState(false);
+  const [localError,      setLocalError]      = useState<string | null>(null);
+  const [resetSent,       setResetSent]       = useState(false);
+
+  // Username state (for users who skipped)
+  const [savedUsername,    setSavedUsername]   = useState<string | null>(null);
+  const [usernameInput,    setUsernameInput]   = useState('');
+  const [usernameStatus,   setUsernameStatus]  = useState<'idle'|'checking'|'available'|'taken'|'saving'>('idle');
+  const [showUsernamePicker, setShowUsernamePicker] = useState(false);
+  const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const strength = getPasswordStrength(password);
 
   // Settings state
   const [notifyEvents,    setNotifyEvents]    = useState(true);
@@ -45,19 +70,29 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   const [locationEnabled, setLocationEnabled] = useState(true);
   const [notifPermission, setNotifPermission] = useState<'authorized' | 'denied' | 'unknown'>('unknown');
 
-  // Check notification permission on mount
+  // Check notification permission on mount + load saved username
   useEffect(() => {
     messaging().hasPermission().then(status => {
-      if (status === messaging.AuthorizationStatus.AUTHORIZED ||
-          status === messaging.AuthorizationStatus.PROVISIONAL) {
-        setNotifPermission('authorized');
-      } else if (status === messaging.AuthorizationStatus.DENIED) {
-        setNotifPermission('denied');
-      } else {
-        setNotifPermission('unknown');
-      }
+      if (status === messaging.AuthorizationStatus.AUTHORIZED || status === messaging.AuthorizationStatus.PROVISIONAL) setNotifPermission('authorized');
+      else if (status === messaging.AuthorizationStatus.DENIED) setNotifPermission('denied');
+      else setNotifPermission('unknown');
     });
-  }, []);
+    if (user) {
+      getUserProfile(user.uid).then(p => { if (p?.username) setSavedUsername(p.username); });
+    }
+  }, [user]);
+
+  // Username availability debounce
+  useEffect(() => {
+    if (usernameDebounce.current) clearTimeout(usernameDebounce.current);
+    if (!usernameInput || usernameInput.length < 3) { setUsernameStatus('idle'); return; }
+    setUsernameStatus('checking');
+    usernameDebounce.current = setTimeout(async () => {
+      const available = await checkUsernameAvailable(usernameInput);
+      setUsernameStatus(available ? 'available' : 'taken');
+    }, 500);
+    return () => { if (usernameDebounce.current) clearTimeout(usernameDebounce.current); };
+  }, [usernameInput]);
 
   const selectedVibes = userVibes;
 
@@ -69,25 +104,42 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   };
 
   const handleSubmit = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
-      return;
-    }
-    if (isSignUp && !displayName.trim()) {
-      Alert.alert('Missing fields', 'Please enter your full name.');
-      return;
-    }
-    setSubmitting(true);
-    clearAuthError();
+    setLocalError(null);
+    if (!email.trim() || !password.trim()) { setLocalError('Please enter your email and password.'); return; }
+    if (isSignUp && !displayName.trim()) { setLocalError('Please enter your full name.'); return; }
+    if (isSignUp && password !== confirmPassword) { setLocalError('Passwords do not match.'); return; }
+    if (isSignUp && strength.level === 'weak') { setLocalError('Password is too weak. Add uppercase, numbers, or symbols.'); return; }
+    setSubmitting(true); clearAuthError();
     try {
       if (isSignUp) await signUp(email.trim(), password, displayName.trim());
       else          await signIn(email.trim(), password);
-    } catch (e) {
-      // Error is shown via authError from context
-    } finally {
-      setSubmitting(false);
+    } catch {}
+    finally { setSubmitting(false); }
+  };
+
+  const handleSaveUsername = async () => {
+    if (!user || usernameStatus !== 'available') return;
+    setUsernameStatus('saving');
+    try {
+      await saveUsername(user.uid, usernameInput);
+      setSavedUsername(usernameInput);
+      setShowUsernamePicker(false);
+      setUsernameInput('');
+    } catch (e: any) {
+      setUsernameStatus('taken');
     }
   };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) { setLocalError('Enter your email above first.'); return; }
+    try {
+      await sendPasswordResetEmail(getAuth(), email.trim());
+      setResetSent(true); setLocalError(null);
+    } catch { setLocalError('Could not send reset email. Check the address.'); }
+  };
+
+  const showForgotLink = !resetSent && !isSignUp &&
+    (authError?.toLowerCase().includes('incorrect') || authError?.toLowerCase().includes('password'));
 
   const handleSignOut = async () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -110,97 +162,75 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
 
   // ── Logged out — Auth screen ──────────────────────────────────────────
   if (!user) {
+    const fBox = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 14 };
+    const lbl  = { color: theme.subtext, fontSize: 11, fontWeight: '700' as const, marginBottom: 6, letterSpacing: 0.5 };
+    const inp  = { flex: 1, color: theme.text, fontSize: 15, padding: 0 };
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         <SafeAreaView style={{ flex: 1 }}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-
-            <View style={{ alignItems: 'center', paddingTop: 60, paddingBottom: 40 }}>
+            <View style={{ alignItems: 'center', paddingTop: 60, paddingBottom: 32 }}>
               <Text style={{ color: theme.accent, fontSize: 48, fontWeight: '900', letterSpacing: -2, marginBottom: 8 }}>wugi</Text>
-              <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', marginBottom: 8 }}>
-                {isSignUp ? 'Create your account' : 'Welcome back'}
-              </Text>
+              <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', marginBottom: 8 }}>{isSignUp ? 'Create your account' : 'Welcome back'}</Text>
               <Text style={{ color: theme.subtext, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
-                {isSignUp ? "Join Atlanta's most vibrant nightlife community" : 'Sign in to access your saved spots and preferences'}
+                {isSignUp ? "Join Atlanta's most vibrant nightlife community" : 'Sign in to access your saved spots and passes'}
               </Text>
             </View>
 
-            {/* Error banner */}
-            {authError && (
-              <View style={{ backgroundColor: '#e74c3c22', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e74c3c44' }}>
-                <Text style={{ color: '#e74c3c', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>{authError}</Text>
-              </View>
-            )}
+            {/* Banners */}
+            {resetSent && <View style={{ backgroundColor: '#2a7a5a22', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#2a7a5a44' }}><Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>Reset email sent! Check your inbox.</Text></View>}
+            {(localError || authError) && !resetSent && <View style={{ backgroundColor: '#e74c3c22', borderRadius: 10, padding: 12, marginBottom: 4, borderWidth: 1, borderColor: '#e74c3c44' }}><Text style={{ color: '#e74c3c', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>{localError || authError}</Text></View>}
+            {showForgotLink && <TouchableOpacity onPress={handleForgotPassword} style={{ alignItems: 'center', marginBottom: 16 }}><Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>Forgot password? Send reset email →</Text></TouchableOpacity>}
 
-            <View style={{ gap: 12 }}>
+            <View style={{ gap: 14 }}>
               {isSignUp && (
-                <View>
-                  <Text style={{ color: theme.subtext, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.3 }}>FULL NAME</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 14 }}>
-                    <TextInput
-                      placeholder="Jarrod Knight"
-                      placeholderTextColor={theme.subtext}
-                      value={displayName}
-                      onChangeText={setDisplayName}
-                      style={{ flex: 1, color: theme.text, fontSize: 15, padding: 0 }}
-                      autoCapitalize="words"
-                    />
-                  </View>
+                <View><Text style={lbl}>FULL NAME</Text>
+                  <View style={fBox}><TextInput placeholder="Your name" placeholderTextColor={theme.subtext} value={displayName} onChangeText={setDisplayName} style={inp} autoCapitalize="words" returnKeyType="next"/></View>
                 </View>
               )}
-
-              <View>
-                <Text style={{ color: theme.subtext, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.3 }}>EMAIL</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 14 }}>
-                  <TextInput
-                    placeholder="you@email.com"
-                    placeholderTextColor={theme.subtext}
-                    value={email}
-                    onChangeText={t => { setEmail(t); clearAuthError(); }}
-                    style={{ flex: 1, color: theme.text, fontSize: 15, padding: 0 }}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
+              <View><Text style={lbl}>EMAIL</Text>
+                <View style={fBox}><TextInput placeholder="you@email.com" placeholderTextColor={theme.subtext} value={email} onChangeText={t => { setEmail(t); clearAuthError(); setLocalError(null); setResetSent(false); }} style={inp} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} returnKeyType="next"/></View>
               </View>
-
               <View>
-                <Text style={{ color: theme.subtext, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.3 }}>PASSWORD</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 14 }}>
-                  <TextInput
-                    placeholder="••••••••"
-                    placeholderTextColor={theme.subtext}
-                    value={password}
-                    onChangeText={t => { setPassword(t); clearAuthError(); }}
-                    secureTextEntry={!showPassword}
-                    style={{ flex: 1, color: theme.text, fontSize: 15, padding: 0 }}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity onPress={() => setShowPassword(p => !p)}>
+                <Text style={lbl}>PASSWORD</Text>
+                <View style={fBox}>
+                  <TextInput placeholder="••••••••" placeholderTextColor={theme.subtext} value={password} onChangeText={t => { setPassword(t); clearAuthError(); setLocalError(null); }} secureTextEntry={!showPassword} style={inp} autoCapitalize="none" autoComplete="off" textContentType="none" returnKeyType={isSignUp ? 'next' : 'done'} onSubmitEditing={isSignUp ? undefined : handleSubmit}/>
+                  <TouchableOpacity onPress={() => setShowPassword(p => !p)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                      {showPassword
-                        ? (<><Path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Path d="M1 1l22 22" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round"/></>)
-                        : (<><Path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Circle cx={12} cy={12} r={3} stroke={theme.subtext} strokeWidth={1.8}/></>)
-                      }
+                      {showPassword ? (<><Path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Path d="M1 1l22 22" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round"/></>) : (<><Path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Circle cx={12} cy={12} r={3} stroke={theme.subtext} strokeWidth={1.8}/></>)}
                     </Svg>
                   </TouchableOpacity>
                 </View>
+                {isSignUp && password.length > 0 && (
+                  <View style={{ marginTop: 8 }}>
+                    <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>{[1,2,3,4,5].map(i => <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: i <= strength.score ? SC[strength.level] : theme.border }}/>)}</View>
+                    <Text style={{ color: SC[strength.level], fontSize: 11, fontWeight: '700', marginBottom: 4 }}>{SL[strength.level]}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[{ key: 'length', label: '8+ chars' }, { key: 'upper', label: 'Uppercase' }, { key: 'number', label: 'Number' }, { key: 'special', label: 'Symbol' }].map(r => (
+                        <Text key={r.key} style={{ fontSize: 11, color: (strength.checks as any)[r.key] ? '#2a7a5a' : theme.subtext, fontWeight: '600' }}>{(strength.checks as any)[r.key] ? '✓' : '○'} {r.label}</Text>
+                      ))}
+                    </View>
+                  </View>
+                )}
               </View>
-
-              <TouchableOpacity
-                style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 8, opacity: submitting ? 0.7 : 1 }}
-                onPress={handleSubmit}
-                disabled={submitting}
-              >
-                {submitting
-                  ? <ActivityIndicator color="#fff" size="small"/>
-                  : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>
-                }
+              {isSignUp && (
+                <View><Text style={lbl}>CONFIRM PASSWORD</Text>
+                  <View style={{ ...fBox, borderColor: confirmPassword && confirmPassword !== password ? '#e74c3c' : theme.border }}>
+                    <TextInput placeholder="••••••••" placeholderTextColor={theme.subtext} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showConfirm} style={inp} autoCapitalize="none" autoComplete="off" textContentType="none" returnKeyType="done" onSubmitEditing={handleSubmit}/>
+                    <TouchableOpacity onPress={() => setShowConfirm(p => !p)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                        {showConfirm ? (<><Path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Path d="M1 1l22 22" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round"/></>) : (<><Path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke={theme.subtext} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Circle cx={12} cy={12} r={3} stroke={theme.subtext} strokeWidth={1.8}/></>)}
+                      </Svg>
+                    </TouchableOpacity>
+                  </View>
+                  {confirmPassword.length > 0 && confirmPassword !== password && <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: '600', marginTop: 4 }}>Passwords don't match</Text>}
+                </View>
+              )}
+              <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 8, opacity: submitting ? 0.7 : 1 }} onPress={handleSubmit} disabled={submitting}>
+                {submitting ? <ActivityIndicator color="#fff" size="small"/> : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>}
               </TouchableOpacity>
             </View>
-
-            <TouchableOpacity style={{ alignItems: 'center', marginTop: 24 }} onPress={() => { setIsSignUp(p => !p); clearAuthError(); }}>
+            <TouchableOpacity style={{ alignItems: 'center', marginTop: 24 }} onPress={() => { setIsSignUp(p => !p); clearAuthError(); setLocalError(null); setConfirmPassword(''); setResetSent(false); }}>
               <Text style={{ color: theme.subtext, fontSize: 14 }}>
                 {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
                 <Text style={{ color: theme.accent, fontWeight: '700' }}>{isSignUp ? 'Sign In' : 'Sign Up'}</Text>
@@ -237,7 +267,51 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
           <Text style={{ color: theme.subtext, fontSize: 13 }}>{user.email}</Text>
         </View>
 
-        {/* Vibes */}
+        {/* Username section */}
+        <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
+          {savedUsername ? (
+            <TouchableOpacity
+              onPress={() => setShowUsernamePicker(p => !p)}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingVertical: 14 }}
+            >
+              <View>
+                <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 }}>USERNAME</Text>
+                <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>@{savedUsername}</Text>
+              </View>
+              <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>Change</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={() => setShowUsernamePicker(true)}
+              style={{ backgroundColor: theme.accent + '22', borderRadius: 12, borderWidth: 1, borderColor: theme.accent + '44', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <View>
+                <Text style={{ color: theme.accent, fontSize: 14, fontWeight: '700', marginBottom: 2 }}>Claim your username</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12 }}>Choose how you appear on Wugi</Text>
+              </View>
+              <Text style={{ color: theme.accent, fontSize: 18 }}>→</Text>
+            </TouchableOpacity>
+          )}
+          {showUsernamePicker && (
+            <View style={{ marginTop: 12, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
+              <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 }}>NEW USERNAME</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.bg, borderRadius: 10, borderWidth: 1, borderColor: usernameStatus === 'available' ? '#2a7a5a' : usernameStatus === 'taken' ? '#e74c3c' : theme.border, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8 }}>
+                <Text style={{ color: theme.subtext, fontSize: 15, marginRight: 2 }}>@</Text>
+                <TextInput placeholder="yourname" placeholderTextColor={theme.subtext} value={usernameInput} onChangeText={t => setUsernameInput(t.toLowerCase().replace(/\s/g, ''))} style={{ flex: 1, color: theme.text, fontSize: 15, padding: 0 }} autoCapitalize="none" autoCorrect={false} maxLength={20}/>
+                {usernameStatus === 'checking' && <ActivityIndicator size="small" color={theme.accent}/>}
+              </View>
+              {usernameStatus === 'available' && <Text style={{ color: '#2a7a5a', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>✓ Available</Text>}
+              {usernameStatus === 'taken' && <Text style={{ color: '#e74c3c', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>✗ Already taken</Text>}
+              <TouchableOpacity
+                onPress={handleSaveUsername}
+                disabled={usernameStatus !== 'available'}
+                style={{ backgroundColor: usernameStatus === 'available' ? theme.accent : theme.border, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{usernameStatus === 'saving' ? 'Saving…' : 'Save Username'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
         <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>My Vibes</Text>
           <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 14 }}>We use these to personalize your For You feed</Text>

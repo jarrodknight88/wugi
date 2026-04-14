@@ -7,7 +7,7 @@
 //   This preserves Discover search state when navigating back
 // - Stack screens render on top via absolute positioning
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, useColorScheme } from 'react-native';
 import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
@@ -16,7 +16,9 @@ import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
 
 // Screens
 import { SplashScreen }     from '../screens/SplashScreen';
+import { SignupScreen }     from '../screens/SignupScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
+import { UsernameScreen }   from '../screens/UsernameScreen';
 import { HomeScreen }       from '../screens/HomeScreen';
 import { DiscoverScreen }   from '../screens/DiscoverScreen';
 import { ForYouScreen }     from '../screens/ForYouScreen';
@@ -43,9 +45,45 @@ import { TabBar } from '../components/TabBar';
 function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (data: Record<string, string>) => void) => void }) {
   const scheme = useColorScheme();
   const theme  = scheme === 'dark' ? COLORS.dark : COLORS.light;
-  const { userVibes, user } = useFirebase();
+  const { userVibes, user, authLoading } = useFirebase();
 
-  const [appPhase,  setAppPhase]  = useState<'splash' | 'onboarding' | 'main'>('splash');
+  // Phases:
+  //   splash     → always shown first (brand moment)
+  //   signup     → auth gate for new/returning/guest
+  //   onboarding → vibe selection slides (new users only)
+  //   username   → username picker (new users only, after vibe slides)
+  //   main       → main tab experience
+  const [appPhase,      setAppPhase]      = useState<'splash' | 'signup' | 'onboarding' | 'username' | 'main'>('splash');
+  const splashDoneRef = useRef(false);
+  const routedRef     = useRef(false);
+  const userRef       = useRef(user); // always holds latest user value
+
+  // Keep userRef current on every render
+  useEffect(() => { userRef.current = user; }, [user]);
+
+  const routeAfterSplash = useCallback(() => {
+    if (routedRef.current) return;
+    if (!splashDoneRef.current) return;
+    routedRef.current = true;
+    // Use ref so we always read the current user, not the captured closure value
+    setAppPhase(userRef.current ? 'main' : 'signup');
+  }, []); // no deps — reads from refs only
+
+  // Fires when authLoading resolves — if splash done, route immediately
+  useEffect(() => {
+    if (authLoading) return;
+    routeAfterSplash();
+  }, [authLoading, routeAfterSplash]);
+
+  // Safety net — never stuck on splash more than 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (appPhase !== 'splash') return;
+      splashDoneRef.current = true;
+      routeAfterSplash();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
   const [activeTab, setActiveTab] = useState('home');
   const [stack,     setStack]     = useState<NavEntry[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
@@ -96,8 +134,28 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   const unreadFavCount   = favorites.filter(f => !f.read).length;
 
   // ── App phases ───────────────────────────────────────────────────────
-  if (appPhase === 'splash')     return <SplashScreen     onFinish={() => setAppPhase('onboarding')}/>;
-  if (appPhase === 'onboarding') return <OnboardingScreen onFinish={() => setAppPhase('main')}/>;
+  if (appPhase === 'splash') return (
+    <SplashScreen onFinish={() => {
+      splashDoneRef.current = true;
+      routeAfterSplash();
+    }}/>
+  );
+
+  if (appPhase === 'signup') return (
+    <SignupScreen
+      onSignupComplete={() => setAppPhase('onboarding')}
+      onSignInComplete={() => setAppPhase('main')}
+      onGuest={() => setAppPhase('main')}
+    />
+  );
+
+  if (appPhase === 'onboarding') return (
+    <OnboardingScreen onFinish={() => setAppPhase('username')}/>
+  );
+
+  if (appPhase === 'username') return (
+    <UsernameScreen onComplete={() => setAppPhase('main')}/>
+  );
 
   // ── Current stack screen ─────────────────────────────────────────────
   const current      = stack.length > 0 ? stack[stack.length - 1] : null;
