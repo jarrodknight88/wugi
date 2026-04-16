@@ -93,6 +93,9 @@ export function PaymentScreen({
         paymentIntentClientSecret:  clientSecret,
         customerId:                 customerId ?? undefined,
         customerEphemeralKeySecret: customerEphemeralKey ?? undefined,
+        // Explicitly whitelist payment methods — card + Apple Pay only
+        // Prevents Klarna, Amazon Pay, Afterpay etc from appearing
+        paymentMethodTypes: ['card'],
         applePay: {
           merchantCountryCode: 'US',
         },
