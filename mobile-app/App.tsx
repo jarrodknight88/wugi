@@ -12,7 +12,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { useNotifications, setNotificationTapHandler } from './src/hooks/useNotifications';
 import { KB_ACCESSORY_ID, KBContext } from './src/constants/keyboard';
 
-const STRIPE_PUBLISHABLE_KEY = 'pk_test_51TFpeHDDSZf3J4DjpTFGgwaSnxBHlsoxyR6HBNs3k8EQTxY1BNAHF9si4aEwarzzdWKhRXLPHgDBVSqhQS5jcTQB00HIlmINiE';
+const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TFpeBDdJ1ZAq3aIiX3I2pInGOK0BlYZI38eqkhQz5OAK6g9Dw1cjcu2iHEc6eQRrYxqKBHWsCkGOi7G9WaTCyaZ00gfpRKfzK';
 
 export default function App() {
   useNotifications();
@@ -44,7 +44,7 @@ export default function App() {
     <KBContext.Provider value={{ register, focusPrev, focusNext }}>
       <StripeProvider
         publishableKey={STRIPE_PUBLISHABLE_KEY}
-        merchantIdentifier="merchant.com.wugi.wugi"
+        merchantIdentifier="merchant.com.wugimedia.wugitest"
         urlScheme="wugi"
       >
         <RootNavigator onNotificationNavigate={(fn) => { navigateRef.current = fn; }} />
