@@ -4,14 +4,19 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── Helper functions ─────────────────────────────────────────────
+    function userDocExists() {
+      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     function isAuth()       { return request.auth != null; }
-    function role()         { return isAuth() ? userDoc().role : null; }
-    function venueIds()     { return isAuth() ? userDoc().get('venueIds', []) : []; }
-    function eventIds()     { return isAuth() ? userDoc().get('eventIds', []) : []; }
-    function tableAccess()  { return isAuth() && userDoc().get('tableAccess', false) == true; }
+    // Always guard userDoc() calls with userDocExists() to prevent errors on
+    // brand-new accounts where the users/{uid} doc hasn't been created yet.
+    function role()         { return (isAuth() && userDocExists()) ? userDoc().role : null; }
+    function venueIds()     { return (isAuth() && userDocExists()) ? userDoc().get('venueIds', []) : []; }
+    function eventIds()     { return (isAuth() && userDocExists()) ? userDoc().get('eventIds', []) : []; }
+    function tableAccess()  { return (isAuth() && userDocExists()) && userDoc().get('tableAccess', false) == true; }
 
     function isSuperAdmin()  { return role() == 'super_admin'; }
     function isModerator()   { return role() == 'moderator'; }
@@ -55,9 +60,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read:   if isAuth();
       allow create: if isAuth() && request.auth.uid == userId;
-      // Check own-user update FIRST before calling userDoc() — avoids
-      // the race condition where userDoc() fails on brand-new accounts
-      // because the doc doesn't exist yet when username is being saved.
+      // Own-user check MUST come first — isSuperAdmin() calls userDoc() which
+      // will fail if the doc doesn't exist yet (brand new account race condition).
       allow update: if isAuth() && (
         request.auth.uid == userId
         || isSuperAdmin()
