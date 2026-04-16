@@ -51,6 +51,25 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     const bookingFee = calculateBookingFee(subtotal);
     const total      = subtotal + bookingFee;
 
+    // ── Free ticket bypass — skip Stripe entirely ────────────────────
+    if (total === 0 || ticketType.isFree) {
+      logger.info('Free ticket — skipping Stripe', { eventId, ticketTypeId });
+      res.json({
+        result: {
+          clientSecret:        null,
+          publishableKey:      null,
+          customerId:          null,
+          customerEphemeralKey: null,
+          subtotal: 0,
+          bookingFee: 0,
+          total: 0,
+          isGuest: !userId,
+          isFree: true,
+        },
+      });
+      return;
+    }
+
     // Get or create Stripe customer for authenticated users
     let stripeCustomerId: string | undefined;
     let ephemeralKey: string | undefined;

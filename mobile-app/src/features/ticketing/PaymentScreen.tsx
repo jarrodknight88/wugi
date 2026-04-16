@@ -79,7 +79,13 @@ export function PaymentScreen({
       }
 
       const json = await response.json();
-      const { clientSecret, customerId, customerEphemeralKey } = json.result ?? json;
+      const { clientSecret, customerId, customerEphemeralKey, isFree } = json.result ?? json;
+
+      // ── Free ticket — skip Payment Sheet entirely ──────────────────
+      if (isFree || !clientSecret) {
+        onSuccess(`free_${Date.now()}`, isGuest);
+        return;
+      }
 
       // ── Step 2: Init Stripe Payment Sheet ──────────────────────────
       const { error: initError } = await initPaymentSheet({
