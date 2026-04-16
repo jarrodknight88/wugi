@@ -31,8 +31,10 @@
     "expo-status-bar": "~3.0.9",
     "firebase-admin": "^13.7.0",
     "node-fetch": "^3.3.2",
+    "onesignal-expo-plugin": "^2.4.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-onesignal": "^5.4.3",
     "react-native-qrcode-svg": "^6.3.21",
     "react-native-svg": "15.12.1"
   },

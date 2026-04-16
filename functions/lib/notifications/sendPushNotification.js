@@ -36,56 +36,75 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendPushNotification = void 0;
 exports.sendToUser = sendToUser;
 exports.sendToTopic = sendToTopic;
+exports.sendToUserFCM = sendToUserFCM;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — sendPushNotification
-// Sends FCM push notifications. Can target:
-//   - A specific user by uid (looks up their fcmToken)
-//   - A specific FCM token directly
-//   - A topic (e.g. "atlanta-events")
+// Primary: OneSignal REST API (S1-05)
+// Legacy: FCM admin.messaging() kept for Wugi Door compatibility
+// Secrets: ONESIGNAL_REST_API_KEY, ONESIGNAL_APP_ID
 // ─────────────────────────────────────────────────────────────────────
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const db = admin.firestore();
-const fcm = admin.messaging();
+// ── OneSignal REST API helper ─────────────────────────────────────────
+async function sendOneSignal(payload) {
+    const apiKey = process.env.ONESIGNAL_REST_API_KEY;
+    const appId = process.env.ONESIGNAL_APP_ID;
+    if (!apiKey || !appId)
+        throw new Error('OneSignal secrets not configured');
+    const res = await fetch('https://onesignal.com/api/v1/notifications', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${apiKey}`,
+        },
+        body: JSON.stringify({ app_id: appId, ...payload }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.errors) {
+        throw new Error(`OneSignal error: ${JSON.stringify(data.errors ?? data)}`);
+    }
+}
+// ── Send to specific user by UID ──────────────────────────────────────
 async function sendToUser(uid, title, body, data) {
-    const userDoc = await db.collection('users').doc(uid).get();
-    const token = userDoc.data()?.fcmToken;
-    if (!token)
-        return;
-    await fcm.send({
-        token,
-        notification: { title, body },
+    await sendOneSignal({
+        headings: { en: title },
+        contents: { en: body },
         data: data ?? {},
-        apns: { payload: { aps: { sound: 'default' } } },
+        filters: [{ field: 'external_user_id', value: uid }],
+        target_channel: 'push',
     });
 }
+// ── Send to a topic/segment ───────────────────────────────────────────
 async function sendToTopic(topic, title, body, data) {
-    await fcm.send({
-        topic,
-        notification: { title, body },
+    // Map legacy FCM topics to OneSignal segments
+    const segmentMap = {
+        'atlanta-events': 'All', // default segment until we set up custom segments
+    };
+    const segment = segmentMap[topic] ?? 'All';
+    await sendOneSignal({
+        headings: { en: title },
+        contents: { en: body },
         data: data ?? {},
-        apns: { payload: { aps: { sound: 'default' } } },
+        included_segments: [segment],
+        target_channel: 'push',
     });
 }
-// HTTP callable for manual sends from dashboard
-exports.sendPushNotification = functions.https.onCall(async (request) => {
-    const { title, body, data, uid, token, topic } = request.data;
+// ── HTTP callable for dashboard sends ────────────────────────────────
+exports.sendPushNotification = functions
+    .runWith({ secrets: ['ONESIGNAL_REST_API_KEY', 'ONESIGNAL_APP_ID'] })
+    .https.onCall(async (request) => {
+    const { title, body, data, uid, topic } = request.data;
     if (!title || !body) {
         throw new functions.https.HttpsError('invalid-argument', 'title and body are required');
     }
     try {
-        if (uid) {
+        if (uid)
             await sendToUser(uid, title, body, data);
-        }
-        else if (token) {
-            await fcm.send({ token, notification: { title, body }, data: data ?? {} });
-        }
-        else if (topic) {
+        else if (topic)
             await sendToTopic(topic, title, body, data);
-        }
-        else {
-            throw new functions.https.HttpsError('invalid-argument', 'Must provide uid, token, or topic');
-        }
+        else
+            throw new functions.https.HttpsError('invalid-argument', 'Must provide uid or topic');
         return { success: true };
     }
     catch (e) {
@@ -93,4 +112,19 @@ exports.sendPushNotification = functions.https.onCall(async (request) => {
         throw new functions.https.HttpsError('internal', 'Failed to send notification');
     }
 });
+// ── Legacy FCM functions — kept for Wugi Door compatibility ──────────
+// DO NOT REMOVE until [BACK-30] post-launch consolidation
+// These are used by Wugi Door which still uses @react-native-firebase/messaging
+async function sendToUserFCM(uid, title, body, data) {
+    const userDoc = await db.collection('users').doc(uid).get();
+    const token = userDoc.data()?.fcmToken;
+    if (!token)
+        return;
+    await admin.messaging().send({
+        token,
+        notification: { title, body },
+        data: data ?? {},
+        apns: { payload: { aps: { sound: 'default' } } },
+    });
+}
 //# sourceMappingURL=sendPushNotification.js.map

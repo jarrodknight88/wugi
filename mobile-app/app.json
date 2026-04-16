@@ -27,7 +27,14 @@
     "plugins": [
       "expo-av",
       "@react-native-firebase/app",
-    "@react-native-firebase/messaging",
+      "@react-native-firebase/messaging",
+      [
+        "onesignal-expo-plugin",
+        {
+          "mode": "production",
+          "devTeam": "D9438V88S5"
+        }
+      ],
       [
         "expo-build-properties",
         {
