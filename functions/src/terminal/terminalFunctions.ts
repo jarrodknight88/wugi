@@ -5,6 +5,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { stripe, calculateBookingFee } from '../stripe/stripeUtils';
+import { sendDoorSaleReceiptSMS, sendBalancePaidSMS } from '../sms/smsService';
 
 const db = admin.firestore();
 
@@ -131,6 +132,7 @@ export const createTerminalPaymentIntent = functions
 // Applies 12% booking fee, transfers venue payout via Stripe Connect,
 // updates Firestore tickets, writes payment record.
 export const captureTerminalPayment = functions
+  .runWith({ secrets: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] })
   .https.onCall(async (data: {
     paymentIntentId: string;
     ticketId?: string;
@@ -303,6 +305,29 @@ export const captureTerminalPayment = functions
             amountCents,
             paymentIntentId,
             tableAssignment: newTicketData?.tableAssignment,
+          });
+        }
+        // SMS receipt for door sale (phone number)
+        if (recipientPhone) {
+          const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
+          const venueData3 = venueData2 || (await db.collection('venues').doc(venueId).get()).data();
+          await sendDoorSaleReceiptSMS({
+            phone:      recipientPhone,
+            holderName: newTicketData?.holderName || '',
+            eventTitle: eventData3?.title || '',
+            venueName:  venueData3?.name  || '',
+            ticketType: newTicketData?.ticketTypeName || '',
+            amountCents,
+          });
+        }
+        // SMS for balance payment on existing ticket
+        if (ticketId && recipientPhone) {
+          const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
+          await sendBalancePaidSMS({
+            phone:      recipientPhone,
+            holderName: holderName || '',
+            eventTitle: eventData3?.title || '',
+            amountCents,
           });
         }
       } catch (emailErr) {

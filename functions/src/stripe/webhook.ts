@@ -16,10 +16,11 @@ import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { stripe, generateTicketNumber, calculateReserve } from './stripeUtils';
 import { sendPurchaseConfirmation } from '../email/emailService';
+import { sendCheckInSMS } from '../sms/smsService';
 
 const db = admin.firestore();
 
-export const stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY'] }).https.onRequest(async (req: any, res: any) => {
+export const stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] }).https.onRequest(async (req: any, res: any) => {
   // ── Verify webhook signature ────────────────────────────────────────
   const sig     = req.headers['stripe-signature'] as string;
   const secret  = process.env.STRIPE_WEBHOOK_SECRET!;
@@ -335,6 +336,21 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       });
     } catch (emailErr) {
       logger.error('Purchase email failed:', emailErr);
+    }
+  }
+
+  // ── Send purchase confirmation SMS (if phone provided) ──────────────
+  const buyerPhone = meta.buyerPhone;
+  if (buyerPhone) {
+    try {
+      await sendCheckInSMS({
+        phone:      buyerPhone,
+        holderName: meta.buyerName || '',
+        eventTitle: eventData?.title || '',
+        venueName:  venueData.name   || '',
+      });
+    } catch (smsErr) {
+      logger.error('Purchase SMS failed:', smsErr);
     }
   }
 }

@@ -41,6 +41,7 @@ exports.autoSettlePendingDoorSales = exports.cancelDoorSale = exports.refundDoor
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const stripeUtils_1 = require("../stripe/stripeUtils");
+const smsService_1 = require("../sms/smsService");
 const db = admin.firestore();
 // ── createTerminalConnectionToken ─────────────────────────────────────
 // Called by Wugi Door on launch. Auto-creates a Stripe Terminal Location
@@ -148,6 +149,7 @@ exports.createTerminalPaymentIntent = functions
 // Applies 12% booking fee, transfers venue payout via Stripe Connect,
 // updates Firestore tickets, writes payment record.
 exports.captureTerminalPayment = functions
+    .runWith({ secrets: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] })
     .https.onCall(async (data, context) => {
     if (!context.auth)
         throw new functions.https.HttpsError('unauthenticated', 'Auth required');
@@ -294,6 +296,29 @@ exports.captureTerminalPayment = functions
                     amountCents,
                     paymentIntentId,
                     tableAssignment: newTicketData?.tableAssignment,
+                });
+            }
+            // SMS receipt for door sale (phone number)
+            if (recipientPhone) {
+                const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
+                const venueData3 = venueData2 || (await db.collection('venues').doc(venueId).get()).data();
+                await (0, smsService_1.sendDoorSaleReceiptSMS)({
+                    phone: recipientPhone,
+                    holderName: newTicketData?.holderName || '',
+                    eventTitle: eventData3?.title || '',
+                    venueName: venueData3?.name || '',
+                    ticketType: newTicketData?.ticketTypeName || '',
+                    amountCents,
+                });
+            }
+            // SMS for balance payment on existing ticket
+            if (ticketId && recipientPhone) {
+                const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
+                await (0, smsService_1.sendBalancePaidSMS)({
+                    phone: recipientPhone,
+                    holderName: holderName || '',
+                    eventTitle: eventData3?.title || '',
+                    amountCents,
                 });
             }
         }

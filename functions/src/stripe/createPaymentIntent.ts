@@ -100,12 +100,15 @@ export const createPaymentIntent = functions.https.onCall(
     const paymentIntentParams: any = {
       amount:   total,
       currency: 'usd',
-      // Stripe Tax automatic calculation
+      // Stripe Tax — automatic calculation enabled unless ticket price already includes tax
+      // Georgia marketplace facilitator law: Wugi collects + remits tax
+      // tax_code txcd_90020001 = Admission to amusement/entertainment events (correct GA rate)
       automatic_tax: { enabled: !ticketType.taxIncluded },
       // Save payment method for authenticated users
       setup_future_usage: userId ? 'off_session' : undefined,
       customer: stripeCustomerId,
       metadata: {
+        tax_code: 'txcd_90020001', // Admission to entertainment events — used by Stripe Tax
         eventId,
         ticketTypeId,
         ticketTypeName:   ticketType.name,
@@ -132,6 +135,7 @@ export const createPaymentIntent = functions.https.onCall(
           unitPrice:       ticketType.price,
           subtotal,
           taxIncluded:     ticketType.taxIncluded,
+          taxCode:         'txcd_90020001', // Admission to entertainment events
         }]),
       },
     };

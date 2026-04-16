@@ -116,7 +116,6 @@ async function markRateLimitTimestamp(taskGid) {
 exports.asanaWebhook = functions.onRequest({
     secrets: [
         'ASANA_DEV_AGENT_TOKEN',
-        'ASANA_WEBHOOK_SECRET',
         'CLAUDE_API_KEY',
         'TWILIO_ACCOUNT_SID',
         'TWILIO_AUTH_TOKEN',

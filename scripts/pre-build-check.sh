@@ -23,8 +23,27 @@ echo "╔═══════════════════════�
 echo "║     Wugi Smart Pre-Build Sanity Check          ║"
 echo "╚════════════════════════════════════════════════╝"
 
-# ── Collect all changed files (unstaged + staged + untracked) ─────────
+# ── CRITICAL: Check for uncommitted changes ───────────────────────────
+# EAS builds from git — uncommitted files are INVISIBLE to the build server
+hdr "CRITICAL: Git commit status"
 cd "$ROOT"
+UNTRACKED=$(git ls-files --others --exclude-standard mobile-app/src mobile-app/App.tsx firebase/ 2>/dev/null)
+MODIFIED=$(git diff --name-only HEAD 2>/dev/null | grep -v "node_modules\|.expo\|dist" || true)
+
+if [ -n "$UNTRACKED" ]; then
+  red "UNTRACKED files will NOT be included in the EAS build:"
+  echo "$UNTRACKED" | sed 's/^/     ❌ /'
+  echo ""
+  echo "     Run: git add -A && git commit -m 'your message'"
+  echo "     EAS builds from git — untracked files are invisible to the build server"
+elif [ -n "$MODIFIED" ]; then
+  red "UNCOMMITTED changes will NOT be included in the EAS build:"
+  echo "$MODIFIED" | sed 's/^/     ❌ /'
+  echo ""
+  echo "     Run: git add -A && git commit -m 'your message'"
+else
+  grn "All changes committed — build will include latest code ($(git rev-parse --short HEAD))"
+fi
 CHANGED=$(git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2>/dev/null; git ls-files --others --exclude-standard mobile-app/src 2>/dev/null)
 echo ""
 echo "📋 Changed files:"

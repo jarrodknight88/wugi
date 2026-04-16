@@ -19,7 +19,8 @@
     "firebase-functions": "^5.0.0",
     "passkit-generator": "^3.5.7",
     "resend": "^6.10.0",
-    "stripe": "^14.0.0"
+    "stripe": "^14.0.0",
+    "twilio": "^5.13.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
