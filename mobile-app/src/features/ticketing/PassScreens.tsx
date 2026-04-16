@@ -370,40 +370,50 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
       if (!userId) { setLoading(false); return; }
 
       const db   = getFirestore();
+      // Query passes collection directly — one doc per ticket, not per order
+      // Filters: owned by user, not transferred away, not a walk-up door ticket
       const snap = await getDocs(
         query(
-          collection(db, 'orders'),
+          collection(db, 'passes'),
           where('userId', '==', userId),
+          where('isTransferred', '==', false),
           orderBy('createdAt', 'desc')
         )
       );
 
       const loaded: PassData[] = snap.docs
-        .filter(d => !d.data().transferred) // hide tickets already transferred away
+        .filter(d => {
+          const data = d.data();
+          // Exclude walk-up door tickets (source: 'door') — door-only records
+          if (data.source === 'door') return false;
+          // Exclude cancelled/voided passes
+          if (data.scanStatus === 'cancelled' || data.scanStatus === 'voided') return false;
+          return true;
+        })
         .map(d => {
           const data = d.data();
-          const ticketTypeLower = (data.ticketType || '').toLowerCase();
+          const ticketTypeLower = (data.ticketTypeName || '').toLowerCase();
           const typeKey = ticketTypeLower.includes('vip') ? 'vip' : 'general';
           return {
-            orderId:         d.id,
+            orderId:         data.orderId || d.id,
             passId:          d.id,
             passNumber:      1,
-            totalPasses:     data.quantity || 1,
+            totalPasses:     1,
             ticketType:      typeKey,
-            ticketTypeName:  data.ticketType || 'General Admission',
+            ticketTypeName:  data.ticketTypeName || 'General Admission',
             eventTitle:      data.eventTitle || 'Event',
             venueName:       data.venueName  || '',
             date:            data.eventDate  || '',
             time:            data.eventTime  || '',
-            holderName:      data.buyerName  || '',
-            status:          data.checkedIn ? 'scanned' : 'valid',
+            holderName:      data.holderName || data.holderEmail || '',
+            status:          data.scanStatus === 'scanned' ? 'scanned' : 'valid',
             qrValue:         d.id,
-            passUrl:         data.passUrl    || null,
-            passColor:       data.passColor  || null,
-            colorLabel:      data.colorLabel || null,
-            tableNumber:     data.tableNumber || null,
+            passUrl:         data.appleWalletPassUrl || null,
+            passColor:       data.passColor   || null,
+            colorLabel:      data.colorLabel  || null,
+            tableNumber:     data.tableAssignment || null,
             transferPending: data.transferPending || false,
-            transferred:     data.transferred || false,
+            transferred:     data.isTransferred || false,
             transferId:      data.transferId || null,
           } as PassData;
         });
