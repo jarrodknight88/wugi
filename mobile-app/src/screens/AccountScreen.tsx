@@ -8,7 +8,7 @@ import {
   SafeAreaView, TextInput, ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
-import messaging from '@react-native-firebase/messaging';
+import { OneSignal } from 'react-native-onesignal';
 import type { Theme } from '../constants/colors';
 import { useFirebase } from '../context/FirebaseContext';
 import { ChevronRightIcon } from '../components/icons';
@@ -72,10 +72,17 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
 
   // Check notification permission on mount + load saved username
   useEffect(() => {
-    messaging().hasPermission().then(status => {
-      if (status === messaging.AuthorizationStatus.AUTHORIZED || status === messaging.AuthorizationStatus.PROVISIONAL) setNotifPermission('authorized');
-      else if (status === messaging.AuthorizationStatus.DENIED) setNotifPermission('denied');
-      else setNotifPermission('unknown');
+    // Use OneSignal to check real-time permission state
+    OneSignal.Notifications.getPermissionAsync().then((granted: boolean) => {
+      if (granted) setNotifPermission('authorized');
+      else {
+        // Check if user has been asked before (denied vs never asked)
+        // On iOS, if not granted and previously asked, it's denied
+        // We use canRequestPermission to distinguish unknown vs denied
+        OneSignal.Notifications.canRequestPermission().then((canRequest: boolean) => {
+          setNotifPermission(canRequest ? 'unknown' : 'denied');
+        });
+      }
     });
     if (user) {
       getUserProfile(user.uid).then(p => { if (p?.username) setSavedUsername(p.username); });
@@ -359,13 +366,8 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
               </Text>
               <TouchableOpacity
                 onPress={async () => {
-                  const status = await messaging().requestPermission();
-                  if (status === messaging.AuthorizationStatus.AUTHORIZED ||
-                      status === messaging.AuthorizationStatus.PROVISIONAL) {
-                    setNotifPermission('authorized');
-                  } else {
-                    setNotifPermission('denied');
-                  }
+                  const granted = await OneSignal.Notifications.requestPermission(true);
+                  setNotifPermission(granted ? 'authorized' : 'denied');
                 }}
                 style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
               >
