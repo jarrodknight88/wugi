@@ -174,7 +174,7 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
           <View style={{ backgroundColor: theme.card, alignItems: 'center', paddingVertical: 24 }}>
             <View style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12 }}>
               <QRCode
-                value={`WUGI:${pass.id}` || 'wugi-pass'}
+                value={pass.id || 'wugi-pass'}
                 size={160}
                 color="#000"
                 backgroundColor="#fff"

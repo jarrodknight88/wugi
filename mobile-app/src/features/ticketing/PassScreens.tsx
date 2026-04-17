@@ -8,6 +8,7 @@ import {
   View, Text, Image, TouchableOpacity, ScrollView, Modal,
   SafeAreaView, Animated, StyleSheet, Share, Dimensions,
   ActivityIndicator, TextInput, Alert, Linking, KeyboardAvoidingView, Platform,
+  RefreshControl,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import Svg, { Path } from 'react-native-svg';
@@ -279,7 +280,7 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
           <Animated.View style={{ transform:[{scale: pulseAnim}], shadowColor:'#fff', shadowOpacity:0.5, shadowRadius:30, shadowOffset:{width:0,height:0} }}>
             <View style={{ backgroundColor:'#fff', borderRadius:24, padding:20, shadowColor: passColor, shadowOpacity:0.8, shadowRadius:40, shadowOffset:{width:0,height:0} }}>
               <QRCode
-                value={pass.orderId || 'wugi-pass'}
+                value={pass.passId || pass.orderId || 'wugi-pass'}
                 size={200}
                 color="#111111"
                 backgroundColor="#ffffff"
@@ -360,6 +361,7 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
   const [selectedPass, setSelectedPass] = useState<PassData | null>(null);
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [loading,      setLoading]      = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
 
   const loadPasses = useCallback(async () => {
     try {
@@ -432,6 +434,12 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
 
   useEffect(() => { loadPasses(); }, [loadPasses]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadPasses();
+    setRefreshing(false);
+  }, [loadPasses]);
+
   if (selectedPass) {
     return (
       <PassViewerScreen
@@ -462,7 +470,9 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:16, gap:12 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:16, gap:12 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} colors={[theme.accent]}/>}
+      >
         {passes.length === 0 ? (
           <View style={{ alignItems:'center', paddingTop:60 }}>
             <Text style={{ fontSize:48, marginBottom:16 }}>🎟️</Text>

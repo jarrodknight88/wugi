@@ -61,14 +61,20 @@ exports.onTicketTypeSold = functions.firestore
         if (!ticketTypeDoc.exists)
             return;
         const ticketType = ticketTypeDoc.data();
+        // Guard: skip inventory update for free tickets (managed by createPaymentIntentHttp)
+        // to avoid double-decrement
+        if (ticketType.isFree || pass.source === 'free')
+            return;
+        // Use capacity field, fallback to quantity, fallback to current remaining + sold
+        const capacity = ticketType.capacity ?? ticketType.quantity ?? ((ticketType.remaining ?? 0) + (ticketType.sold ?? 0));
         const newSold = (ticketType.sold ?? 0) + 1;
-        const newRemaining = (ticketType.capacity ?? 0) - newSold;
+        const newRemaining = Math.max(0, capacity - newSold);
         const updates = {
             sold: newSold,
             remaining: newRemaining,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        // Flip to sold_out if no remaining capacity
+        // Only flip to sold_out if remaining hits 0 and status is currently on_sale
         if (newRemaining <= 0 && ticketType.status === 'on_sale') {
             updates.status = 'sold_out';
             logger.info(`Ticket type ${ticketTypeId} for event ${eventId} is now sold out`);
