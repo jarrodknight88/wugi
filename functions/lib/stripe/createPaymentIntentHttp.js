@@ -157,7 +157,14 @@ exports.createPaymentIntentHttp = functions.https.onRequest(async (req, res) => 
             catch (passErr) {
                 logger.error('Free pass Apple Wallet generation failed:', passErr);
             }
-            // Decrement remaining count
+            // Decrement remaining count — guard against going below 0
+            const currentDoc = await db.collection('events').doc(eventId)
+                .collection('ticketTypes').doc(ticketTypeId).get();
+            const currentRemaining = currentDoc.data()?.remaining ?? 0;
+            if (currentRemaining <= 0) {
+                res.status(400).json({ error: { message: 'No tickets remaining' } });
+                return;
+            }
             await db.collection('events').doc(eventId)
                 .collection('ticketTypes').doc(ticketTypeId)
                 .update({
