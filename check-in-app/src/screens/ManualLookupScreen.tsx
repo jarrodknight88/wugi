@@ -36,6 +36,24 @@ interface Ticket {
   quantity: number; checkedIn: boolean; balanceDue: number; tableAssignment?: string;
 }
 
+// Map a passes doc to our Ticket interface
+function passToTicket(d: any, eventId: string): Ticket {
+  return {
+    id:              d.id,
+    eventId:         d.data().eventId || eventId,
+    holderName:      d.data().holderName || '',
+    holderEmail:     d.data().holderEmail || '',
+    holderPhone:     d.data().holderPhone || '',
+    ticketTypeName:  d.data().ticketTypeName || '',
+    ticketTypeId:    d.data().ticketTypeId || '',
+    color:           d.data().passColor || '#2a7a5a',
+    quantity:        1,
+    checkedIn:       d.data().scanStatus === 'scanned',
+    balanceDue:      d.data().balanceDue ?? 0,
+    tableAssignment: d.data().tableAssignment || '',
+  };
+}
+
 interface TicketType {
   id: string; name: string; price: number; color: string;
   remaining: number; walkUp: boolean; active: boolean;
@@ -267,59 +285,34 @@ export default function ManualLookupScreen() {
     setRefreshing(true);
     try {
       const snap = await firestore()
-        .collection('events').doc(session.eventId)
-        .collection('tickets').get();
-      const docs = snap.docs.map(d => ({
-        id: d.id, eventId: session?.eventId || '',
-        holderName: d.data().holderName || '',
-        holderEmail: d.data().holderEmail || '',
-        holderPhone: d.data().holderPhone || '',
-        ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
-        ticketTypeId: d.data().ticketTypeId || '',
-        color: d.data().color || '#2a7a5a',
-        quantity: d.data().quantity ?? 1,
-        checkedIn: d.data().checkedIn === true,
-        balanceDue: d.data().balanceDue ?? 0,
-        tableAssignment: d.data().tableAssignment || '',
-      }));
+        .collection('passes')
+        .where('eventId', '==', session.eventId)
+        .where('source', '!=', 'door')
+        .get();
+      const docs = snap.docs.map(d => passToTicket(d, session.eventId));
       docs.sort((a, b) => a.holderName.localeCompare(b.holderName));
       setResults(docs);
     } catch (e) {}
     finally { setRefreshing(false); }
   }
 
-  // Live ticket list — real-time listener sorted client-side
+  // Live pass list — real-time listener sorted client-side
   useEffect(() => {
     if (!session?.eventId || session.eventId === '__super_admin__') return;
     setLoading(true);
-    const ref = firestore()
-      .collection('events').doc(session.eventId)
-      .collection('tickets');
-    const unsub = ref.onSnapshot(
-      snap => {
-        const docs = snap.docs.map(d => ({
-          id: d.id, eventId: session?.eventId || '',
-          holderName: d.data().holderName || '',
-          holderEmail: d.data().holderEmail || '',
-          holderPhone: d.data().holderPhone || '',
-          ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
-          ticketTypeId: d.data().ticketTypeId || '',
-          color: d.data().color || '#2a7a5a',
-          quantity: d.data().quantity ?? 1,
-          checkedIn: d.data().checkedIn === true,
-          balanceDue: d.data().balanceDue ?? 0,
-          tableAssignment: d.data().tableAssignment || '',
-        }));
-        // Sort client-side — no index required
-        docs.sort((a, b) => a.holderName.localeCompare(b.holderName));
-        setResults(docs);
-        setLoading(false);
-      },
-      err => {
-        console.warn('Ticket load error:', err.message);
-        setLoading(false);
-      }
-    );
+    const unsub = firestore()
+      .collection('passes')
+      .where('eventId', '==', session.eventId)
+      .where('source', '!=', 'door')
+      .onSnapshot(
+        snap => {
+          const docs = snap.docs.map(d => passToTicket(d, session.eventId));
+          docs.sort((a, b) => a.holderName.localeCompare(b.holderName));
+          setResults(docs);
+          setLoading(false);
+        },
+        err => { console.warn('Pass load error:', err.message); setLoading(false); }
+      );
     return unsub;
   }, [session?.eventId]);
 
@@ -340,24 +333,15 @@ export default function ManualLookupScreen() {
     setLoading(true); setSearched(true);
     setSelected(new Set()); setMultiSelect(false);
     try {
-      const ref = session.isSuperAdmin
-        ? firestore().collectionGroup('tickets')
-        : firestore().collection('events').doc(session.eventId).collection('tickets');
-      const snap = await ref.get();
       const q = query.trim().toLowerCase();
-      const all = snap.docs.map(d => ({
-        id: d.id, eventId: d.ref.parent.parent?.id || session?.eventId || '',
-        holderName: d.data().holderName || '',
-        holderEmail: d.data().holderEmail || '',
-        holderPhone: d.data().holderPhone || '',
-        ticketTypeName: d.data().ticketTypeName || d.data().ticketType || '',
-        ticketTypeId: d.data().ticketTypeId || '',
-        color: d.data().color || '#2a7a5a',
-        quantity: d.data().quantity ?? 1,
-        checkedIn: d.data().checkedIn === true,
-        balanceDue: d.data().balanceDue ?? 0,
-        tableAssignment: d.data().tableAssignment || '',
-      }));
+      let snap;
+      if (session.isSuperAdmin) {
+        snap = await firestore().collection('passes').get();
+      } else {
+        snap = await firestore().collection('passes')
+          .where('eventId', '==', session.eventId).get();
+      }
+      const all = snap.docs.map(d => passToTicket(d, session.eventId));
       const filtered = all.filter(t => t.holderName.toLowerCase().includes(q));
       filtered.sort((a, b) => a.holderName.localeCompare(b.holderName));
       setResults(filtered);
@@ -386,11 +370,8 @@ export default function ManualLookupScreen() {
       const batch = firestore().batch();
       const now = firestore.FieldValue.serverTimestamp();
       selected.forEach(id => {
-        const ticket = results.find(t => t.id === id);
-        const eventId = ticket?.eventId || session.eventId;
-        if (!eventId) return;
-        const ref = firestore().collection('events').doc(eventId).collection('tickets').doc(id);
-        batch.update(ref, { color, passUpdatedAt: now, updatedAt: now });
+        const ref = firestore().collection('passes').doc(id);
+        batch.update(ref, { passColor: color, updatedAt: now });
       });
       await batch.commit();
       setResults(prev => prev.map(t => selected.has(t.id) ? { ...t, color } : t));
@@ -405,10 +386,13 @@ export default function ManualLookupScreen() {
     Alert.alert('Check In', `Check in ${ticket.holderName}?\n${ticket.ticketTypeName}`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm', onPress: async () => {
-        const eventId = ticket.eventId || (session?.isSuperAdmin ? (ticket as any).eventId : session?.eventId);
-        if (!eventId) return;
-        await firestore().collection('events').doc(eventId).collection('tickets').doc(ticket.id)
-          .update({ checkedIn: true, checkedInAt: firestore.FieldValue.serverTimestamp(), checkedInBy: session?.pin });
+        // Update passes collection doc
+        await firestore().collection('passes').doc(ticket.id)
+          .update({
+            scanStatus:  'scanned',
+            scannedAt:   firestore.FieldValue.serverTimestamp(),
+            scannedBy:   session?.pin,
+          });
         setResults(prev => prev.map(t => t.id === ticket.id ? { ...t, checkedIn: true } : t));
       }},
     ]);

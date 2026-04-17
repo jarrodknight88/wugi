@@ -38,14 +38,16 @@ export default function ScannerScreen() {
 
   useEffect(() => {
     if (!session) return;
-    if (session.isSuperAdmin) return; // no specific event in super admin mode
+    if (session.isSuperAdmin) return;
+    // Count passes for this event (new data model)
     const unsub = firestore()
-      .collection('events').doc(session.eventId)
-      .collection('tickets')
+      .collection('passes')
+      .where('eventId', '==', session.eventId)
+      .where('source', '!=', 'door')
       .onSnapshot(snap => {
         setTotal(snap.size);
-        setCheckedIn(snap.docs.filter(d => d.data().checkedIn).length);
-      }, () => {}); // silent error handler
+        setCheckedIn(snap.docs.filter(d => d.data().scanStatus === 'scanned').length);
+      }, () => {});
     return unsub;
   }, [session]);
 
@@ -68,37 +70,54 @@ export default function ScannerScreen() {
     if (!scanning || !session) return;
     setScanning(false);
     try {
-      if (!data.startsWith('WUGI:')) {
+      // QR encodes plain passId (no prefix) — look up in passes collection
+      const passId = data.replace('WUGI:', '').trim();
+
+      // Look up pass by doc ID
+      let passSnap = await firestore().collection('passes').doc(passId).get();
+
+      if (!passSnap.exists) {
         Vibration.vibrate([0, 100, 100, 100]); showResult('invalid'); return;
       }
-      const ticketId = data.replace('WUGI:', '');
-      // Super admin can scan any ticket — search root collection
-      // Regular staff scan per-event subcollection then fall back to root
-      let ticketSnap = session.isSuperAdmin
-        ? await firestore().collection('tickets').doc(ticketId).get()
-        : await firestore().collection('events').doc(session.eventId).collection('tickets').doc(ticketId).get();
-      if (!ticketSnap.exists) {
-        ticketSnap = await firestore().collection('tickets').doc(ticketId).get();
-      }
-      if (!ticketSnap.exists) {
-        Vibration.vibrate([0, 100, 100, 100]); showResult('invalid'); return;
-      }
-      const ticket = ticketSnap.data()!;
-      // Only enforce event match for non-super-admin
-      if (!session.isSuperAdmin && ticket.eventId && ticket.eventId !== session.eventId) {
+
+      const pass = passSnap.data()!;
+
+      // Enforce event match for non-super-admin
+      if (!session.isSuperAdmin && pass.eventId && pass.eventId !== session.eventId) {
         Vibration.vibrate([0, 100, 100, 100]);
-        showResult('wrong_event', { holderName: ticket.holderName, ticketType: ticket.ticketTypeName || ticket.ticketType || '', ticketTypeName: ticket.ticketTypeName || '', ticketTypeId: ticket.ticketTypeId || '', ticketColor: ticket.color || '#2a7a5a', quantity: ticket.quantity ?? 1, ticketId, balanceDue: ticket.balanceDue ?? 0, holderEmail: ticket.holderEmail || '' });
+        showResult('wrong_event', {
+          holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
+          ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
+          ticketColor: pass.passColor || '#2a7a5a', quantity: 1,
+          ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
+        });
         return;
       }
-      if (ticket.checkedIn) {
+
+      if (pass.scanStatus === 'scanned') {
         Vibration.vibrate([0, 200, 100, 200]);
-        showResult('already_scanned', { holderName: ticket.holderName, ticketType: ticket.ticketTypeName || ticket.ticketType || '', ticketTypeName: ticket.ticketTypeName || '', ticketTypeId: ticket.ticketTypeId || '', ticketColor: ticket.color || '#2a7a5a', quantity: ticket.quantity ?? 1, ticketId, balanceDue: ticket.balanceDue ?? 0, holderEmail: ticket.holderEmail || '' });
+        showResult('already_scanned', {
+          holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
+          ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
+          ticketColor: pass.passColor || '#2a7a5a', quantity: 1,
+          ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
+        });
         return;
       }
-      // Valid — check in
-      await ticketSnap.ref.update({ checkedIn: true, checkedInAt: firestore.FieldValue.serverTimestamp(), checkedInBy: session.pin });
+
+      // Valid — mark scanned
+      await passSnap.ref.update({
+        scanStatus:  'scanned',
+        scannedAt:   firestore.FieldValue.serverTimestamp(),
+        scannedBy:   session.pin,
+      });
       Vibration.vibrate(150);
-      showResult('valid', { holderName: ticket.holderName, ticketType: ticket.ticketTypeName || ticket.ticketType || '', ticketTypeName: ticket.ticketTypeName || '', ticketTypeId: ticket.ticketTypeId || '', ticketColor: ticket.color || '#2a7a5a', quantity: ticket.quantity ?? 1, ticketId, balanceDue: ticket.balanceDue ?? 0, holderEmail: ticket.holderEmail || '' });
+      showResult('valid', {
+        holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
+        ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
+        ticketColor: pass.passColor || '#2a7a5a', quantity: 1,
+        ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
+      });
     } catch (e) { showResult('invalid'); }
   }
 

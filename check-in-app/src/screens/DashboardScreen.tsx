@@ -28,28 +28,29 @@ export default function DashboardScreen() {
     if (!session) return;
 
     if (session.isSuperAdmin) {
-      // Super admin: aggregate across all events by listening to each event's tickets subcollection
-      // We use a collection group query for efficiency
+      // Super admin: aggregate across all passes
       const unsub = firestore()
-        .collectionGroup('tickets')
+        .collection('passes')
         .onSnapshot(snap => {
           const docs = snap.docs.map(d => d.data() as any);
-          setTotalTickets(docs.length);
-          setCheckedInCount(docs.filter(d => d.checkedIn).length);
-          setBalanceDueCount(docs.filter(d => (d.balanceDue ?? 0) > 0).length);
+          const active = docs.filter(d => d.source !== 'door');
+          setTotalTickets(active.length);
+          setCheckedInCount(active.filter(d => d.scanStatus === 'scanned').length);
+          setBalanceDueCount(active.filter(d => (d.balanceDue ?? 0) > 0).length);
           setLastUpdated(new Date());
         }, () => {});
       return unsub;
     }
 
-    // Venue staff: single event
+    // Venue staff: single event — query passes collection by eventId
     const unsub = firestore()
-      .collection('events').doc(session.eventId)
-      .collection('tickets')
+      .collection('passes')
+      .where('eventId', '==', session.eventId)
+      .where('source', '!=', 'door')
       .onSnapshot(snap => {
         const docs = snap.docs.map(d => d.data() as any);
         setTotalTickets(docs.length);
-        setCheckedInCount(docs.filter(d => d.checkedIn).length);
+        setCheckedInCount(docs.filter(d => d.scanStatus === 'scanned').length);
         setBalanceDueCount(docs.filter(d => (d.balanceDue ?? 0) > 0).length);
         setLastUpdated(new Date());
       }, () => {});

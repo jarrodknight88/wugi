@@ -77,12 +77,26 @@ function buildPassJson(data) {
     const bgRgb = hexToRgb(bgHex);
     const tableLabel = data.colorLabel || (data.tableNumber ? `Table ${data.tableNumber}` : null);
     const authToken = data.authenticationToken || '';
+    // ── Field layout (Apple eventTicket) ──────────────────────────────
+    // Header:    WUGI logoText
+    // Primary:   Event name  (large, top)
+    // Secondary: Venue | Date | Time  (below primary, 3 columns)
+    // Auxiliary: Ticket type | Holder | Assignment (if any)
+    // Back:      Order ID, buyer info, terms
+    const secondaryFields = [
+        { key: 'venue', label: 'VENUE', value: data.venueName || 'Wugi Event' },
+        { key: 'date', label: 'DATE', value: data.eventDate || '' },
+        { key: 'time', label: 'TIME', value: data.eventTime || '' },
+    ];
     const auxiliaryFields = [
-        { key: 'ticket', label: 'TICKET TYPE', value: data.ticketType },
-        { key: 'qty', label: 'QTY', value: String(data.quantity) },
+        { key: 'ticket', label: 'TICKET', value: data.ticketType || 'General Admission' },
+        { key: 'holder', label: 'HOLDER', value: data.buyerName || 'Guest' },
     ];
     if (tableLabel) {
-        auxiliaryFields.push({ key: 'table', label: 'ASSIGNMENT', value: tableLabel });
+        auxiliaryFields.push({ key: 'table', label: 'SEAT / TABLE', value: tableLabel });
+    }
+    if (data.quantity > 1) {
+        auxiliaryFields.push({ key: 'qty', label: 'QTY', value: String(data.quantity) });
     }
     const passJson = {
         formatVersion: 1,
@@ -90,36 +104,52 @@ function buildPassJson(data) {
         serialNumber: data.orderId,
         teamIdentifier: TEAM_ID,
         organizationName: 'Wugi',
-        description: data.eventTitle,
+        description: `${data.eventTitle} — ${data.ticketType}`,
+        // Colors — dynamic from ticket type
         foregroundColor: 'rgb(255, 255, 255)',
         backgroundColor: bgRgb,
-        labelColor: 'rgb(220, 220, 220)',
+        labelColor: 'rgb(200, 200, 200)',
+        // Logo text shown next to logo image
         logoText: 'WUGI',
+        // ── eventTicket pass type ──────────────────────────────────────
         eventTicket: {
-            primaryFields: [{ key: 'event', label: 'EVENT', value: data.eventTitle }],
-            secondaryFields: [
-                { key: 'venue', label: 'VENUE', value: data.venueName },
-                { key: 'date', label: 'DATE', value: data.eventDate },
-                { key: 'time', label: 'TIME', value: data.eventTime },
+            primaryFields: [
+                {
+                    key: 'event',
+                    label: 'EVENT',
+                    value: data.eventTitle,
+                    textAlignment: 'PKTextAlignmentCenter',
+                },
             ],
+            secondaryFields,
             auxiliaryFields,
             backFields: [
                 { key: 'order', label: 'Order ID', value: data.orderId },
-                { key: 'buyer', label: 'Name', value: data.buyerName },
-                { key: 'email', label: 'Email', value: data.buyerEmail },
-                { key: 'total', label: 'Total Paid', value: `$${(data.totalPaid / 100).toFixed(2)}` },
+                { key: 'buyer', label: 'Ticket holder', value: data.buyerName || 'Guest' },
+                { key: 'email', label: 'Email', value: data.buyerEmail || '' },
+                { key: 'total', label: 'Total paid', value: data.totalPaid > 0 ? `$${(data.totalPaid / 100).toFixed(2)}` : 'Free' },
                 { key: 'reclaim', label: 'Lost your pass?', value: `wugi.us/tickets/${data.orderId}` },
-                { key: 'terms', label: 'Terms', value: 'No refunds. Valid ID required.' },
+                { key: 'terms', label: 'Terms', value: 'No refunds. Valid ID required. Wugi.us' },
+            ],
+            headerFields: [
+                {
+                    key: 'status',
+                    label: 'STATUS',
+                    value: 'VALID',
+                },
             ],
         },
+        // ── QR code — encodes the passes doc ID for Door scanner ──────
         barcodes: [{
                 message: data.orderId,
                 format: 'PKBarcodeFormatQR',
                 messageEncoding: 'iso-8859-1',
-                altText: `Order: ${data.orderId}`,
+                altText: data.ticketType || 'Wugi Ticket',
             }],
+        // ── Relevance — show pass at event location/time ──────────────
+        // Can add locations/relevantDate here when event data available
     };
-    // Embed web service URL for pass updates (only if we have an auth token)
+    // Embed web service URL for live pass updates
     if (authToken) {
         passJson.webServiceURL = data.webServiceURL || WEB_SERVICE_URL;
         passJson.authenticationToken = authToken;
