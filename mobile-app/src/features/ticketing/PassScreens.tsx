@@ -363,87 +363,93 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
 
-  const loadPasses = useCallback(async () => {
-    try {
+  function docToPass(d: any): PassData {
+    const data = d.data();
+    const ticketTypeLower = (data.ticketTypeName || '').toLowerCase();
+    const typeKey = ticketTypeLower.includes('vip') ? 'vip'
+      : ticketTypeLower.includes('table') ? 'table'
+      : ticketTypeLower.includes('backstage') ? 'backstage'
+      : ticketTypeLower.includes('free') ? 'free'
+      : 'general';
+    return {
+      orderId:         data.orderId || d.id,
+      passId:          d.id,
+      passNumber:      1,
+      totalPasses:     1,
+      ticketType:      typeKey,
+      ticketTypeName:  data.ticketTypeName || 'General Admission',
+      eventTitle:      data.eventTitle || 'Event',
+      venueName:       data.venueName  || '',
+      date:            data.eventDate  || '',
+      time:            data.eventTime  || '',
+      holderName:      data.holderName || data.holderEmail || '',
+      status:          data.scanStatus === 'scanned' ? 'scanned' : 'valid',
+      qrValue:         d.id,
+      passUrl:         data.appleWalletPassUrl || data.passUrl || null,
+      passColor:       data.passColor   || null,
+      colorLabel:      data.colorLabel  || null,
+      tableNumber:     data.tableAssignment || null,
+      transferPending: data.transferPending || false,
+      transferred:     data.isTransferred || false,
+      transferId:      data.transferId || null,
+    } as PassData;
+  }
+
+  // ── Live listener — updates instantly when dashboard changes color ──
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+
+    async function subscribe() {
       const { getAuth }      = await import('@react-native-firebase/auth');
-      const { getFirestore, collection, getDocs, query, where, orderBy } =
+      const { getFirestore, collection, query, where, orderBy, onSnapshot } =
         await import('@react-native-firebase/firestore');
       const userId = getAuth().currentUser?.uid;
       if (!userId) { setLoading(false); return; }
 
-      const db   = getFirestore();
-      // Query ALL passes for this user — include transferred so they show greyed out
-      const snap = await getDocs(
+      const db = getFirestore();
+      unsub = onSnapshot(
         query(
           collection(db, 'passes'),
           where('userId', '==', userId),
           orderBy('createdAt', 'desc')
-        )
+        ),
+        snap => {
+          const loaded = snap.docs
+            .filter(d => {
+              const data = d.data();
+              if (data.source === 'door') return false;
+              if (data.scanStatus === 'cancelled' || data.scanStatus === 'voided') return false;
+              return true;
+            })
+            .map(docToPass);
+          setPasses(loaded);
+          setLoading(false);
+          setRefreshing(false);
+        },
+        err => {
+          console.log('MyPassesScreen snapshot error:', err);
+          setLoading(false);
+          setRefreshing(false);
+        }
       );
-
-      const loaded: PassData[] = snap.docs
-        .filter(d => {
-          const data = d.data();
-          // Exclude walk-up door tickets (source: 'door') — door-only records
-          if (data.source === 'door') return false;
-          // Exclude cancelled/voided passes
-          if (data.scanStatus === 'cancelled' || data.scanStatus === 'voided') return false;
-          return true;
-          // NOTE: Keep transferred passes — shown greyed out with transfer details
-        })
-        .map(d => {
-          const data = d.data();
-          const ticketTypeLower = (data.ticketTypeName || '').toLowerCase();
-          const typeKey = ticketTypeLower.includes('vip') ? 'vip'
-            : ticketTypeLower.includes('table') ? 'table'
-            : ticketTypeLower.includes('backstage') ? 'backstage'
-            : ticketTypeLower.includes('free') ? 'free'
-            : 'general';
-          return {
-            orderId:         data.orderId || d.id,
-            passId:          d.id,
-            passNumber:      1,
-            totalPasses:     1,
-            ticketType:      typeKey,
-            ticketTypeName:  data.ticketTypeName || 'General Admission',
-            eventTitle:      data.eventTitle || 'Event',
-            venueName:       data.venueName  || '',
-            date:            data.eventDate  || '',
-            time:            data.eventTime  || '',
-            holderName:      data.holderName || data.holderEmail || '',
-            status:          data.scanStatus === 'scanned' ? 'scanned' : 'valid',
-            qrValue:         d.id,
-            passUrl:         data.appleWalletPassUrl || data.passUrl || null,
-            passColor:       data.passColor   || null,
-            colorLabel:      data.colorLabel  || null,
-            tableNumber:     data.tableAssignment || null,
-            transferPending: data.transferPending || false,
-            transferred:     data.isTransferred || false,
-            transferId:      data.transferId || null,
-          } as PassData;
-        });
-
-      setPasses(loaded);
-    } catch (e) {
-      console.log('MyPassesScreen load error:', e);
-    } finally {
-      setLoading(false);
     }
+
+    subscribe();
+    return () => { unsub?.(); };
   }, []);
 
-  useEffect(() => { loadPasses(); }, [loadPasses]);
-
-  const onRefresh = useCallback(async () => {
+  // Pull-to-refresh just shows the spinner briefly — snapshot keeps data fresh
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    await loadPasses();
-    setRefreshing(false);
-  }, [loadPasses]);
+    // Snapshot is already live; refreshing state clears on next snapshot fire
+    setTimeout(() => setRefreshing(false), 800);
+  }, []);
 
   if (selectedPass) {
     return (
       <PassViewerScreen
         pass={selectedPass}
-        onBack={() => { setSelectedPass(null); loadPasses(); }}
+        onBack={() => setSelectedPass(null)}
       />
     );
   }
