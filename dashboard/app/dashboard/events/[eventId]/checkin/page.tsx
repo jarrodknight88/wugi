@@ -19,8 +19,10 @@ type Ticket = {
   ticketTypeName: string; color: string; checkedIn: boolean; checkedInAt?: any
   status: string; tableAssignment?: string; passUpdatedAt?: any
   source?: string
-  depositPaid?: number   // cents
-  balanceDue?: number    // cents — remaining owed at door
+  depositPaid?: number
+  balanceDue?: number
+  passColor?: string     // passes collection uses passColor not color
+  scanStatus?: string    // passes collection uses scanStatus not checkedIn
 }
 type TableGroup = { id: string; name: string; color: string }
 type SortKey    = "name" | "type" | "checkin" | "color" | "balance"
@@ -271,17 +273,33 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
         active: d.data().active !== false,
       })))
     )
-    const u3 = onSnapshot(collection(db, "events", eventId, "tickets"), snap =>
-      setTickets(snap.docs.map(d => ({
-        id: d.id, holderName: d.data().holderName || "", holderEmail: d.data().holderEmail || "",
-        ticketTypeId: d.data().ticketTypeId || "", ticketTypeName: d.data().ticketTypeName || "",
-        color: d.data().color || "", checkedIn: d.data().checkedIn === true,
-        checkedInAt: d.data().checkedInAt, status: d.data().status || "",
-        tableAssignment: d.data().tableAssignment || "", passUpdatedAt: d.data().passUpdatedAt,
-        source: d.data().source || "",
-        depositPaid: d.data().depositPaid ?? 0,
-        balanceDue: d.data().balanceDue ?? 0,
-      })))
+    // ── Query passes collection (new data model) ───────────────────
+    const { query: fsQuery, where: fsWhere } = await import("firebase/firestore")
+    const passesQuery = fsQuery(
+      collection(db, "passes"),
+      fsWhere("eventId", "==", eventId),
+    )
+    const u3 = onSnapshot(passesQuery, snap =>
+      setTickets(snap.docs
+        .filter(d => d.data().source !== 'door') // client-side filter — avoids != index
+        .map(d => ({
+          id: d.id,
+          holderName: d.data().holderName || "",
+          holderEmail: d.data().holderEmail || "",
+          ticketTypeId: d.data().ticketTypeId || "",
+          ticketTypeName: d.data().ticketTypeName || "",
+          color: d.data().passColor || d.data().color || "",
+          passColor: d.data().passColor || "",
+          checkedIn: d.data().scanStatus === "scanned",
+          checkedInAt: d.data().scannedAt,
+          status: d.data().scanStatus || "valid",
+          tableAssignment: d.data().tableAssignment || "",
+          passUpdatedAt: d.data().updatedAt,
+          source: d.data().source || "",
+          depositPaid: d.data().depositPaid ?? 0,
+          balanceDue: d.data().balanceDue ?? 0,
+          scanStatus: d.data().scanStatus || "valid",
+        })))
     )
     return () => { u1(); u2(); u3() }
   }, [eventId])
@@ -305,22 +323,25 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
 
   // ── Actions ───────────────────────────────────────────────────────
   async function toggleCheckin(ticket: Ticket) {
-    await updateDoc(doc(db, "events", eventId, "tickets", ticket.id), {
-      checkedIn: !ticket.checkedIn,
-      checkedInAt: !ticket.checkedIn ? serverTimestamp() : null,
+    const isCheckedIn = ticket.checkedIn
+    // Update passes collection doc (new data model)
+    await updateDoc(doc(db, "passes", ticket.id), {
+      scanStatus: isCheckedIn ? "valid" : "scanned",
+      scannedAt: !isCheckedIn ? serverTimestamp() : null,
       updatedAt: serverTimestamp(),
     })
-    showToast(!ticket.checkedIn ? `✓ ${ticket.holderName} checked in` : `↩ ${ticket.holderName} unchecked`)
+    showToast(!isCheckedIn ? `✓ ${ticket.holderName} checked in` : `↩ ${ticket.holderName} unchecked`)
   }
 
   async function assignColorToTicket(ticketId: string, color: string) {
-    await updateDoc(doc(db, "events", eventId, "tickets", ticketId), { color, passUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+    // Update passes collection doc
+    await updateDoc(doc(db, "passes", ticketId), { passColor: color, updatedAt: serverTimestamp() })
     showToast("Color updated")
     setExpandedTicketId(null); setExpandedSection(null)
   }
 
   async function saveBalance(ticketId: string, depositCents: number, balanceCents: number) {
-    await updateDoc(doc(db, "events", eventId, "tickets", ticketId), {
+    await updateDoc(doc(db, "passes", ticketId), {
       depositPaid: depositCents, balanceDue: balanceCents, updatedAt: serverTimestamp(),
     })
     showToast("Balance updated")
@@ -331,9 +352,10 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
     setSaving(true)
     try {
       await updateDoc(doc(db, "events", eventId, "ticketTypes", typeId), { color, updatedAt: serverTimestamp() })
+      // Update all matching passes
       const batch = writeBatch(db)
       tickets.filter(t => t.ticketTypeId === typeId).forEach(t =>
-        batch.update(doc(db, "events", eventId, "tickets", t.id), { color, passUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+        batch.update(doc(db, "passes", t.id), { passColor: color, updatedAt: serverTimestamp() })
       )
       await batch.commit()
       showToast("Color applied to all tickets of this type")
@@ -345,7 +367,7 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
     try {
       const batch = writeBatch(db)
       tickets.filter(t => t.ticketTypeName.toLowerCase() === group.name.toLowerCase()).forEach(t =>
-        batch.update(doc(db, "events", eventId, "tickets", t.id), { color: group.color, passUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+        batch.update(doc(db, "passes", t.id), { passColor: group.color, updatedAt: serverTimestamp() })
       )
       await batch.commit()
       showToast(`Color applied to "${group.name}" tickets`)
