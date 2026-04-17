@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
+import { safeNum, safeStr } from '../../utils/safeData';
 import { BackIcon } from '../../components/icons';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -111,8 +112,10 @@ export function TicketSelectionScreen({
     load();
   }, [eventId]);
 
+  const maxQty = Math.max(1, Math.min(safeNum(selected?.maxPerOrder, 10), safeNum(selected?.remaining, 0)));
+
   // ── Calculations ────────────────────────────────────────────────────
-  const subtotal   = selected ? selected.price * quantity : 0;
+  const subtotal   = selected ? safeNum(selected.price) * quantity : 0;
   const bookingFee = selected ? calcBookingFee(subtotal, selected) : 0;
   const total      = subtotal + bookingFee; // tax calculated by Stripe at payment
 
@@ -182,18 +185,21 @@ export function TicketSelectionScreen({
         <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', marginBottom: 12 }}>Select ticket type</Text>
 
         {ticketTypes.map(tt => {
-          const isSelected  = selected?.id === tt.id;
-          const isSoldOut   = tt.remaining <= 0;
+          const isSelected = selected?.id === tt.id;
+          const remaining  = safeNum(tt.remaining, 0);
+          const isSoldOut  = tt.status === 'sold_out' || remaining <= 0;
+          const isLowStock = !isSoldOut && remaining <= 10;
           return (
             <TouchableOpacity
               key={tt.id}
               onPress={() => { if (!isSoldOut) { setSelected(tt); setQuantity(1); } }}
               disabled={isSoldOut}
+              activeOpacity={isSoldOut ? 1 : 0.7}
               style={{
                 borderRadius: 12,
                 borderWidth: 1.5,
-                borderColor: isSelected ? theme.accent : theme.border,
-                backgroundColor: isSelected ? theme.accent + '12' : theme.card,
+                borderColor: isSoldOut ? theme.divider : isSelected ? theme.accent : theme.border,
+                backgroundColor: isSoldOut ? theme.card : isSelected ? theme.accent + '12' : theme.card,
                 padding: 14,
                 marginBottom: 10,
                 flexDirection: 'row',
@@ -202,32 +208,47 @@ export function TicketSelectionScreen({
                 opacity: isSoldOut ? 0.5 : 1,
               }}
             >
-              {/* Radio */}
-              <View style={{
-                width: 20, height: 20, borderRadius: 10,
-                borderWidth: 2,
-                borderColor: isSelected ? theme.accent : theme.border,
-                backgroundColor: isSelected ? theme.accent : 'transparent',
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                {isSelected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' }}/>}
-              </View>
+              {/* Radio — hidden when sold out */}
+              {!isSoldOut && (
+                <View style={{
+                  width: 20, height: 20, borderRadius: 10,
+                  borderWidth: 2,
+                  borderColor: isSelected ? theme.accent : theme.border,
+                  backgroundColor: isSelected ? theme.accent : 'transparent',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {isSelected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' }}/>}
+                </View>
+              )}
 
               {/* Info */}
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>{tt.name}</Text>
-                <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>{tt.description}</Text>
-                {tt.remaining <= 10 && tt.remaining > 0 && (
-                  <Text style={{ color: '#e74c3c', fontSize: 11, marginTop: 3, fontWeight: '600' }}>Only {tt.remaining} left</Text>
+                <Text style={{ color: isSoldOut ? theme.subtext : theme.text, fontSize: 14, fontWeight: '700' }}>
+                  {safeStr(tt.name, 'Ticket')}
+                </Text>
+                {tt.description ? (
+                  <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>{tt.description}</Text>
+                ) : null}
+                {isLowStock && (
+                  <Text style={{ color: '#e74c3c', fontSize: 11, marginTop: 3, fontWeight: '600' }}>
+                    Only {remaining} left
+                  </Text>
                 )}
                 {isSoldOut && (
-                  <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 3, fontWeight: '600' }}>Sold out</Text>
+                  <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 3, fontWeight: '700', letterSpacing: 0.5 }}>
+                    SOLD OUT
+                  </Text>
                 )}
               </View>
 
-              {/* Price */}
-              <Text style={{ color: tt.isFree ? theme.text : theme.accent, fontSize: 16, fontWeight: '800' }}>
-                {tt.isFree ? 'FREE' : centsToDisplay(tt.price)}
+              {/* Price / sold out badge */}
+              <Text style={{
+                color: isSoldOut ? theme.subtext : tt.isFree ? theme.text : theme.accent,
+                fontSize: 16,
+                fontWeight: '800',
+                textDecorationLine: isSoldOut ? 'line-through' : 'none',
+              }}>
+                {tt.isFree ? 'FREE' : `$${(safeNum(tt.price) / 100).toFixed(2)}`}
               </Text>
             </TouchableOpacity>
           );
@@ -247,15 +268,15 @@ export function TicketSelectionScreen({
               </TouchableOpacity>
               <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', flex: 1, textAlign: 'center' }}>{quantity}</Text>
               <TouchableOpacity
-                onPress={() => setQuantity(q => Math.min(selected.maxPerOrder ?? 10, selected.remaining ?? 100, q + 1))}
-                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: quantity >= Math.min(selected.maxPerOrder ?? 10, selected.remaining ?? 100) ? theme.divider : theme.accent, alignItems: 'center', justifyContent: 'center' }}
-                disabled={quantity >= Math.min(selected.maxPerOrder ?? 10, selected.remaining ?? 100)}
+                onPress={() => setQuantity(q => Math.min(maxQty, q + 1))}
+                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: quantity >= maxQty ? theme.divider : theme.accent, alignItems: 'center', justifyContent: 'center' }}
+                disabled={quantity >= maxQty}
               >
                 <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 }}>+</Text>
               </TouchableOpacity>
             </View>
             <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 6, textAlign: 'center' }}>
-              Max {selected.maxPerOrder ?? 10} per order · {selected.remaining ?? 0} remaining
+              Max {safeNum(selected?.maxPerOrder, 10)} per order · {safeNum(selected?.remaining, 0)} remaining
             </Text>
           </>
         )}

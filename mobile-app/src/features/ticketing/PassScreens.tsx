@@ -13,7 +13,7 @@ import QRCode from 'react-native-qrcode-svg';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import type { PassData } from '../../types';
-import { TICKET_TYPES } from '../../constants/ticketTypes';
+import { getPassStyle, getScanStatus } from '../../utils/safeData';
 import { BackIcon } from '../../components/icons';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -160,8 +160,8 @@ type PassViewerProps = {
 };
 
 export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
-  const ticketType       = TICKET_TYPES[pass.ticketType] || TICKET_TYPES['general_admission'];
-  const passColor        = pass.passColor || ticketType.color;
+  const style    = getPassStyle(pass.ticketTypeName || pass.ticketType, pass.passColor);
+  const passColor = style.color;
   const pulseAnim        = useRef(new Animated.Value(1)).current;
   const glowOpacity      = useRef(new Animated.Value(0.7)).current;
   const flashAnim        = useRef(new Animated.Value(0)).current;
@@ -473,8 +473,9 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
           <>
             <Text style={{ color:theme.subtext, fontSize:13, marginBottom:4 }}>{passes.length} ticket{passes.length !== 1 ? 's' : ''}</Text>
             {passes.map(pass => {
-              const typeData = TICKET_TYPES[pass.ticketType] || TICKET_TYPES['general_admission'];
-              const cardColor = pass.passColor || typeData.color;
+              const style     = getPassStyle(pass.ticketTypeName || pass.ticketType, pass.passColor);
+              const cardColor = style.color;
+              const scanStyle = getScanStatus(pass.status);
               const isPending = pass.transferPending;
 
               return (
@@ -491,9 +492,9 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
                           {(pass.colorLabel || pass.ticketTypeName || typeData.label).toUpperCase()}
                         </Text>
                       </View>
-                      <View style={{ backgroundColor: isPending ? 'rgba(230,150,0,0.3)' : pass.status === 'scanned' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.25)', borderRadius:8, paddingHorizontal:8, paddingVertical:3 }}>
-                        <Text style={{ color: isPending ? '#e6961e' : '#fff', fontSize:10, fontWeight:'700' }}>
-                          {isPending ? 'PENDING' : pass.status === 'scanned' ? 'USED' : 'VALID'}
+                      <View style={{ backgroundColor: isPending ? 'rgba(230,150,0,0.3)' : scanStyle.bg, borderRadius:8, paddingHorizontal:8, paddingVertical:3 }}>
+                        <Text style={{ color: isPending ? '#e6961e' : scanStyle.color, fontSize:10, fontWeight:'700' }}>
+                          {isPending ? 'PENDING' : scanStyle.label}
                         </Text>
                       </View>
                     </View>
