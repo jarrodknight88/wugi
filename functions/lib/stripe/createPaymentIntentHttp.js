@@ -122,6 +122,41 @@ exports.createPaymentIntentHttp = functions.https.onRequest(async (req, res) => 
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
+            // ── Generate Apple Wallet pass for free ticket ─────────────────
+            let freePassUrl = null;
+            try {
+                const { buildPassBuffer, storePass } = await Promise.resolve().then(() => __importStar(require('../passes/generatePass')));
+                const crypto = await Promise.resolve().then(() => __importStar(require('crypto')));
+                const authToken = crypto.randomBytes(20).toString('hex');
+                const eventDoc = await db.collection('events').doc(eventId).get();
+                const venueDoc2 = ticketType.venueId
+                    ? await db.collection('venues').doc(ticketType.venueId).get()
+                    : null;
+                const passBuffer = await buildPassBuffer({
+                    orderId,
+                    eventTitle: eventDoc.data()?.title || '',
+                    venueName: venueDoc2?.data()?.name || '',
+                    eventDate: eventDoc.data()?.date || '',
+                    eventTime: eventDoc.data()?.time || '',
+                    ticketType: ticketType.name,
+                    quantity: quantity,
+                    buyerName: userId ? '' : (guestName ?? ''),
+                    buyerEmail: userId ? '' : (guestEmail ?? ''),
+                    totalPaid: 0,
+                    webServiceURL: 'https://us-central1-wugi-prod.cloudfunctions.net/passWebService',
+                    authenticationToken: authToken,
+                });
+                freePassUrl = await storePass(orderId, passBuffer);
+                await db.collection('walletPasses').doc(orderId).set({
+                    orderId, authenticationToken: authToken,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                await passRef.update({ appleWalletPassUrl: freePassUrl, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                logger.info('Free pass Apple Wallet generated:', freePassUrl);
+            }
+            catch (passErr) {
+                logger.error('Free pass Apple Wallet generation failed:', passErr);
+            }
             // Decrement remaining count
             await db.collection('events').doc(eventId)
                 .collection('ticketTypes').doc(ticketTypeId)
@@ -142,6 +177,7 @@ exports.createPaymentIntentHttp = functions.https.onRequest(async (req, res) => 
                     isGuest: !userId,
                     isFree: true,
                     orderId,
+                    passUrl: freePassUrl,
                 },
             });
             return;

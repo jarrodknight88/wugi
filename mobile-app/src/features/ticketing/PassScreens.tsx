@@ -408,7 +408,7 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
             holderName:      data.holderName || data.holderEmail || '',
             status:          data.scanStatus === 'scanned' ? 'scanned' : 'valid',
             qrValue:         d.id,
-            passUrl:         data.appleWalletPassUrl || null,
+            passUrl:         data.appleWalletPassUrl || data.passUrl || null,
             passColor:       data.passColor   || null,
             colorLabel:      data.colorLabel  || null,
             tableNumber:     data.tableAssignment || null,

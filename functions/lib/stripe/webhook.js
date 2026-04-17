@@ -299,6 +299,17 @@ async function handlePaymentSuccess(paymentIntent) {
             lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
         });
         await orderRef.update({ passUrl, authenticationToken: authToken });
+        // ── Write passUrl back to every passes doc for this order ─────────
+        // MyPassesScreen reads from passes/{passId}.appleWalletPassUrl
+        const passesSnap = await db.collection('passes').where('orderId', '==', orderId).get();
+        const passUpdateBatch = db.batch();
+        passesSnap.docs.forEach(doc => {
+            passUpdateBatch.update(doc.ref, {
+                appleWalletPassUrl: passUrl,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        });
+        await passUpdateBatch.commit();
         logger.info('Pass generated for order:', orderId);
     }
     catch (passErr) {
