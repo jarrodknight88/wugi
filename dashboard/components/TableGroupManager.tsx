@@ -23,10 +23,24 @@ type TableForm = {
 
 // ── Color palette — 24 rich options ──────────────────────────────────
 export const GROUP_COLORS = [
-  "#2a7a5a","#16a34a","#65a30d","#ca8a04","#d97706","#ea580c",
-  "#dc2626","#e11d48","#db2777","#9333ea","#7c3aed","#4f46e5",
-  "#2563eb","#0284c7","#0891b2","#0d9488","#0f766e","#374151",
-  "#64748b","#78716c","#a16207","#b45309","#c2410c","#be123c",
+  // Reds & pinks
+  "#dc2626", "#be185d", "#9f1239",
+  // Oranges
+  "#ea580c", "#d97706",
+  // Yellows & lime
+  "#ca8a04", "#84cc16",
+  // Greens
+  "#16a34a", "#2a7a5a", "#0f766e",
+  // Blues
+  "#0284c7", "#1d4ed8", "#2563eb",
+  // Purples & violets
+  "#7c3aed", "#9333ea", "#6d28d9",
+  // Pinks
+  "#db2777", "#ec4899",
+  // Neutrals
+  "#0f172a", "#374151", "#64748b", "#e2e8f0",
+  // Bright accents
+  "#f59e0b", "#06b6d4",
 ]
 
 const EMPTY_TABLE: TableForm = {

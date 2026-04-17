@@ -75,6 +75,31 @@ export function PaymentScreen({
       }
 
       // ── Step 2: Init Stripe Payment Sheet ──────────────────────────
+      // Face ID gate — required when using a saved card (customerId present)
+      if (customerId && userId) {
+        try {
+          const LocalAuth = await import('expo-local-authentication');
+          const hasHardware = await LocalAuth.hasHardwareAsync();
+          const isEnrolled  = await LocalAuth.isEnrolledAsync();
+          if (hasHardware && isEnrolled) {
+            const result = await LocalAuth.authenticateAsync({
+              promptMessage:    'Confirm payment with Face ID',
+              fallbackLabel:    'Use Passcode',
+              cancelLabel:      'Cancel',
+              disableDeviceFallback: false,
+            });
+            if (!result.success) {
+              Alert.alert('Authentication required', 'Face ID is required to use a saved card.');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (authErr) {
+          // If LocalAuth fails to load, proceed — don't block payment
+          console.warn('Face ID check failed:', authErr);
+        }
+      }
+
       const { error: initError } = await initPaymentSheet({
         merchantDisplayName:        'Wugi',
         paymentIntentClientSecret:  clientSecret,

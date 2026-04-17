@@ -161,17 +161,43 @@ type PassViewerProps = {
 };
 
 export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
-  const style    = getPassStyle(pass.ticketTypeName || pass.ticketType, pass.passColor);
-  const passColor = style.color;
-  const pulseAnim        = useRef(new Animated.Value(1)).current;
-  const glowOpacity      = useRef(new Animated.Value(0.7)).current;
-  const flashAnim        = useRef(new Animated.Value(0)).current;
-  const [showTransfer,   setShowTransfer]   = useState(false);
-  const [showSuccess,    setShowSuccess]    = useState(false);
-  const [claimUrl,       setClaimUrl]       = useState('');
-  const [cancelling,     setCancelling]     = useState(false);
+  // ── Live pass doc listener — color updates instantly from dashboard ──
+  const [livePass, setLivePass] = useState<PassData>(pass);
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    async function subscribe() {
+      const { getFirestore, doc, onSnapshot } = await import('@react-native-firebase/firestore');
+      const db = getFirestore();
+      unsub = onSnapshot(doc(db, 'passes', pass.passId), snap => {
+        if (!snap.exists) return;
+        const data = snap.data()!;
+        setLivePass(prev => ({
+          ...prev,
+          passColor:  data.passColor  || prev.passColor,
+          colorLabel: data.colorLabel || prev.colorLabel,
+          status:     data.scanStatus === 'scanned' ? 'scanned' : 'valid',
+          balanceDue: data.balanceDue ?? prev.balanceDue,
+          depositPaid: data.depositPaid ?? prev.depositPaid,
+          passUrl:    data.appleWalletPassUrl || data.passUrl || prev.passUrl,
+        }));
+      }, () => {});
+    }
+    subscribe();
+    return () => { unsub?.(); };
+  }, [pass.passId]);
 
-  // Full screen flash
+  const style     = getPassStyle(livePass.ticketTypeName || livePass.ticketType, livePass.passColor);
+  const passColor = style.color;
+  const pulseAnim   = useRef(new Animated.Value(1)).current;
+  const glowOpacity = useRef(new Animated.Value(0.7)).current;
+  const flashAnim   = useRef(new Animated.Value(0)).current;
+
+  const [showTransfer,  setShowTransfer]  = useState(false);
+  const [showSuccess,   setShowSuccess]   = useState(false);
+  const [showDetails,   setShowDetails]   = useState(false);
+  const [claimUrl,      setClaimUrl]      = useState('');
+  const [cancelling,    setCancelling]    = useState(false);
+
   useEffect(() => {
     const runFlash = () => {
       Animated.sequence([
@@ -181,14 +207,12 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
     };
     setTimeout(runFlash, 800);
   }, []);
-
   useEffect(() => {
     Animated.loop(Animated.sequence([
       Animated.timing(pulseAnim, { toValue: 1.07, duration: 900, useNativeDriver: true }),
       Animated.timing(pulseAnim, { toValue: 0.97, duration: 900, useNativeDriver: true }),
     ])).start();
   }, []);
-
   useEffect(() => {
     Animated.loop(Animated.sequence([
       Animated.timing(glowOpacity, { toValue: 1,    duration: 1500, useNativeDriver: true }),
@@ -197,41 +221,38 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
   }, []);
 
   function handleTransferSuccess(url: string) {
-    setShowTransfer(false);
-    setClaimUrl(url);
-    setShowSuccess(true);
+    setShowTransfer(false); setClaimUrl(url); setShowSuccess(true);
   }
 
   async function handleCancelTransfer() {
-    if (!pass.transferId || !pass.orderId) return;
+    if (!livePass.transferId || !livePass.orderId) return;
     Alert.alert('Cancel Transfer', 'Are you sure you want to cancel this transfer?', [
       { text: 'No', style: 'cancel' },
-      {
-        text: 'Yes, cancel', style: 'destructive', onPress: async () => {
-          setCancelling(true);
-          try {
-            await fetch(CANCEL_URL, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transferId: pass.transferId, orderId: pass.orderId }),
-            });
-          } catch (e) {}
-          setCancelling(false);
-          onBack(); // refresh list
-        }
-      }
+      { text: 'Yes, cancel', style: 'destructive', onPress: async () => {
+        setCancelling(true);
+        try { await fetch(CANCEL_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transferId: livePass.transferId, orderId: livePass.orderId }) }); } catch {}
+        setCancelling(false); onBack();
+      }},
     ]);
   }
 
   async function handleAddToWallet() {
-    if (pass.passUrl) {
-      await Linking.openURL(pass.passUrl);
-    } else {
-      Alert.alert('Pass Not Ready', 'Your Apple Wallet pass is being generated. Check back in a moment.');
-    }
+    if (livePass.passUrl) await Linking.openURL(livePass.passUrl);
+    else Alert.alert('Pass Not Ready', 'Your Apple Wallet pass is being generated. Check back in a moment.');
   }
 
-  const canTransfer = pass.status !== 'scanned' && !pass.transferred && !pass.transferPending;
-  const isPending   = pass.transferPending;
+  const canTransfer = livePass.status !== 'scanned' && !livePass.transferred && !livePass.transferPending;
+  const isPending   = livePass.transferPending;
+  const hasBalance  = (livePass.balanceDue ?? 0) > 0;
+
+  // ── Details bottom sheet content ─────────────────────────────────
+  const isTransferReceived = livePass.source === 'transfer' || !!livePass.transferredFromName;
+  const purchaseDate = livePass.purchasedAt?.toDate?.()
+    ? livePass.purchasedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+  const transferDate = livePass.transferredAt?.toDate?.()
+    ? livePass.transferredAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -246,14 +267,30 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
             <BackIcon color="#fff"/>
           </TouchableOpacity>
           <Text style={{ color:'#fff', fontSize:22, fontWeight:'900', letterSpacing:-1 }}>wugi</Text>
-          <View style={{ width:40 }}/>
+          {/* Info icon */}
+          <TouchableOpacity onPress={() => setShowDetails(true)} style={{ width:40, height:40, borderRadius:20, backgroundColor:'rgba(0,0,0,0.3)', alignItems:'center', justifyContent:'center' }}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 16v-4m0-4h.01M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="#fff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+            </Svg>
+          </TouchableOpacity>
         </View>
 
-        {/* Ticket type */}
+        {/* Balance due banner */}
+        {hasBalance && (
+          <View style={{ marginHorizontal:20, marginBottom:8, backgroundColor:'rgba(230,150,0,0.25)', borderRadius:12, paddingHorizontal:14, paddingVertical:8, borderWidth:1, borderColor:'rgba(230,150,0,0.6)', flexDirection:'row', alignItems:'center', gap:8 }}>
+            <Text style={{ fontSize:14 }}>⚠️</Text>
+            <Text style={{ color:'#e6961e', fontSize:12, fontWeight:'700' }}>
+              ${((livePass.balanceDue ?? 0) / 100).toFixed(2)} balance due at door
+              {(livePass.depositPaid ?? 0) > 0 ? ` · $${((livePass.depositPaid ?? 0) / 100).toFixed(2)} paid` : ''}
+            </Text>
+          </View>
+        )}
+
+        {/* Ticket type badge */}
         <View style={{ alignItems:'center', marginBottom:8 }}>
           <View style={{ backgroundColor:'rgba(0,0,0,0.4)', borderRadius:20, paddingHorizontal:20, paddingVertical:8, borderWidth:1.5, borderColor:'rgba(255,255,255,0.5)' }}>
             <Text style={{ color:'#fff', fontSize:13, fontWeight:'900', letterSpacing:4 }}>
-              {(pass.colorLabel || pass.ticketTypeName || style.abbrev || 'TICKET').toUpperCase()}
+              {(livePass.colorLabel || livePass.ticketTypeName || style.abbrev || 'TICKET').toUpperCase()}
             </Text>
           </View>
           {isPending && (
@@ -261,7 +298,7 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
               <Text style={{ color:'#e6961e', fontSize:11, fontWeight:'700' }}>⏳ TRANSFER PENDING</Text>
             </View>
           )}
-          {pass.transferred && (
+          {livePass.transferred && (
             <View style={{ backgroundColor:'rgba(231,76,60,0.3)', borderRadius:12, paddingHorizontal:14, paddingVertical:4, borderWidth:1, borderColor:'rgba(231,76,60,0.6)', marginTop:8 }}>
               <Text style={{ color:'#e74c3c', fontSize:11, fontWeight:'700' }}>✓ TRANSFERRED</Text>
             </View>
@@ -270,9 +307,9 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
 
         {/* Event info */}
         <View style={{ alignItems:'center', paddingHorizontal:24, marginBottom:16 }}>
-          <Text style={{ color:'#fff', fontSize:24, fontWeight:'900', textAlign:'center', letterSpacing:-0.5, marginBottom:4 }}>{pass.eventTitle}</Text>
-          <Text style={{ color:'rgba(255,255,255,0.8)', fontSize:14 }}>{pass.venueName}</Text>
-          <Text style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:2 }}>{pass.date}{pass.time ? ` · ${pass.time}` : ''}</Text>
+          <Text style={{ color:'#fff', fontSize:24, fontWeight:'900', textAlign:'center', letterSpacing:-0.5, marginBottom:4 }}>{livePass.eventTitle}</Text>
+          <Text style={{ color:'rgba(255,255,255,0.8)', fontSize:14 }}>{livePass.venueName}</Text>
+          <Text style={{ color:'rgba(255,255,255,0.7)', fontSize:13, marginTop:2 }}>{livePass.date}{livePass.time ? ` · ${livePass.time}` : ''}</Text>
         </View>
 
         {/* QR */}
@@ -280,24 +317,18 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
           <Animated.View style={{ transform:[{scale: pulseAnim}], shadowColor:'#fff', shadowOpacity:0.5, shadowRadius:30, shadowOffset:{width:0,height:0} }}>
             <View style={{ backgroundColor:'#fff', borderRadius:24, padding:20, shadowColor: passColor, shadowOpacity:0.8, shadowRadius:40, shadowOffset:{width:0,height:0} }}>
               <QRCode
-                value={pass.passId || pass.orderId || 'wugi-pass'}
-                size={200}
-                color="#111111"
-                backgroundColor="#ffffff"
+                value={livePass.passId || livePass.orderId || 'wugi-pass'}
+                size={200} color="#111111" backgroundColor="#ffffff"
                 logo={require('../../assets/wugi-qr-logo.png')}
-                logoSize={40}
-                logoBackgroundColor="#ffffff"
-                logoBorderRadius={8}
-                logoMargin={4}
-                quietZone={6}
-                enableLinearGradient={false}
+                logoSize={40} logoBackgroundColor="#ffffff" logoBorderRadius={8}
+                logoMargin={4} quietZone={6} enableLinearGradient={false}
               />
             </View>
           </Animated.View>
           <View style={{ flexDirection:'row', alignItems:'center', gap:6, marginTop:16 }}>
             <View style={{ width:6, height:6, borderRadius:3, backgroundColor:'#fff', opacity:0.6 }}/>
             <Text style={{ color:'rgba(255,255,255,0.5)', fontSize:11, letterSpacing:1.5 }}>
-              {(pass.orderId || '').slice(-12).toUpperCase()}
+              {(livePass.orderId || '').slice(-12).toUpperCase()}
             </Text>
             <View style={{ width:6, height:6, borderRadius:3, backgroundColor:'#fff', opacity:0.6 }}/>
           </View>
@@ -306,27 +337,21 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
         {/* Bottom actions */}
         <View style={{ paddingHorizontal:20, paddingBottom:8, gap:10 }}>
           <View style={{ height:1, backgroundColor:'rgba(255,255,255,0.2)', marginBottom:6 }}/>
-
-          {/* Holder + table info */}
           <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom:12 }}>
             <View>
               <Text style={{ color:'rgba(255,255,255,0.5)', fontSize:10, fontWeight:'700', letterSpacing:1.5 }}>HOLDER</Text>
-              <Text style={{ color:'#fff', fontSize:14, fontWeight:'800' }}>{pass.holderName}</Text>
+              <Text style={{ color:'#fff', fontSize:14, fontWeight:'800' }}>{livePass.holderName}</Text>
             </View>
-            {pass.colorLabel && (
+            {livePass.colorLabel && (
               <View style={{ alignItems:'flex-end' }}>
                 <Text style={{ color:'rgba(255,255,255,0.5)', fontSize:10, fontWeight:'700', letterSpacing:1.5 }}>ASSIGNMENT</Text>
-                <Text style={{ color:'#fff', fontSize:14, fontWeight:'800' }}>{pass.colorLabel}</Text>
+                <Text style={{ color:'#fff', fontSize:14, fontWeight:'800' }}>{livePass.colorLabel}</Text>
               </View>
             )}
           </View>
-
-          {/* Apple Wallet */}
           <TouchableOpacity onPress={handleAddToWallet} style={{ backgroundColor:'rgba(0,0,0,0.5)', borderRadius:14, paddingVertical:14, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8, borderWidth:1.5, borderColor:'rgba(255,255,255,0.4)' }}>
             <Text style={{ color:'#fff', fontSize:15, fontWeight:'700' }}>Add to Apple Wallet</Text>
           </TouchableOpacity>
-
-          {/* Transfer */}
           {canTransfer && (
             <TouchableOpacity onPress={() => setShowTransfer(true)} style={{ backgroundColor:'rgba(255,255,255,0.15)', borderRadius:14, paddingVertical:14, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8, borderWidth:1.5, borderColor:'rgba(255,255,255,0.4)' }}>
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
@@ -335,8 +360,6 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
               <Text style={{ color:'#fff', fontSize:15, fontWeight:'700' }}>Transfer Ticket</Text>
             </TouchableOpacity>
           )}
-
-          {/* Cancel pending transfer */}
           {isPending && (
             <TouchableOpacity onPress={handleCancelTransfer} disabled={cancelling} style={{ paddingVertical:10, alignItems:'center' }}>
               <Text style={{ color:'#e6961e', fontSize:13, fontWeight:'600' }}>{cancelling ? 'Cancelling…' : 'Cancel Pending Transfer'}</Text>
@@ -345,7 +368,83 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
         </View>
       </SafeAreaView>
 
-      <TransferModal visible={showTransfer} pass={pass} onClose={() => setShowTransfer(false)} onSuccess={handleTransferSuccess}/>
+      {/* ── Details bottom sheet ───────────────────────────────────── */}
+      <Modal visible={showDetails} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetails(false)}>
+        <View style={{ flex:1, backgroundColor:'#111' }}>
+          <SafeAreaView style={{ flex:1 }}>
+            <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:20, paddingTop:16, paddingBottom:20, borderBottomWidth:1, borderBottomColor:'#1e1e1e' }}>
+              <Text style={{ color:'#fff', fontSize:17, fontWeight:'700' }}>
+                {isTransferReceived ? 'Transfer Details' : 'Purchase Details'}
+              </Text>
+              <TouchableOpacity onPress={() => setShowDetails(false)}>
+                <Text style={{ color:'#aaa', fontSize:16 }}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding:20, gap:2 }}>
+              {/* Balance banner */}
+              {hasBalance && (
+                <View style={{ backgroundColor:'rgba(230,150,0,0.15)', borderRadius:14, padding:16, marginBottom:20, borderWidth:1, borderColor:'rgba(230,150,0,0.4)' }}>
+                  <Text style={{ color:'#e6961e', fontSize:13, fontWeight:'800', marginBottom:4 }}>⚠️ Balance Due at Door</Text>
+                  <Text style={{ color:'#fff', fontSize:24, fontWeight:'900' }}>${((livePass.balanceDue ?? 0) / 100).toFixed(2)}</Text>
+                  {(livePass.depositPaid ?? 0) > 0 && (
+                    <Text style={{ color:'#888', fontSize:12, marginTop:4 }}>Deposit paid: ${((livePass.depositPaid ?? 0) / 100).toFixed(2)}</Text>
+                  )}
+                </View>
+              )}
+
+              {/* Event summary */}
+              <View style={{ backgroundColor:'#1a1a1a', borderRadius:14, padding:16, marginBottom:16, borderWidth:1, borderColor:'#2a2a2a' }}>
+                <View style={{ flexDirection:'row', alignItems:'center', gap:10, marginBottom:4 }}>
+                  <View style={{ width:10, height:10, borderRadius:5, backgroundColor: passColor }}/>
+                  <Text style={{ color:'#888', fontSize:11, fontWeight:'700', letterSpacing:1 }}>{(livePass.ticketTypeName || 'TICKET').toUpperCase()}</Text>
+                </View>
+                <Text style={{ color:'#fff', fontSize:18, fontWeight:'800', marginBottom:4 }}>{livePass.eventTitle}</Text>
+                <Text style={{ color:'#aaa', fontSize:13 }}>{livePass.venueName}{livePass.date ? ` · ${livePass.date}` : ''}{livePass.time ? ` · ${livePass.time}` : ''}</Text>
+              </View>
+
+              {/* Details rows */}
+              {[
+                { label: 'Pass ID',       value: (livePass.passId || '').slice(-12).toUpperCase() },
+                { label: 'Order ID',      value: livePass.orderId ? livePass.orderId.slice(-12).toUpperCase() : null },
+                { label: 'Ticket holder', value: livePass.holderName || '—' },
+                livePass.colorLabel ? { label: 'Assignment', value: livePass.colorLabel } : null,
+                isTransferReceived
+                  ? { label: 'Transferred from', value: livePass.transferredFromName || livePass.transferredFromEmail || '—' }
+                  : null,
+                isTransferReceived && transferDate
+                  ? { label: 'Transfer date', value: transferDate }
+                  : null,
+                !isTransferReceived && purchaseDate
+                  ? { label: 'Purchase date', value: purchaseDate }
+                  : null,
+                !isTransferReceived && (livePass.totalPaid ?? 0) > 0
+                  ? { label: 'Amount paid', value: `$${((livePass.totalPaid ?? 0) / 100).toFixed(2)}` }
+                  : null,
+                !isTransferReceived && livePass.source === 'free'
+                  ? { label: 'Amount paid', value: 'Free' }
+                  : null,
+                !isTransferReceived && livePass.paymentMethodLast4
+                  ? { label: 'Payment', value: `Card ending ···· ${livePass.paymentMethodLast4}` }
+                  : null,
+              ].filter(Boolean).map((row: any, i) => (
+                <View key={i} style={{ flexDirection:'row', justifyContent:'space-between', paddingVertical:12, borderBottomWidth:1, borderBottomColor:'#1e1e1e' }}>
+                  <Text style={{ color:'#666', fontSize:13 }}>{row.label}</Text>
+                  <Text style={{ color:'#fff', fontSize:13, fontWeight:'600', maxWidth:'55%', textAlign:'right' }}>{row.value}</Text>
+                </View>
+              ))}
+
+              <View style={{ marginTop:24, backgroundColor:'#1a1a1a', borderRadius:12, padding:14, borderWidth:1, borderColor:'#2a2a2a' }}>
+                <Text style={{ color:'#555', fontSize:11, textAlign:'center', lineHeight:16 }}>
+                  All ticket sales are final · No refunds or exchanges{'\n'}
+                  Questions? Contact support@wugi.us
+                </Text>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      <TransferModal visible={showTransfer} pass={livePass} onClose={() => setShowTransfer(false)} onSuccess={handleTransferSuccess}/>
       <TransferSuccessModal visible={showSuccess} claimUrl={claimUrl} onClose={() => { setShowSuccess(false); onBack(); }}/>
     </View>
   );
@@ -372,26 +471,37 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
       : ticketTypeLower.includes('free') ? 'free'
       : 'general';
     return {
-      orderId:         data.orderId || d.id,
-      passId:          d.id,
-      passNumber:      1,
-      totalPasses:     1,
-      ticketType:      typeKey,
-      ticketTypeName:  data.ticketTypeName || 'General Admission',
-      eventTitle:      data.eventTitle || 'Event',
-      venueName:       data.venueName  || '',
-      date:            data.eventDate  || '',
-      time:            data.eventTime  || '',
-      holderName:      data.holderName || data.holderEmail || '',
-      status:          data.scanStatus === 'scanned' ? 'scanned' : 'valid',
-      qrValue:         d.id,
-      passUrl:         data.appleWalletPassUrl || data.passUrl || null,
-      passColor:       data.passColor   || null,
-      colorLabel:      data.colorLabel  || null,
-      tableNumber:     data.tableAssignment || null,
-      transferPending: data.transferPending || false,
-      transferred:     data.isTransferred || false,
-      transferId:      data.transferId || null,
+      orderId:              data.orderId || d.id,
+      passId:               d.id,
+      passNumber:           1,
+      totalPasses:          1,
+      ticketType:           typeKey,
+      ticketTypeName:       data.ticketTypeName || 'General Admission',
+      eventTitle:           data.eventTitle || 'Event',
+      venueName:            data.venueName  || '',
+      date:                 data.eventDate  || '',
+      time:                 data.eventTime  || '',
+      holderName:           data.holderName || data.holderEmail || '',
+      status:               data.scanStatus === 'scanned' ? 'scanned' : 'valid',
+      qrValue:              d.id,
+      passUrl:              data.appleWalletPassUrl || data.passUrl || null,
+      passColor:            data.passColor   || null,
+      colorLabel:           data.colorLabel  || null,
+      tableNumber:          data.tableAssignment || null,
+      transferPending:      data.transferPending || false,
+      transferred:          data.isTransferred || false,
+      transferId:           data.transferId || null,
+      // Purchase + balance details
+      totalPaid:            data.totalPaid ?? null,
+      balanceDue:           data.balanceDue ?? null,
+      depositPaid:          data.depositPaid ?? null,
+      paymentMethodLast4:   data.paymentMethodLast4 || null,
+      purchasedAt:          data.createdAt || null,
+      source:               data.source || null,
+      // Transfer received details
+      transferredFromName:  data.transferredFromName  || null,
+      transferredFromEmail: data.transferredFromEmail || null,
+      transferredAt:        data.transferredAt || null,
     } as PassData;
   }
 

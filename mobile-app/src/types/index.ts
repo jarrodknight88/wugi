@@ -165,8 +165,8 @@ export type PassData = {
   passNumber?:     number;
   qrValue?:        string;
   // Color system
-  passColor?:      string | null;   // hex e.g. "#6b21a8"
-  colorLabel?:     string | null;   // e.g. "VIP Table 14"
+  passColor?:      string | null;
+  colorLabel?:     string | null;
   tableNumber?:    number | null;
   // Apple Wallet
   passUrl?:        string | null;
@@ -174,6 +174,17 @@ export type PassData = {
   transferPending?:  boolean;
   transferred?:      boolean;
   transferId?:       string | null;
+  // Purchase details
+  totalPaid?:        number | null;        // cents
+  balanceDue?:       number | null;        // cents owed at door
+  depositPaid?:      number | null;        // cents already paid
+  paymentMethodLast4?: string | null;
+  purchasedAt?:      any;                  // Firestore Timestamp
+  source?:           string | null;        // 'stripe' | 'free' | 'door' | 'transfer'
+  // Transfer received details
+  transferredFromName?:  string | null;
+  transferredFromEmail?: string | null;
+  transferredAt?:        any;
 };
 
 // ── Stories ───────────────────────────────────────────────────────────
