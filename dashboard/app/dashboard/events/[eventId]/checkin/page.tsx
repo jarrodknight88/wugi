@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   doc, onSnapshot, collection, updateDoc, addDoc,
-  serverTimestamp, writeBatch, increment,
+  serverTimestamp, writeBatch, increment, query, where,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
@@ -274,14 +274,13 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
       })))
     )
     // ── Query passes collection (new data model) ───────────────────
-    const { query: fsQuery, where: fsWhere } = await import("firebase/firestore")
-    const passesQuery = fsQuery(
+    const passesQuery = query(
       collection(db, "passes"),
-      fsWhere("eventId", "==", eventId),
+      where("eventId", "==", eventId),
     )
     const u3 = onSnapshot(passesQuery, snap =>
       setTickets(snap.docs
-        .filter(d => d.data().source !== 'door') // client-side filter — avoids != index
+        .filter(d => d.data().source !== 'door') // client-side filter
         .map(d => ({
           id: d.id,
           holderName: d.data().holderName || "",
