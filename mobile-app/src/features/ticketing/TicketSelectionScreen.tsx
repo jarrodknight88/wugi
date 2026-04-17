@@ -247,15 +247,15 @@ export function TicketSelectionScreen({
               </TouchableOpacity>
               <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', flex: 1, textAlign: 'center' }}>{quantity}</Text>
               <TouchableOpacity
-                onPress={() => setQuantity(q => Math.min(selected.maxPerOrder, selected.remaining, q + 1))}
-                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: quantity >= Math.min(selected.maxPerOrder, selected.remaining) ? theme.divider : theme.accent, alignItems: 'center', justifyContent: 'center' }}
-                disabled={quantity >= Math.min(selected.maxPerOrder, selected.remaining)}
+                onPress={() => setQuantity(q => Math.min(selected.maxPerOrder ?? 10, selected.remaining ?? 100, q + 1))}
+                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: quantity >= Math.min(selected.maxPerOrder ?? 10, selected.remaining ?? 100) ? theme.divider : theme.accent, alignItems: 'center', justifyContent: 'center' }}
+                disabled={quantity >= Math.min(selected.maxPerOrder ?? 10, selected.remaining ?? 100)}
               >
                 <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 }}>+</Text>
               </TouchableOpacity>
             </View>
             <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 6, textAlign: 'center' }}>
-              Max {selected.maxPerOrder} per order · {selected.remaining} remaining
+              Max {selected.maxPerOrder ?? 10} per order · {selected.remaining ?? 0} remaining
             </Text>
           </>
         )}

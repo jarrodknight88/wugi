@@ -57,33 +57,19 @@ export function PaymentScreen({
     setLoading(true);
     try {
       // ── Step 1: Create PaymentIntent via Cloud Function ─────────────
-      const response = await fetch(CREATE_PAYMENT_INTENT_URL, {
+      const json = await fetch(CREATE_PAYMENT_INTENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: {
-            eventId:      selection.eventId,
-            ticketTypeId: selection.ticketType.id,
-            quantity:     selection.quantity,
-            userId:       userId ?? undefined,
-            guestName:    isGuest ? guestName.trim()  : undefined,
-            guestEmail:   isGuest ? guestEmail.trim() : undefined,
-            guestPhone:   phone.trim() || undefined,
-          },
-        }),
+        body: JSON.stringify({ data: { eventId: selection.eventId, ticketTypeId: selection.ticketType.id, quantity: selection.quantity, userId: userId ?? undefined, guestName: isGuest ? guestName.trim() : undefined, guestEmail: isGuest ? guestEmail.trim() : undefined, guestPhone: phone.trim() || undefined } }),
       });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err?.error?.message ?? 'Failed to create payment intent');
-      }
-
-      const json = await response.json();
-      const { clientSecret, customerId, customerEphemeralKey, isFree } = json.result ?? json;
+      if (!json.ok) { const err = await json.json().catch(() => ({})); throw new Error(err?.error?.message ?? 'Failed to create payment'); }
+      const data = await json.json();
+      const { clientSecret, customerId, customerEphemeralKey, isFree, orderId: freeOrderId } = data.result ?? data;
 
       // ── Free ticket — skip Payment Sheet entirely ──────────────────
       if (isFree || !clientSecret) {
-        onSuccess(`free_${Date.now()}`, isGuest);
+        onSuccess(freeOrderId || `free_${Date.now()}`, isGuest);
+        setLoading(false);
         return;
       }
 

@@ -51,9 +51,47 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     const bookingFee = calculateBookingFee(subtotal);
     const total      = subtotal + bookingFee;
 
-    // ── Free ticket bypass — skip Stripe entirely ────────────────────
+    // ── Free ticket bypass — skip Stripe, create pass directly ──────────
     if (total === 0 || ticketType.isFree) {
-      logger.info('Free ticket — skipping Stripe', { eventId, ticketTypeId });
+      logger.info('Free ticket — skipping Stripe, creating pass directly', { eventId, ticketTypeId });
+
+      const { generateTicketNumber } = await import('../stripe/stripeUtils');
+      const passRef = db.collection('passes').doc();
+      const orderId = `free_${passRef.id}`;
+
+      await passRef.set({
+        id:              passRef.id,
+        orderId,
+        userId:          userId || null,
+        eventId,
+        venueId:         ticketType.venueId ?? '',
+        ticketTypeId,
+        ticketTypeName:  ticketType.name,
+        holderName:      userId ? '' : (guestName ?? ''),
+        holderEmail:     userId ? '' : (guestEmail ?? ''),
+        ticketNumber:    generateTicketNumber(),
+        isTransferred:   false,
+        transferPending: false,
+        scanStatus:      'valid',
+        source:          'free',
+        isFree:          true,
+        scannedAt:       null,
+        scannedBy:       null,
+        appleWalletPassUrl: null,
+        appleWalletAdded:   false,
+        createdAt:       admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt:       admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Decrement remaining count
+      await db.collection('events').doc(eventId)
+        .collection('ticketTypes').doc(ticketTypeId)
+        .update({
+          sold:      admin.firestore.FieldValue.increment(quantity),
+          remaining: admin.firestore.FieldValue.increment(-quantity),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
       res.json({
         result: {
           clientSecret:        null,
@@ -65,6 +103,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
           total: 0,
           isGuest: !userId,
           isFree: true,
+          orderId,
         },
       });
       return;
