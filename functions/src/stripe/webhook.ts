@@ -185,6 +185,22 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   const paymentMethod = getPaymentMethodType(charge);
   const last4 = charge?.payment_method_details?.card?.last4 ?? null;
 
+  // ── Resolve buyer name + email from Firebase Auth if missing ────────
+  // Authenticated users don't send buyerName/buyerEmail in PI metadata —
+  // look them up from Firebase Auth using the userId
+  let buyerName  = meta.buyerName  || '';
+  let buyerEmail = meta.buyerEmail || '';
+  if (userId && (!buyerName || !buyerEmail)) {
+    try {
+      const authUser = await admin.auth().getUser(userId);
+      if (!buyerName)  buyerName  = authUser.displayName || '';
+      if (!buyerEmail) buyerEmail = authUser.email       || '';
+      logger.info(`Resolved buyer from Auth: ${buyerName} <${buyerEmail}>`);
+    } catch (authErr) {
+      logger.warn('Could not look up Firebase Auth user:', authErr);
+    }
+  }
+
   // ── Create order doc ────────────────────────────────────────────────
   const orderRef  = db.collection('orders').doc();
   const orderId   = orderRef.id;
@@ -209,8 +225,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     payoutReserveAmount: reserveAmount,
     payoutReleaseAt:  admin.firestore.Timestamp.fromDate(payoutReleaseAt),
     payoutId:         null,
-    buyerName:        meta.buyerName ?? '',
-    buyerEmail:       meta.buyerEmail ?? '',
+    buyerName:        buyerName,
+    buyerEmail:       buyerEmail,
     buyerPhone:       meta.buyerPhone ?? null,
     createdAt:        admin.firestore.FieldValue.serverTimestamp(),
     updatedAt:        admin.firestore.FieldValue.serverTimestamp(),
@@ -233,8 +249,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         venueId,
         ticketTypeId:    item.ticketTypeId,
         ticketTypeName:  item.ticketTypeName,
-        holderName:      meta.buyerName ?? '',
-        holderEmail:     meta.buyerEmail ?? '',
+        holderName:      buyerName,
+        holderEmail:     buyerEmail,
         // Denormalize event + venue for PassViewerScreen rendering
         eventTitle:      eventData?.title      ?? '',
         venueName:       venueData?.name        ?? '',
@@ -333,8 +349,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       eventTime:           eventData?.time         || '',
       ticketType:          firstItem?.ticketTypeName || '',
       quantity:            items.reduce((s, i) => s + i.quantity, 0),
-      buyerName:           meta.buyerName          || '',
-      buyerEmail:          meta.buyerEmail          || '',
+      buyerName:           buyerName,
+      buyerEmail:          buyerEmail,
       totalPaid:           total,
       webServiceURL:       'https://us-central1-wugi-prod.cloudfunctions.net/passWebService',
       authenticationToken: authToken,
@@ -364,13 +380,12 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   }
 
   // ── Send purchase confirmation email ────────────────────────────────
-  const buyerEmail = meta.buyerEmail;
   if (buyerEmail) {
     try {
       const firstItem = items[0];
       await sendPurchaseConfirmation({
         to:         buyerEmail,
-        buyerName:  meta.buyerName  || buyerEmail,
+        buyerName:  buyerName  || buyerEmail,
         eventTitle: eventData?.title || '',
         venueName:  venueData.name   || '',
         eventDate:  eventData?.date   || '',
@@ -393,7 +408,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       const totalQty = items.reduce((s, i) => s + i.quantity, 0);
       await sendPurchaseConfirmationSMS({
         phone:      buyerPhone,
-        holderName: meta.buyerName  || '',
+        holderName: buyerName   || '',
         eventTitle: eventData?.title || '',
         venueName:  venueData.name   || '',
         ticketType: items[0]?.ticketTypeName || '',
