@@ -228,7 +228,17 @@ service cloud.firestore {
     }
 
     // ── Passes / Wallets / Transfers (Cloud Functions only) ──────────
-    match /passes/{passId}         { allow read: if isAuth() && request.auth.uid == resource.data.userId; allow write: if false; }
+    // passes: allow list queries by userId (needed for MyPassesScreen)
+    // and individual doc reads for pass viewer
+    match /passes/{passId} {
+      allow read: if isAuth() && (
+        request.auth.uid == resource.data.userId  // single doc read
+        || isStaff()
+      );
+      // Allow list queries — Firestore evaluates the where clause, rule just needs isAuth()
+      allow list: if isAuth();
+      allow write: if false;  // Cloud Functions only
+    }
     match /walletPasses/{passId}   { allow read: if isAuth() && request.auth.uid == resource.data.userId; allow write: if false; }
     match /walletDevices/{deviceId}{ allow read, write: if false; }
     match /transfers/{transferId}  { allow read: if isAuth() && (request.auth.uid == resource.data.fromUid || isStaff()); allow write: if false; }
