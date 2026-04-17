@@ -69,6 +69,11 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
         ticketTypeName:  ticketType.name,
         holderName:      userId ? '' : (guestName ?? ''),
         holderEmail:     userId ? '' : (guestEmail ?? ''),
+        // Denormalize event + venue so PassViewerScreen can render without extra lookups
+        eventTitle:      eventData?.title || '',
+        venueName:       venueDoc2?.data()?.name || '',
+        eventDate:       eventData?.date || '',
+        eventTime:       eventData?.time || '',
         ticketNumber:    generateTicketNumber(),
         isTransferred:   false,
         transferPending: false,

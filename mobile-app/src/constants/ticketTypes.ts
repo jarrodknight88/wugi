@@ -1,18 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Ticket Type Configuration
 // ─────────────────────────────────────────────────────────────────────
-import type { TicketTypeKey } from '../types';
 
-export const TICKET_TYPES: Record<TicketTypeKey, {
+export const TICKET_TYPES: Record<string, {
   label: string;
   color: string;
   glow: string;
   textColor: string;
   abbrev: string;
 }> = {
-  general_admission: { label:'General Admission', color:'#00C853', glow:'rgba(0,200,83,0.25)',    textColor:'#fff', abbrev:'GA'    },
+  general_admission: { label:'General Admission', color:'#2a7a5a', glow:'rgba(42,122,90,0.25)',   textColor:'#fff', abbrev:'GA'    },
+  general:           { label:'General Admission', color:'#2a7a5a', glow:'rgba(42,122,90,0.25)',   textColor:'#fff', abbrev:'GA'    },
+  ga:                { label:'General Admission', color:'#2a7a5a', glow:'rgba(42,122,90,0.25)',   textColor:'#fff', abbrev:'GA'    },
+  free:              { label:'Free RSVP',         color:'#2a7a5a', glow:'rgba(42,122,90,0.25)',   textColor:'#fff', abbrev:'FREE'  },
   vip:               { label:'VIP',               color:'#E91E8C', glow:'rgba(233,30,140,0.25)',  textColor:'#fff', abbrev:'VIP'   },
   vip_table:         { label:'VIP Table',         color:'#9C27B0', glow:'rgba(156,39,176,0.25)',  textColor:'#fff', abbrev:'TABLE' },
+  table:             { label:'Table',             color:'#1d4ed8', glow:'rgba(29,78,216,0.25)',   textColor:'#fff', abbrev:'TABLE' },
   backstage:         { label:'Backstage',         color:'#FF6F00', glow:'rgba(255,111,0,0.25)',   textColor:'#fff', abbrev:'BKSTG' },
   early_bird:        { label:'Early Bird',        color:'#2196F3', glow:'rgba(33,150,243,0.25)',  textColor:'#fff', abbrev:'EARLY' },
 };

@@ -393,7 +393,11 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
         .map(d => {
           const data = d.data();
           const ticketTypeLower = (data.ticketTypeName || '').toLowerCase();
-          const typeKey = ticketTypeLower.includes('vip') ? 'vip' : 'general';
+          const typeKey = ticketTypeLower.includes('vip') ? 'vip'
+            : ticketTypeLower.includes('table') ? 'table'
+            : ticketTypeLower.includes('backstage') ? 'backstage'
+            : ticketTypeLower.includes('free') ? 'free'
+            : 'general';
           return {
             orderId:         data.orderId || d.id,
             passId:          d.id,
@@ -469,7 +473,7 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
           <>
             <Text style={{ color:theme.subtext, fontSize:13, marginBottom:4 }}>{passes.length} ticket{passes.length !== 1 ? 's' : ''}</Text>
             {passes.map(pass => {
-              const typeData = TICKET_TYPES[pass.ticketType] || TICKET_TYPES['general'];
+              const typeData = TICKET_TYPES[pass.ticketType] || TICKET_TYPES['general_admission'];
               const cardColor = pass.passColor || typeData.color;
               const isPending = pass.transferPending;
 
