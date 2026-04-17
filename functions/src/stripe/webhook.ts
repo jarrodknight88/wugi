@@ -22,15 +22,31 @@ const db = admin.firestore();
 
 export const stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] }).https.onRequest(async (req: any, res: any) => {
   // ── Verify webhook signature ────────────────────────────────────────
-  const sig     = req.headers['stripe-signature'] as string;
-  const secret  = process.env.STRIPE_WEBHOOK_SECRET!;
+  const sig    = req.headers['stripe-signature'] as string;
+  const secret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+  // rawBody is provided by Firebase for JSON requests — fall back to buffer if missing
+  const body = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
+
+  logger.info('Webhook received', {
+    method: req.method,
+    hasRawBody: !!req.rawBody,
+    hasSig: !!sig,
+    contentType: req.headers['content-type'],
+    bodyLength: body?.length,
+  });
 
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, secret);
+    event = stripe.webhooks.constructEvent(body, sig, secret);
   } catch (err: any) {
-    logger.error('Webhook signature verification failed', err.message);
+    logger.error('Webhook signature verification failed', {
+      message: err.message,
+      hasRawBody: !!req.rawBody,
+      hasSig: !!sig,
+      secretPrefix: secret?.slice(0, 12),
+    });
     res.status(400).send(`Webhook Error: ${err.message}`);
     return;
   }
