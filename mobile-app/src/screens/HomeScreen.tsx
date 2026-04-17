@@ -105,7 +105,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
 
   const eventList = events.map(toEventData);
   const venueList = venues.map(toVenueData);
-  const featured  = eventList.slice(0, 3);
+  // Featured: isFeatured events sorted by sortOrder, fallback to first 3
+  const featuredEvents = events.filter(e => (e as any).isFeatured);
+  const featured  = (featuredEvents.length > 0 ? featuredEvents : events).slice(0, 3).map(toEventData);
   const tonight   = eventList.slice(0, 6);
   const upcoming  = eventList.slice(0, 5);
 

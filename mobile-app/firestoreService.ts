@@ -320,7 +320,16 @@ export async function getApprovedEvents(
       );
     }
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent));
+    const events = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent));
+    // Sort: featured first (by sortOrder), then rest by createdAt desc
+    return events.sort((a, b) => {
+      const aFeatured = (a as any).isFeatured ? 1 : 0;
+      const bFeatured = (b as any).isFeatured ? 1 : 0;
+      if (aFeatured !== bFeatured) return bFeatured - aFeatured;
+      const aOrder = (a as any).sortOrder ?? 99;
+      const bOrder = (b as any).sortOrder ?? 99;
+      return aOrder - bOrder;
+    });
   } catch (e) {
     console.log('getApprovedEvents error:', e);
     return [];
