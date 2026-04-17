@@ -20,7 +20,12 @@ import { sendCheckInSMS } from '../sms/smsService';
 
 const db = admin.firestore();
 
-export const stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] }).https.onRequest(async (req: any, res: any) => {
+export const stripeWebhook = functions
+  .runWith({
+    secrets:     ['RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'],
+    invoker:     'public',   // ← Allow unauthenticated calls — Stripe must reach this endpoint
+  })
+  .https.onRequest(async (req: any, res: any) => {
   // ── Verify webhook signature ────────────────────────────────────────
   const sig    = req.headers['stripe-signature'] as string;
   const secret = process.env.STRIPE_WEBHOOK_SECRET!;

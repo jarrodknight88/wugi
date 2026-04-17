@@ -53,7 +53,12 @@ const stripeUtils_1 = require("./stripeUtils");
 const emailService_1 = require("../email/emailService");
 const smsService_1 = require("../sms/smsService");
 const db = admin.firestore();
-exports.stripeWebhook = functions.runWith({ secrets: ['RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] }).https.onRequest(async (req, res) => {
+exports.stripeWebhook = functions
+    .runWith({
+    secrets: ['RESEND_API_KEY', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'],
+    invoker: 'public', // ← Allow unauthenticated calls — Stripe must reach this endpoint
+})
+    .https.onRequest(async (req, res) => {
     // ── Verify webhook signature ────────────────────────────────────────
     const sig = req.headers['stripe-signature'];
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
