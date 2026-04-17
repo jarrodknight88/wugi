@@ -230,10 +230,16 @@ async function handlePaymentSuccess(paymentIntent) {
                 ticketTypeName: item.ticketTypeName,
                 holderName: meta.buyerName ?? '',
                 holderEmail: meta.buyerEmail ?? '',
+                // Denormalize event + venue for PassViewerScreen rendering
+                eventTitle: eventData?.title ?? '',
+                venueName: venueData?.name ?? '',
+                eventDate: eventData?.date ?? '',
+                eventTime: eventData?.time ?? '',
                 ticketNumber: (0, stripeUtils_1.generateTicketNumber)(),
                 transferredFrom: null,
                 transferredAt: null,
                 isTransferred: false,
+                source: 'stripe',
                 scanStatus: 'valid',
                 scannedAt: null,
                 scannedBy: null,
@@ -367,11 +373,15 @@ async function handlePaymentSuccess(paymentIntent) {
     const buyerPhone = meta.buyerPhone;
     if (buyerPhone) {
         try {
-            await (0, smsService_1.sendCheckInSMS)({
+            const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+            await (0, smsService_1.sendPurchaseConfirmationSMS)({
                 phone: buyerPhone,
                 holderName: meta.buyerName || '',
                 eventTitle: eventData?.title || '',
                 venueName: venueData.name || '',
+                ticketType: items[0]?.ticketTypeName || '',
+                quantity: totalQty,
+                totalCents: total,
             });
         }
         catch (smsErr) {

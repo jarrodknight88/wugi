@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizePhone = normalizePhone;
 exports.sendDoorSaleReceiptSMS = sendDoorSaleReceiptSMS;
 exports.sendBalancePaidSMS = sendBalancePaidSMS;
+exports.sendPurchaseConfirmationSMS = sendPurchaseConfirmationSMS;
 exports.sendCheckInSMS = sendCheckInSMS;
 exports.sendTicketScannedSMS = sendTicketScannedSMS;
 // ─────────────────────────────────────────────────────────────────────
@@ -90,6 +91,11 @@ async function sendDoorSaleReceiptSMS(data) {
 async function sendBalancePaidSMS(data) {
     const amount = `$${(data.amountCents / 100).toFixed(2)}`;
     await sendSMS(data.phone, `Wugi 💳 Balance paid!\nYour balance of ${amount} has been paid for ${data.eventTitle}. You're all set!`);
+}
+async function sendPurchaseConfirmationSMS(data) {
+    const total = `$${(data.totalCents / 100).toFixed(2)}`;
+    const qty = data.quantity > 1 ? ` × ${data.quantity}` : '';
+    await sendSMS(data.phone, `Wugi 🎟️ You're going!\n${data.ticketType}${qty} — ${total}\n${data.eventTitle} @ ${data.venueName}\nSee you there! 🎉`);
 }
 async function sendCheckInSMS(data) {
     await sendSMS(data.phone, `Wugi 🎟️ You're checked in!\nWelcome to ${data.eventTitle} at ${data.venueName}. Have an amazing time!`);

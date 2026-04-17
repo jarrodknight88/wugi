@@ -72,7 +72,27 @@ export async function sendBalancePaidSMS(data: BalancePaidSMSData): Promise<void
 }
 
 
-// ── Trigger 3: Check-in confirmation ─────────────────────────────────
+// ── Trigger 3: Purchase confirmation ─────────────────────────────────
+// Called after successful online ticket purchase
+export interface PurchaseConfirmationSMSData {
+  phone:       string;
+  holderName:  string;
+  eventTitle:  string;
+  venueName:   string;
+  ticketType:  string;
+  quantity:    number;
+  totalCents:  number;
+}
+export async function sendPurchaseConfirmationSMS(data: PurchaseConfirmationSMSData): Promise<void> {
+  const total = `$${(data.totalCents / 100).toFixed(2)}`;
+  const qty   = data.quantity > 1 ? ` × ${data.quantity}` : '';
+  await sendSMS(
+    data.phone,
+    `Wugi 🎟️ You're going!\n${data.ticketType}${qty} — ${total}\n${data.eventTitle} @ ${data.venueName}\nSee you there! 🎉`
+  );
+}
+
+// ── Trigger 4: Check-in confirmation ─────────────────────────────────
 // Called when staff taps "Check In Now" in Wugi Door
 export interface CheckInSMSData {
   phone:      string;

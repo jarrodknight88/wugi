@@ -16,7 +16,7 @@ import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { stripe, generateTicketNumber, calculateReserve } from './stripeUtils';
 import { sendPurchaseConfirmation } from '../email/emailService';
-import { sendCheckInSMS } from '../sms/smsService';
+import { sendPurchaseConfirmationSMS } from '../sms/smsService';
 
 const db = admin.firestore();
 
@@ -235,10 +235,16 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         ticketTypeName:  item.ticketTypeName,
         holderName:      meta.buyerName ?? '',
         holderEmail:     meta.buyerEmail ?? '',
+        // Denormalize event + venue for PassViewerScreen rendering
+        eventTitle:      eventData?.title      ?? '',
+        venueName:       venueData?.name        ?? '',
+        eventDate:       eventData?.date         ?? '',
+        eventTime:       eventData?.time         ?? '',
         ticketNumber:    generateTicketNumber(),
         transferredFrom: null,
         transferredAt:   null,
         isTransferred:   false,
+        source:          'stripe',
         scanStatus:      'valid',
         scannedAt:       null,
         scannedBy:       null,
@@ -384,11 +390,15 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   const buyerPhone = meta.buyerPhone;
   if (buyerPhone) {
     try {
-      await sendCheckInSMS({
+      const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+      await sendPurchaseConfirmationSMS({
         phone:      buyerPhone,
-        holderName: meta.buyerName || '',
+        holderName: meta.buyerName  || '',
         eventTitle: eventData?.title || '',
         venueName:  venueData.name   || '',
+        ticketType: items[0]?.ticketTypeName || '',
+        quantity:   totalQty,
+        totalCents: total,
       });
     } catch (smsErr) {
       logger.error('Purchase SMS failed:', smsErr);
