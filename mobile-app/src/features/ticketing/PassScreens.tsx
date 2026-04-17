@@ -253,7 +253,7 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
         <View style={{ alignItems:'center', marginBottom:8 }}>
           <View style={{ backgroundColor:'rgba(0,0,0,0.4)', borderRadius:20, paddingHorizontal:20, paddingVertical:8, borderWidth:1.5, borderColor:'rgba(255,255,255,0.5)' }}>
             <Text style={{ color:'#fff', fontSize:13, fontWeight:'900', letterSpacing:4 }}>
-              {(pass.colorLabel || pass.ticketTypeName || ticketType.label || 'TICKET').toUpperCase()}
+              {(pass.colorLabel || pass.ticketTypeName || style.abbrev || 'TICKET').toUpperCase()}
             </Text>
           </View>
           {isPending && (

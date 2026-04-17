@@ -46,6 +46,7 @@ export function PaymentScreen({
   const [guestName,    setGuestName]    = useState(userName || '');
   const [guestEmail,   setGuestEmail]   = useState(userEmail || '');
   const [loading,      setLoading]      = useState(false);
+  const [loadingMsg,   setLoadingMsg]   = useState('Processing...');
   const [feeExpanded,  setFeeExpanded]  = useState(false);
   const isGuest = !userId;
 
@@ -111,11 +112,37 @@ export function PaymentScreen({
         return;
       }
 
-      // ── Step 4: Success — webhook will create order + passes ────────
-      // Use the paymentIntentId as the order reference for now.
-      // The webhook fires async and creates the order doc in Firestore.
+      // ── Step 4: Success ─────────────────────────────────────────────
+      // Payment Sheet confirmed. Webhook fires async to create passes.
+      // Poll the passes collection for up to 8 seconds for this userId+eventId.
       const piId = clientSecret.split('_secret_')[0];
-      onSuccess(piId, isGuest);
+      setLoadingMsg('Getting your passes...');
+      const startTime = Date.now();
+      let foundOrderId: string | null = null;
+
+      while (Date.now() - startTime < 8000 && !foundOrderId) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const { getFirestore, collection, getDocs, query, where, orderBy, limit } =
+            await import('@react-native-firebase/firestore');
+          const db = getFirestore();
+          const snap = await getDocs(
+            query(
+              collection(db, 'passes'),
+              where('userId', '==', userId),
+              where('eventId', '==', selection.eventId),
+              orderBy('createdAt', 'desc'),
+              limit(1)
+            )
+          );
+          if (!snap.empty) {
+            foundOrderId = snap.docs[0].data().orderId;
+          }
+        } catch {}
+      }
+
+      // Navigate with real orderId if found, otherwise PI id as fallback
+      onSuccess(foundOrderId || piId, isGuest);
 
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Something went wrong. Please try again.');
@@ -243,7 +270,10 @@ export function PaymentScreen({
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}>
         <TouchableOpacity onPress={handlePay} disabled={loading} style={{ backgroundColor: '#000', borderRadius: 12, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
           {loading
-            ? <ActivityIndicator color="#fff" size="small"/>
+            ? <>
+                <ActivityIndicator color="#fff" size="small"/>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{loadingMsg}</Text>
+              </>
             : <>
                 <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                   <Path d="M3 10h18M7 15h1m4 0h1m-7 4h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" stroke="white" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
