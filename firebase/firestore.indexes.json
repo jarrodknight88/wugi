@@ -4,9 +4,8 @@
       "collectionGroup": "passes",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "userId",        "order": "ASCENDING"  },
-        { "fieldPath": "isTransferred", "order": "ASCENDING"  },
-        { "fieldPath": "createdAt",     "order": "DESCENDING" }
+        { "fieldPath": "userId",    "order": "ASCENDING"  },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {

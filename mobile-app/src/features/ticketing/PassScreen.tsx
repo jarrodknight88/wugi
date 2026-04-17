@@ -59,22 +59,58 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
 
         const { getFirestore, collection, getDocs, query, where } =
           await import('@react-native-firebase/firestore');
-        const db   = getFirestore();
-        const snap = await getDocs(
+        const db = getFirestore();
+
+        // Try direct orderId match first (free tickets use orderId directly)
+        let snap = await getDocs(
           query(collection(db, 'passes'), where('orderId', '==', orderId))
         );
+
+        // If no results, orderId may be a Stripe PaymentIntent ID — look up via order
+        if (snap.empty && orderId.startsWith('pi_')) {
+          const orderSnap = await getDocs(
+            query(collection(db, 'orders'), where('stripePaymentIntentId', '==', orderId))
+          );
+          if (!orderSnap.empty) {
+            const realOrderId = orderSnap.docs[0].id;
+            snap = await getDocs(
+              query(collection(db, 'passes'), where('orderId', '==', realOrderId))
+            );
+          }
+        }
+
+        // If still no passes (webhook may be processing), poll once after 2s
+        if (snap.empty) {
+          await new Promise(r => setTimeout(r, 2500));
+          if (orderId.startsWith('pi_')) {
+            const orderSnap = await getDocs(
+              query(collection(db, 'orders'), where('stripePaymentIntentId', '==', orderId))
+            );
+            if (!orderSnap.empty) {
+              const realOrderId = orderSnap.docs[0].id;
+              snap = await getDocs(
+                query(collection(db, 'passes'), where('orderId', '==', realOrderId))
+              );
+            }
+          } else {
+            snap = await getDocs(
+              query(collection(db, 'passes'), where('orderId', '==', orderId))
+            );
+          }
+        }
+
         const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() } as Pass));
         if (loaded.length > 0) {
           setPasses(loaded);
         } else {
-          // Payment went through but webhook hasn't fired yet - show pending
+          // Webhook still processing — show branded pending state
           setPasses([{
             id: orderId,
             ticketNumber: 'WG-' + orderId.slice(-8).toUpperCase(),
-            eventName: 'Your Event', venueName: 'Venue',
+            eventName: 'Processing...', venueName: '',
             eventDate: '', eventTime: '',
             ticketTypeName: 'General Admission',
-            holderName: 'Guest', scanStatus: 'valid',
+            holderName: '', scanStatus: 'valid',
           }]);
         }
       } catch (e) {

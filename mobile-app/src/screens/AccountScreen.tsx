@@ -64,6 +64,7 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   const strength = getPasswordStrength(password);
 
   // Settings state
+  const [notifyEnabled,   setNotifyEnabled]   = useState(true);
   const [notifyEvents,    setNotifyEvents]    = useState(true);
   const [notifyDeals,     setNotifyDeals]     = useState(true);
   const [notifyGalleries, setNotifyGalleries] = useState(false);
@@ -375,11 +376,38 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
               </TouchableOpacity>
             </View>
           ) : (
-            // Authorized — show toggles
+            // Authorized — master toggle + collapsible sub-options
             <>
-              <ToggleRow label="New Events"       subtitle="Get notified when new events are added"  value={notifyEvents}    onToggle={() => setNotifyEvents(p => !p)}/>
-              <ToggleRow label="Deals & Specials" subtitle="Flash deals and happy hour alerts"        value={notifyDeals}     onToggle={() => setNotifyDeals(p => !p)}/>
-              <ToggleRow label="New Galleries"    subtitle="When event photos are published"          value={notifyGalleries} onToggle={() => setNotifyGalleries(p => !p)}/>
+              {/* Master toggle */}
+              <ToggleRow
+                label="Notifications"
+                subtitle={notifyEnabled ? 'On — tap to manage' : 'All notifications off'}
+                value={notifyEnabled}
+                onToggle={() => {
+                  const next = !notifyEnabled;
+                  setNotifyEnabled(next);
+                  // Sync with OneSignal
+                  OneSignal.User.pushSubscription.optIn();
+                  if (!next) {
+                    setNotifyEvents(false);
+                    setNotifyDeals(false);
+                    setNotifyGalleries(false);
+                    OneSignal.User.addTags({ events: 'off', deals: 'off', galleries: 'off' });
+                  } else {
+                    setNotifyEvents(true);
+                    setNotifyDeals(true);
+                    OneSignal.User.addTags({ events: 'on', deals: 'on' });
+                  }
+                }}
+              />
+              {/* Sub-options — only show when master is on */}
+              {notifyEnabled && (
+                <View style={{ marginLeft: 16, borderLeftWidth: 2, borderLeftColor: theme.divider, paddingLeft: 12, marginTop: 4 }}>
+                  <ToggleRow label="New Events"       subtitle="When new events are added near you"  value={notifyEvents}    onToggle={() => { const n = !notifyEvents; setNotifyEvents(n); OneSignal.User.addTag('events', n ? 'on' : 'off'); }}/>
+                  <ToggleRow label="Deals & Specials" subtitle="Flash deals and happy hour alerts"   value={notifyDeals}     onToggle={() => { const n = !notifyDeals; setNotifyDeals(n); OneSignal.User.addTag('deals', n ? 'on' : 'off'); }}/>
+                  <ToggleRow label="New Galleries"    subtitle="When event photos are published"     value={notifyGalleries} onToggle={() => { const n = !notifyGalleries; setNotifyGalleries(n); OneSignal.User.addTag('galleries', n ? 'on' : 'off'); }}/>
+                </View>
+              )}
               <TouchableOpacity onPress={() => Linking.openSettings()} style={{ marginTop: 10 }}>
                 <Text style={{ color: theme.subtext, fontSize: 12 }}>Manage in iOS Settings →</Text>
               </TouchableOpacity>
