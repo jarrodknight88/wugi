@@ -118,12 +118,19 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   // Parse metadata from payment intent
   const userId    = meta.userId;
   const eventId   = meta.eventId;
-  const venueId   = meta.venueId;
-  const itemsJson = meta.items; // JSON string of cart items
+  let   venueId   = meta.venueId;
+  const itemsJson = meta.items;
 
-  if (!userId || !eventId || !venueId || !itemsJson) {
+  if (!userId || !eventId || !itemsJson) {
     logger.error('Missing required metadata on payment intent', meta);
     return;
+  }
+
+  // venueId may be empty on early purchases — look it up from the event doc
+  if (!venueId) {
+    const eventDoc = await db.collection('events').doc(eventId).get();
+    venueId = eventDoc.data()?.venueId || '';
+    logger.info('venueId resolved from event doc:', venueId);
   }
 
   const items = JSON.parse(itemsJson) as {
