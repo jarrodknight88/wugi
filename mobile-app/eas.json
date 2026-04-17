@@ -17,7 +17,9 @@
     },
     "testflight": {
       "distribution": "store",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "autoSubmit": true,
+      "submitProfile": "testflight"
     },
     "production": {
       "distribution": "store",
