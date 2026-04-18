@@ -1,5 +1,6 @@
 import { initializeApp, getApps, cert } from "firebase-admin/app"
 import { getFirestore } from "firebase-admin/firestore"
+import { getStorage } from "firebase-admin/storage"
 
 if (!getApps().length) {
   const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64
@@ -11,7 +12,9 @@ if (!getApps().length) {
       clientEmail: sa.client_email,
       privateKey: sa.private_key,
     }),
+    storageBucket: "wugi-prod.appspot.com",
   })
 }
 
-export const adminDb = getFirestore()
+export const adminDb      = getFirestore()
+export const adminStorage = getStorage()

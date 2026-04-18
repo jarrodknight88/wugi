@@ -461,6 +461,7 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
   function docToPass(d: any): PassData {
     const data = d.data();
@@ -607,55 +608,135 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
               });
 
               return Array.from(groups.entries()).map(([orderId, groupPasses]) => {
-                const first      = groupPasses[0];
-                const count      = groupPasses.length;
+                const first         = groupPasses[0];
+                const count         = groupPasses.length;
                 const isTransferred = first.transferred;
-                const style      = getPassStyle(first.ticketTypeName || first.ticketType, first.passColor);
-                const cardColor  = style.color;
-                const scanStyle  = getScanStatus(first.status);
-                const isPending  = first.transferPending;
+                const style         = getPassStyle(first.ticketTypeName || first.ticketType, first.passColor);
+                const cardColor     = style.color;
+                const scanStyle     = getScanStatus(first.status);
+                const isPending     = first.transferPending;
+                const isExpanded    = expandedOrder === orderId;
+                const isMulti       = count > 1;
 
-                // Single pass — tap goes straight to viewer
-                // Multi-pass order — tap goes to viewer of first pass (viewer has next/prev logic)
+                // Purchaser pass = role:'purchaser' or first pass
+                // Guest passes = role:'guest' or passes 2..N
+                const purchaserPass = groupPasses.find(p => (p as any).role === 'purchaser') || first;
+                const guestPasses   = groupPasses.filter(p => p.passId !== purchaserPass.passId);
+
                 return (
-                  <TouchableOpacity
-                    key={orderId}
-                    onPress={() => !isTransferred && setSelectedPass(first)}
-                    activeOpacity={isTransferred ? 1 : 0.88}
-                    style={{
-                      borderRadius:16, overflow:'hidden',
-                      backgroundColor: cardColor,
-                      shadowColor: isTransferred ? 'transparent' : cardColor,
-                      shadowOpacity: isTransferred ? 0 : 0.4,
-                      shadowRadius:12, shadowOffset:{width:0,height:4},
-                      opacity: isTransferred ? 0.45 : 1,
-                    }}
-                  >
-                    <View style={{ padding:16, paddingBottom:12 }}>
-                      <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                        <Text style={{ color:'rgba(255,255,255,0.8)', fontSize:10, fontWeight:'800', letterSpacing:2 }}>
-                          {(first.colorLabel || first.ticketTypeName || style.abbrev || 'TICKET').toUpperCase()}
-                          {count > 1 ? ` × ${count}` : ''}
-                        </Text>
-                        <View style={{ backgroundColor: isTransferred ? 'rgba(231,76,60,0.4)' : isPending ? 'rgba(230,150,0,0.3)' : scanStyle.bg, borderRadius:8, paddingHorizontal:8, paddingVertical:3 }}>
-                          <Text style={{ color: isTransferred ? '#e74c3c' : isPending ? '#e6961e' : scanStyle.color, fontSize:10, fontWeight:'700' }}>
-                            {isTransferred ? 'TRANSFERRED' : isPending ? 'PENDING' : scanStyle.label}
+                  <View key={orderId} style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 0 }}>
+                    {/* Main card — tap to expand if multi-pass, view if single */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (isTransferred) return;
+                        if (isMulti) setExpandedOrder(isExpanded ? null : orderId);
+                        else setSelectedPass(first);
+                      }}
+                      activeOpacity={isTransferred ? 1 : 0.88}
+                      style={{
+                        borderRadius: isExpanded ? 0 : 16,
+                        borderTopLeftRadius: 16, borderTopRightRadius: 16,
+                        borderBottomLeftRadius: isExpanded ? 0 : 16,
+                        borderBottomRightRadius: isExpanded ? 0 : 16,
+                        backgroundColor: cardColor,
+                        shadowColor: isTransferred ? 'transparent' : cardColor,
+                        shadowOpacity: isTransferred ? 0 : 0.4,
+                        shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+                        opacity: isTransferred ? 0.45 : 1,
+                      }}
+                    >
+                      <View style={{ padding: 16, paddingBottom: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                          <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, fontWeight: '800', letterSpacing: 2 }}>
+                            {(first.colorLabel || first.ticketTypeName || style.abbrev || 'TICKET').toUpperCase()}
+                            {count > 1 ? ` × ${count}` : ''}
                           </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={{ backgroundColor: isTransferred ? 'rgba(231,76,60,0.4)' : isPending ? 'rgba(230,150,0,0.3)' : scanStyle.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                              <Text style={{ color: isTransferred ? '#e74c3c' : isPending ? '#e6961e' : scanStyle.color, fontSize: 10, fontWeight: '700' }}>
+                                {isTransferred ? 'TRANSFERRED' : isPending ? 'PENDING' : scanStyle.label}
+                              </Text>
+                            </View>
+                            {isMulti && (
+                              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>
+                                {isExpanded ? '▲' : '▼'}
+                              </Text>
+                            )}
+                          </View>
                         </View>
+                        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '900', marginBottom: 4 }}>{first.eventTitle}</Text>
+                        <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>{first.venueName}{first.date ? ` · ${first.date}` : ''}</Text>
                       </View>
-                      <Text style={{ color:'#fff', fontSize:20, fontWeight:'900', marginBottom:4 }}>{first.eventTitle}</Text>
-                      <Text style={{ color:'rgba(255,255,255,0.75)', fontSize:13 }}>{first.venueName}{first.date ? ` · ${first.date}` : ''}</Text>
-                    </View>
-                    <View style={{ backgroundColor:'rgba(255,255,255,0.12)', height:1 }}/>
-                    <View style={{ backgroundColor:'rgba(0,0,0,0.2)', paddingHorizontal:16, paddingVertical:12, flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
-                      <Text style={{ color:'rgba(255,255,255,0.7)', fontSize:12, fontWeight:'600' }}>
-                        {isTransferred ? 'Ticket transferred' : first.holderName}
-                      </Text>
-                      <Text style={{ color:'rgba(255,255,255,0.8)', fontSize:12, fontWeight:'600' }}>
-                        {isTransferred ? '' : count > 1 ? `${count} tickets →` : 'Tap to view →'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                      <View style={{ backgroundColor: 'rgba(255,255,255,0.12)', height: 1 }}/>
+                      <View style={{ backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600' }}>
+                          {isTransferred ? 'Ticket transferred' : first.holderName}
+                        </Text>
+                        <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600' }}>
+                          {isTransferred ? '' : isMulti ? (isExpanded ? 'Tap to collapse' : 'Tap to manage →') : 'Tap to view →'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Expanded inline pass list — shown for multi-pass orders */}
+                    {isExpanded && isMulti && (
+                      <View style={{ backgroundColor: 'rgba(0,0,0,0.35)', borderBottomLeftRadius: 16, borderBottomRightRadius: 16, overflow: 'hidden' }}>
+                        {/* Purchaser pass row */}
+                        <TouchableOpacity
+                          onPress={() => setSelectedPass(purchaserPass)}
+                          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' }}
+                        >
+                          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: cardColor, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                            <Text style={{ fontSize: 14 }}>🎟️</Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Your Pass</Text>
+                            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{purchaserPass.holderName || 'Purchaser'}</Text>
+                          </View>
+                          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>View QR →</Text>
+                        </TouchableOpacity>
+
+                        {/* Guest pass rows */}
+                        {guestPasses.map((gp, i) => {
+                          const gpTransferred = gp.transferred;
+                          const gpPending     = gp.transferPending;
+                          const gpClaimed     = gpTransferred || gpPending;
+                          return (
+                            <View
+                              key={gp.passId}
+                              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: i < guestPasses.length - 1 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.1)' }}
+                            >
+                              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                                <Text style={{ fontSize: 14 }}>👤</Text>
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+                                  Guest Pass {i + 1}
+                                </Text>
+                                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+                                  {gpTransferred ? `Claimed by ${gp.holderName || 'recipient'}` : gpPending ? 'Pending acceptance' : 'Not yet shared'}
+                                </Text>
+                              </View>
+                              {gpClaimed ? (
+                                <View style={{ backgroundColor: gpTransferred ? 'rgba(46,204,113,0.3)' : 'rgba(230,150,0,0.3)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                                  <Text style={{ color: gpTransferred ? '#2ecc71' : '#e6961e', fontSize: 10, fontWeight: '700' }}>
+                                    {gpTransferred ? '✓ CLAIMED' : '⏳ PENDING'}
+                                  </Text>
+                                </View>
+                              ) : (
+                                <TouchableOpacity
+                                  onPress={() => setSelectedPass(gp)}
+                                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' }}
+                                >
+                                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Share →</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
                 );
               });
             })()}

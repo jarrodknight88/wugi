@@ -17,7 +17,7 @@ export type TicketType = {
   id: string;
   name: string;
   description?: string;
-  price: number;           // in cents
+  price: number;
   isFree?: boolean;
   taxIncluded?: boolean;
   capacity: number;
@@ -30,6 +30,7 @@ export type TicketType = {
   bookingFeePercent?: number | null;
   bookingFeeMin?: number | null;
   bookingFeeMax?: number | null;
+  tableCapacity?: number | null;  // If set → VIP Table, quantity locked, N passes created
 };
 
 type Props = {
@@ -112,7 +113,15 @@ export function TicketSelectionScreen({
     load();
   }, [eventId]);
 
-  const maxQty = Math.max(1, Math.min(safeNum(selected?.maxPerOrder, 10), safeNum(selected?.remaining, 0)));
+  const isTableTicket = !!(selected?.tableCapacity && selected.tableCapacity > 1);
+  const lockedQty     = isTableTicket ? safeNum(selected!.tableCapacity, 1) : null;
+  const maxQty        = lockedQty ?? Math.max(1, Math.min(safeNum(selected?.maxPerOrder, 10), safeNum(selected?.remaining, 0)));
+
+  // Auto-set quantity when a table ticket is selected
+  useEffect(() => {
+    if (isTableTicket && lockedQty) setQuantity(lockedQty);
+    else if (!isTableTicket) setQuantity(1);
+  }, [selected?.id, isTableTicket, lockedQty]);
 
   // ── Calculations ────────────────────────────────────────────────────
   const subtotal   = selected ? safeNum(selected.price) * quantity : 0;
@@ -254,8 +263,8 @@ export function TicketSelectionScreen({
           );
         })}
 
-        {/* Quantity */}
-        {selected && !selected.isFree && (
+        {/* Quantity — hidden for table tickets (quantity is locked) */}
+        {selected && !selected.isFree && !isTableTicket && (
           <>
             <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 20, marginBottom: 12 }}>Quantity</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 12, gap: 16 }}>
@@ -281,18 +290,44 @@ export function TicketSelectionScreen({
           </>
         )}
 
+        {/* Table ticket info banner */}
+        {selected && isTableTicket && (
+          <View style={{ marginTop: 20, backgroundColor: theme.accent + '18', borderRadius: 12, borderWidth: 1, borderColor: theme.accent + '44', padding: 14 }}>
+            <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '800', marginBottom: 4 }}>
+              🪑 Table Package — Entry for {lockedQty}
+            </Text>
+            <Text style={{ color: theme.subtext, fontSize: 12, lineHeight: 18 }}>
+              Includes 1 pass for you + {(lockedQty ?? 1) - 1} shareable guest passes.
+              Share guest passes from My Passes after purchase.
+            </Text>
+          </View>
+        )}
+
         {/* Order summary */}
         {selected && (
           <View style={{ marginTop: 24, backgroundColor: theme.card, borderRadius: 14, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' }}>
             {/* Subtotal */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 14 }}>
               <Text style={{ color: theme.subtext, fontSize: 14 }}>
-                {selected.isFree ? `${quantity} × ${selected.name}` : `${quantity} × ${selected.name}`}
+                {selected.isFree
+                  ? `${quantity} × ${selected.name}`
+                  : isTableTicket
+                    ? `${selected.name} (${quantity} passes)`
+                    : `${quantity} × ${selected.name}`
+                }
               </Text>
               <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>
                 {selected.isFree ? 'FREE' : centsToDisplay(subtotal)}
               </Text>
             </View>
+            {/* Guest pass breakdown for table tickets */}
+            {isTableTicket && (lockedQty ?? 1) > 1 && (
+              <View style={{ paddingHorizontal: 14, paddingBottom: 8 }}>
+                <Text style={{ color: theme.subtext, fontSize: 12 }}>
+                  1 purchaser pass + {(lockedQty ?? 1) - 1} shareable guest passes
+                </Text>
+              </View>
+            )}
 
             {/* Fee + tax row with dropdown */}
             {!selected.isFree && (

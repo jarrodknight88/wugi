@@ -238,6 +238,8 @@ async function handlePaymentSuccess(paymentIntent) {
         for (let i = 0; i < item.quantity; i++) {
             const passRef = db.collection('passes').doc();
             passIds.push(passRef.id);
+            const isFirst = i === 0 && passIds.length === 1;
+            const role = isFirst ? 'purchaser' : 'guest';
             passBatch.set(passRef, {
                 id: passRef.id,
                 orderId,
@@ -246,8 +248,9 @@ async function handlePaymentSuccess(paymentIntent) {
                 venueId,
                 ticketTypeId: item.ticketTypeId,
                 ticketTypeName: item.ticketTypeName,
-                holderName: buyerName,
-                holderEmail: buyerEmail,
+                holderName: role === 'purchaser' ? buyerName : '',
+                holderEmail: role === 'purchaser' ? buyerEmail : '',
+                role, // 'purchaser' | 'guest'
                 // Denormalize event + venue for PassViewerScreen rendering
                 eventTitle: eventData?.title ?? '',
                 venueName: venueData?.name ?? '',

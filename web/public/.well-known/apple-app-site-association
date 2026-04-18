@@ -1,0 +1,21 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "D9438V88S5.com.wugimedia.wugitest",
+        "paths": ["*"]
+      },
+      {
+        "appID": "D9438V88S5.com.wugi.wugi",
+        "paths": ["*"]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "D9438V88S5.com.wugimedia.wugitest",
+      "D9438V88S5.com.wugi.wugi"
+    ]
+  }
+}

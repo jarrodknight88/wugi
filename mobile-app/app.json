@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wugimedia.wugitest",
+      "associatedDomains": ["applinks:wugi.us", "webcredentials:wugi.us"],
       "buildNumber": "1",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {

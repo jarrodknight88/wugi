@@ -8,6 +8,7 @@ import {
   ActivityIndicator, Alert, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useStripe } from '@stripe/stripe-react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import type { TicketSelection } from './TicketSelectionScreen';
@@ -74,32 +75,27 @@ export function PaymentScreen({
         return;
       }
 
-      // ── Step 2: Init Stripe Payment Sheet ──────────────────────────
-      // Face ID gate — required when using a saved card (customerId present)
+      // ── Step 2: Face ID gate ────────────────────────────────────────
+      // Required when a saved card exists (customerId returned from server)
       if (customerId && userId) {
-        try {
-          const LocalAuth = await import('expo-local-authentication');
-          const hasHardware = await LocalAuth.hasHardwareAsync();
-          const isEnrolled  = await LocalAuth.isEnrolledAsync();
-          if (hasHardware && isEnrolled) {
-            const result = await LocalAuth.authenticateAsync({
-              promptMessage:    'Confirm payment with Face ID',
-              fallbackLabel:    'Use Passcode',
-              cancelLabel:      'Cancel',
-              disableDeviceFallback: false,
-            });
-            if (!result.success) {
-              Alert.alert('Authentication required', 'Face ID is required to use a saved card.');
-              setLoading(false);
-              return;
-            }
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const isEnrolled  = await LocalAuthentication.isEnrolledAsync();
+        if (hasHardware && isEnrolled) {
+          const result = await LocalAuthentication.authenticateAsync({
+            promptMessage:         'Confirm payment with Face ID',
+            fallbackLabel:         'Use Passcode',
+            cancelLabel:           'Cancel',
+            disableDeviceFallback: false,
+          });
+          if (!result.success) {
+            Alert.alert('Authentication required', 'Face ID is required to pay with a saved card.');
+            setLoading(false);
+            return;
           }
-        } catch (authErr) {
-          // If LocalAuth fails to load, proceed — don't block payment
-          console.warn('Face ID check failed:', authErr);
         }
       }
 
+      // ── Step 3: Init Stripe Payment Sheet ──────────────────────────
       const { error: initError } = await initPaymentSheet({
         merchantDisplayName:        'Wugi',
         paymentIntentClientSecret:  clientSecret,
@@ -127,7 +123,7 @@ export function PaymentScreen({
         return;
       }
 
-      // ── Step 3: Present Payment Sheet ──────────────────────────────
+      // ── Step 4: Present Payment Sheet ──────────────────────────────
       const { error: payError } = await presentPaymentSheet();
       if (payError) {
         if (payError.code !== 'Canceled') {
@@ -293,7 +289,7 @@ export function PaymentScreen({
 
       {/* Pay CTA */}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32 }}>
-        <TouchableOpacity onPress={handlePay} disabled={loading} style={{ backgroundColor: '#000', borderRadius: 12, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+        <TouchableOpacity onPress={handlePay} disabled={loading} style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
           {loading
             ? <>
                 <ActivityIndicator color="#fff" size="small"/>
