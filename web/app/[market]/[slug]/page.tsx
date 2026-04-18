@@ -73,9 +73,28 @@ export async function generateMetadata({ params }: { params: Promise<{ market: s
   const { market, slug } = await params
   const venue = await getVenue(market, slug)
   if (!venue) return { title: "Venue Not Found | Wugi" }
+
+  const url   = `https://wugi.us/${market}/${venue.slug}`
+  const image = venue.media?.[0] || "https://wugi.us/og-default.png"
+  const desc  = venue.about?.slice(0, 160) || `Discover ${venue.name} in Atlanta on Wugi.`
+
   return {
     title: `${venue.name} | Wugi`,
-    description: venue.about?.slice(0, 160),
+    description: desc,
+    openGraph: {
+      siteName: "Wugi",
+      title:    `${venue.name} | Wugi`,
+      description: desc,
+      url,
+      type: "website",
+      images: [{ url: image, width: 1200, height: 630, alt: venue.name }],
+    },
+    twitter: {
+      card:        "summary_large_image",
+      title:       `${venue.name} | Wugi`,
+      description: desc,
+      images:      [image],
+    },
   }
 }
 

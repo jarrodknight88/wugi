@@ -112,9 +112,28 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params
   const event = await getEvent(slug)
   if (!event) return { title: "Event Not Found | Wugi" }
+
+  const url    = `https://wugi.us/events/${event.slug}`
+  const image  = event.media?.[0]?.uri || "https://wugi.us/og-default.png"
+  const desc   = event.about?.slice(0, 160) || `${event.title} at ${event.venueName} — get tickets on Wugi.`
+
   return {
     title: `${event.title} | Wugi`,
-    description: event.about?.slice(0, 160),
+    description: desc,
+    openGraph: {
+      siteName: "Wugi",
+      title:    `${event.title} | Wugi`,
+      description: desc,
+      url,
+      type: "website",
+      images: [{ url: image, width: 1200, height: 630, alt: event.title }],
+    },
+    twitter: {
+      card:        "summary_large_image",
+      title:       `${event.title} | Wugi`,
+      description: desc,
+      images:      [image],
+    },
   }
 }
 
