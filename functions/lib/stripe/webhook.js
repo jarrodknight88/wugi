@@ -89,7 +89,14 @@ exports.stripeWebhook = functions
     try {
         switch (event.type) {
             case 'payment_intent.succeeded':
-                await handlePaymentSuccess(event.data.object);
+                // Check if this is a balance payment (metadata.type === 'balance_payment')
+                // or a checkout.session.completed with balance_payment type
+                if (event.data.object.metadata?.type === 'balance_payment') {
+                    await handleBalancePayment(event.data.object);
+                }
+                else {
+                    await handlePaymentSuccess(event.data.object);
+                }
                 break;
             case 'payment_intent.payment_failed':
                 await handlePaymentFailed(event.data.object);
@@ -407,6 +414,51 @@ async function handlePaymentSuccess(paymentIntent) {
         catch (smsErr) {
             logger.error('Purchase SMS failed:', smsErr);
         }
+    }
+}
+// ── Balance payment → clear order.balanceDue, unlock guest passes ─────
+async function handleBalancePayment(paymentIntent) {
+    const orderId = paymentIntent.metadata?.orderId;
+    if (!orderId) {
+        logger.error('handleBalancePayment: no orderId in metadata', paymentIntent.metadata);
+        return;
+    }
+    // Prevent duplicate processing
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) {
+        logger.error(`handleBalancePayment: order ${orderId} not found`);
+        return;
+    }
+    const orderData = orderDoc.data();
+    if (orderData.balancePaid) {
+        logger.info(`Balance already paid for order ${orderId} — skipping`);
+        return;
+    }
+    logger.info(`Balance payment received for order ${orderId}, amount: ${paymentIntent.amount}`);
+    // Clear balance on order
+    await orderDoc.ref.update({
+        balanceDue: 0,
+        balancePaid: true,
+        balancePaidAt: admin.firestore.FieldValue.serverTimestamp(),
+        balanceStripePaymentIntentId: paymentIntent.id,
+        status: 'confirmed',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    // Unlock all guest passes on this order — clear any locked state
+    const passesSnap = await db.collection('passes')
+        .where('orderId', '==', orderId)
+        .where('role', '==', 'guest')
+        .get();
+    if (!passesSnap.empty) {
+        const passBatch = db.batch();
+        passesSnap.docs.forEach(doc => {
+            passBatch.update(doc.ref, {
+                balanceDue: 0, // clear per-pass balance flag used by Door app
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        });
+        await passBatch.commit();
+        logger.info(`Unlocked ${passesSnap.docs.length} guest passes for order ${orderId}`);
     }
 }
 // ── Payment failed ────────────────────────────────────────────────────

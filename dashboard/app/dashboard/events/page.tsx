@@ -20,7 +20,7 @@ const VIBES = ["High Energy","Boujee","Divey","Rooftop","Speakeasy","Late Night"
 const SC: Record<string,{bg:string;color:string}> = { approved:{bg:"#dcfce7",color:"#15803d"}, pending:{bg:"#fef9c3",color:"#a16207"}, rejected:{bg:"#fee2e2",color:"#b91c1c"} }
 
 type EventItem = { id:string; title:string; venue:string; date:string; time:string; status:string; hasTickets:boolean }
-type TicketType = { id:string; name:string; price:number; capacity:number }
+type TicketType = { id:string; name:string; price:number; capacity:number; tableCapacity:number|null; isFree:boolean; maxPerOrder:number|null; status:string }
 type EF = { title:string; venue:string; venueId:string; date:string; time:string; age:string; about:string; status:string; vibes:string[]; media:string }
 const EMPTY: EF = { title:"", venue:"", venueId:"", date:"", time:"10:00 PM", age:"21+", about:"", status:"approved", vibes:[], media:"" }
 
@@ -71,7 +71,7 @@ function EventsPageInner() {
     setEditId(ev.id)
     setForm({ title:ev.title, venue:ev.venue, venueId:"", date:ev.date, time:ev.time, age:"21+", about:"", status:ev.status, vibes:[], media:"" })
     const snap = await getDocs(collection(db,"events",ev.id,"ticketTypes"))
-    setTicketTypes(snap.docs.map(d => ({ id:d.id, name:d.data().name, price:d.data().price, capacity:d.data().capacity })))
+    setTicketTypes(snap.docs.map(d => ({ id:d.id, name:d.data().name, price:d.data().price, capacity:d.data().capacity, tableCapacity:d.data().tableCapacity||null, isFree:d.data().isFree||false, maxPerOrder:d.data().maxPerOrder||null, status:d.data().status||"on_sale" })))
     setModal("edit"); setError("")
   }
 
@@ -91,7 +91,7 @@ function EventsPageInner() {
       }
       if (evId && ticketTypes.length > 0) {
         for (const tt of ticketTypes) {
-          const ttd = { name:tt.name, price:tt.price, capacity:tt.capacity, sold:0, remaining:tt.capacity, active:true, updatedAt:serverTimestamp() }
+        const ttd = { name:tt.name, price:tt.isFree?0:tt.price, capacity:tt.capacity, sold:0, remaining:tt.capacity, active:true, isFree:tt.isFree||false, maxPerOrder:tt.maxPerOrder||null, tableCapacity:tt.tableCapacity||null, status:tt.status||"on_sale", updatedAt:serverTimestamp() }
           if (tt.id) await updateDoc(doc(db,"events",evId,"ticketTypes",tt.id), ttd)
           else await addDoc(collection(db,"events",evId,"ticketTypes"), { ...ttd, createdAt:serverTimestamp() })
         }
@@ -230,15 +230,62 @@ function EventsPageInner() {
               <div style={{ borderTop:"1px solid #f3f4f6", paddingTop:16 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
                   <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Ticket Tiers</label>
-                  <button type="button" onClick={()=>setTicketTypes(t=>[...t,{id:"",name:"",price:0,capacity:100}])}
+                  <button type="button" onClick={()=>setTicketTypes(t=>[...t,{id:"",name:"",price:0,capacity:100,tableCapacity:null,isFree:false,maxPerOrder:null,status:"on_sale"}])}
                     style={{ padding:"5px 12px", borderRadius:6, fontSize:13, background:"#f3f4f6", border:"1px solid #e5e7eb", cursor:"pointer", color:"#374151" }}>+ Add Tier</button>
                 </div>
                 {ticketTypes.map((tt,i) => (
-                  <div key={i} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr auto", gap:8, marginBottom:8, alignItems:"center" }}>
-                    <input style={INPUT} placeholder="Tier name (GA, VIP…)" value={tt.name} onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,name:e.target.value}:x))}/>
-                    <input style={INPUT} type="number" placeholder="Price ¢" value={tt.price} onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,price:Number(e.target.value)}:x))}/>
-                    <input style={INPUT} type="number" placeholder="Qty" value={tt.capacity} onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,capacity:Number(e.target.value)}:x))}/>
-                    <button type="button" onClick={()=>setTicketTypes(t=>t.filter((_,j)=>j!==i))} style={{ padding:"8px 10px", borderRadius:6, background:"#fee2e2", border:"none", cursor:"pointer", color:"#b91c1c", fontWeight:700 }}>×</button>
+                  <div key={i} style={{ background:"#f9fafb", borderRadius:10, border:"1px solid #e5e7eb", padding:"12px 14px", marginBottom:10 }}>
+                    {/* Row 1: Name + Status + Remove */}
+                    <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr auto", gap:8, marginBottom:8 }}>
+                      <input style={INPUT} placeholder="Tier name (GA, VIP Table…)" value={tt.name}
+                        onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,name:e.target.value}:x))}/>
+                      <select style={INPUT} value={tt.status}
+                        onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,status:e.target.value}:x))}>
+                        {["on_sale","sold_out","cancelled"].map(s=><option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <button type="button" onClick={()=>setTicketTypes(t=>t.filter((_,j)=>j!==i))}
+                        style={{ padding:"8px 10px", borderRadius:6, background:"#fee2e2", border:"none", cursor:"pointer", color:"#b91c1c", fontWeight:700 }}>×</button>
+                    </div>
+                    {/* Row 2: Price + Total qty + Max per order */}
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
+                      <div>
+                        <label style={{ fontSize:11, fontWeight:600, color:"#6b7280", display:"block", marginBottom:3 }}>Price (cents)</label>
+                        <input style={{ ...INPUT, opacity:tt.isFree?0.4:1 }} type="number" placeholder="e.g. 5000" value={tt.price} disabled={tt.isFree}
+                          onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,price:Number(e.target.value)}:x))}/>
+                      </div>
+                      <div>
+                        <label style={{ fontSize:11, fontWeight:600, color:"#6b7280", display:"block", marginBottom:3 }}>Total capacity</label>
+                        <input style={INPUT} type="number" placeholder="e.g. 200" value={tt.capacity}
+                          onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,capacity:Number(e.target.value)}:x))}/>
+                      </div>
+                      <div>
+                        <label style={{ fontSize:11, fontWeight:600, color:"#6b7280", display:"block", marginBottom:3 }}>Max per order</label>
+                        <input style={INPUT} type="number" placeholder="e.g. 10" value={tt.maxPerOrder??""} 
+                          onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,maxPerOrder:e.target.value?Number(e.target.value):null}:x))}/>
+                      </div>
+                    </div>
+                    {/* Row 3: Table capacity + Free toggle */}
+                    <div style={{ display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" }}>
+                      <div style={{ flex:1, minWidth:140 }}>
+                        <label style={{ fontSize:11, fontWeight:600, color:"#6b7280", display:"block", marginBottom:3 }}>
+                          Table capacity <span style={{ color:"#2a7a5a" }}>(VIP tables only)</span>
+                        </label>
+                        <input style={INPUT} type="number" placeholder="e.g. 10 (locks qty at checkout)"
+                          value={tt.tableCapacity??""} 
+                          onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,tableCapacity:e.target.value?Number(e.target.value):null}:x))}/>
+                      </div>
+                      <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", fontSize:13, color:"#374151", userSelect:"none" as const }}>
+                        <input type="checkbox" checked={tt.isFree}
+                          onChange={e=>setTicketTypes(t=>t.map((x,j)=>j===i?{...x,isFree:e.target.checked,price:e.target.checked?0:x.price}:x))}
+                          style={{ width:15, height:15 }}/>
+                        Free ticket
+                      </label>
+                    </div>
+                    {tt.tableCapacity && tt.tableCapacity > 1 && (
+                      <p style={{ fontSize:11, color:"#2a7a5a", marginTop:6, marginBottom:0 }}>
+                        🪑 Table package — 1 purchaser pass + {tt.tableCapacity-1} shareable guest passes per purchase
+                      </p>
+                    )}
                   </div>
                 ))}
                 {ticketTypes.length===0 && <p style={{ fontSize:13, color:"#9ca3af" }}>No tiers yet. Add GA, VIP, Table tiers above.</p>}

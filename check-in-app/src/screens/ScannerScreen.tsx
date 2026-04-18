@@ -11,7 +11,7 @@ import { useSession } from '../context/SessionContext';
 const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
 
-type ScanResult = 'valid' | 'already_scanned' | 'invalid' | 'wrong_event' | null;
+type ScanResult = 'valid' | 'already_scanned' | 'invalid' | 'wrong_event' | 'balance_blocked' | null;
 
 interface TicketInfo {
   holderName: string;
@@ -105,6 +105,35 @@ export default function ScannerScreen() {
         return;
       }
 
+      // Valid — check if this is a guest pass with an outstanding order balance
+      const isGuestPass = pass.role === 'guest';
+      if (isGuestPass) {
+        // Look up the order to check balanceDue at the order level
+        let orderBalanceDue = 0;
+        if (pass.orderId) {
+          try {
+            const orderSnap = await firestore().collection('orders').doc(pass.orderId).get();
+            if (orderSnap.exists) orderBalanceDue = orderSnap.data()?.balanceDue ?? 0;
+          } catch { /* non-blocking */ }
+        }
+        if (orderBalanceDue > 0) {
+          // Block scan — host hasn't paid balance yet
+          Vibration.vibrate([0, 100, 100, 100]);
+          showResult('balance_blocked', {
+            holderName: pass.holderName || 'Guest',
+            ticketType: pass.ticketTypeName || '',
+            ticketTypeName: pass.ticketTypeName || '',
+            ticketTypeId: pass.ticketTypeId || '',
+            ticketColor: '#e6a817',
+            quantity: 1,
+            ticketId: passId,
+            balanceDue: orderBalanceDue,
+            holderEmail: pass.holderEmail || '',
+          });
+          return;
+        }
+      }
+
       // Valid — mark scanned
       await passSnap.ref.update({
         scanStatus:  'scanned',
@@ -134,10 +163,11 @@ export default function ScannerScreen() {
   }
 
   const resultConfig = {
-    valid:           { bg: '#0d3d2a', border: '#2a7a5a', icon: '✓', label: 'Valid Ticket',    color: '#2a7a5a' },
-    already_scanned: { bg: '#3d2a00', border: '#e6a817', icon: '!', label: 'Already Scanned', color: '#e6a817' },
-    invalid:         { bg: '#3d0d0d', border: '#cc3333', icon: '✕', label: 'Invalid Ticket',  color: '#cc3333' },
-    wrong_event:     { bg: '#3d0d0d', border: '#cc3333', icon: '✕', label: 'Wrong Event',     color: '#cc3333' },
+    valid:            { bg: '#0d3d2a', border: '#2a7a5a', icon: '✓', label: 'Valid Ticket',       color: '#2a7a5a' },
+    already_scanned:  { bg: '#3d2a00', border: '#e6a817', icon: '!', label: 'Already Scanned',    color: '#e6a817' },
+    invalid:          { bg: '#3d0d0d', border: '#cc3333', icon: '✕', label: 'Invalid Ticket',     color: '#cc3333' },
+    wrong_event:      { bg: '#3d0d0d', border: '#cc3333', icon: '✕', label: 'Wrong Event',        color: '#cc3333' },
+    balance_blocked:  { bg: '#3d1a00', border: '#e6a817', icon: '⚠', label: 'Balance Outstanding', color: '#e6a817' },
   };
   const cfg = result ? resultConfig[result] : null;
   const hasBalance = (ticketInfo?.balanceDue ?? 0) > 0;
@@ -208,17 +238,21 @@ export default function ScannerScreen() {
               </Text>
               <Text style={styles.resultId}>#{ticketInfo.ticketId.slice(-8).toUpperCase()}</Text>
 
-              {/* ⚠️ Balance due — seamless auto-payment prompt */}
+              {/* ⚠️ Balance due — guest pass blocked or collect at door */}
               {hasBalance && (
                 <View style={styles.balanceWarning}>
                   <Text style={styles.balanceWarningText}>
-                    ⚠️  ${(ticketInfo.balanceDue / 100).toFixed(2)} due at door
+                    {result === 'balance_blocked'
+                      ? `⛔  Host balance $${(ticketInfo.balanceDue / 100).toFixed(2)} outstanding — do not admit`
+                      : `⚠️  $${(ticketInfo.balanceDue / 100).toFixed(2)} due at door`
+                    }
                   </Text>
-                  {TAP_TO_PAY_ENABLED ? (
+                  {result === 'balance_blocked' ? (
+                    <Text style={styles.balanceHint}>Guest cannot enter until host pays the balance. Direct host to wugi.us/pay/{ticketInfo.ticketId}</Text>
+                  ) : TAP_TO_PAY_ENABLED ? (
                     <TouchableOpacity
                       style={styles.collectBtn}
                       onPress={() => {
-                        // Dismiss scan overlay immediately, launch payment
                         dismissResult();
                         setPaymentMode({
                           type: 'balance',
