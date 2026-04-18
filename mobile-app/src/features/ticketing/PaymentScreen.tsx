@@ -2,7 +2,7 @@
 // Wugi — PaymentScreen
 // Real Stripe Payment Sheet + guest checkout support
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, SafeAreaView,
   ActivityIndicator, Alert, TextInput, KeyboardAvoidingView, Platform,
@@ -42,7 +42,8 @@ export function PaymentScreen({
   selection, userId, userEmail, userName,
   theme, onBack, onSuccess,
 }: Props) {
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const { initPaymentSheet, presentPaymentSheet, resetPaymentSheetCustomer } = useStripe();
+  const hasSavedCardRef = useRef(false); // tracks whether customerId came back from server
   const [phone,        setPhone]        = useState('');
   const [guestName,    setGuestName]    = useState(userName || '');
   const [guestEmail,   setGuestEmail]   = useState(userEmail || '');
@@ -58,55 +59,43 @@ export function PaymentScreen({
     }
     setLoading(true);
     try {
-      // ── Step 1: Create PaymentIntent via Cloud Function ─────────────
+      // ── Step 1: Get Stripe customer + ephemeral key ─────────────────
+      // We pass setupOnly=true — server returns customerId+ephemeralKey
+      // without creating a PaymentIntent (that happens in confirmHandler)
       const json = await fetch(CREATE_PAYMENT_INTENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: { eventId: selection.eventId, ticketTypeId: selection.ticketType.id, quantity: selection.quantity, userId: userId ?? undefined, guestName: isGuest ? guestName.trim() : undefined, guestEmail: isGuest ? guestEmail.trim() : undefined, guestPhone: phone.trim() || undefined } }),
+        body: JSON.stringify({ data: {
+          eventId:      selection.eventId,
+          ticketTypeId: selection.ticketType.id,
+          quantity:     selection.quantity,
+          userId:       userId ?? undefined,
+          guestName:    isGuest ? guestName.trim()  : undefined,
+          guestEmail:   isGuest ? guestEmail.trim() : undefined,
+          guestPhone:   phone.trim() || undefined,
+        }}),
       });
-      if (!json.ok) { const err = await json.json().catch(() => ({})); throw new Error(err?.error?.message ?? 'Failed to create payment'); }
+      if (!json.ok) { const err = await json.json().catch(() => ({})); throw new Error(err?.error?.message ?? 'Failed to initialize payment'); }
       const data = await json.json();
-      const { clientSecret, customerId, customerEphemeralKey, isFree, orderId: freeOrderId } = data.result ?? data;
+      const { customerId, customerEphemeralKey, isFree, orderId: freeOrderId } = data.result ?? data;
 
       // ── Free ticket — skip Payment Sheet entirely ──────────────────
-      if (isFree || !clientSecret) {
+      if (isFree) {
         onSuccess(freeOrderId || `free_${Date.now()}`, isGuest);
         setLoading(false);
         return;
       }
 
-      // ── Step 2: Face ID gate ────────────────────────────────────────
-      // Required when a saved card exists (customerId returned from server)
-      if (customerId && userId) {
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled  = await LocalAuthentication.isEnrolledAsync();
-        if (hasHardware && isEnrolled) {
-          const result = await LocalAuthentication.authenticateAsync({
-            promptMessage:         'Confirm payment with Face ID',
-            fallbackLabel:         'Use Passcode',
-            cancelLabel:           'Cancel',
-            disableDeviceFallback: false,
-          });
-          if (!result.success) {
-            Alert.alert('Authentication required', 'Face ID is required to pay with a saved card.');
-            setLoading(false);
-            return;
-          }
-        }
-      }
+      // ── Step 2: Init Stripe Payment Sheet with intentConfiguration ───
+      // confirmHandler fires when user presses Pay inside the sheet.
+      // This is where Face ID happens — after card selection, before charge.
+      hasSavedCardRef.current = !!(customerId && userId);
 
-      // ── Step 3: Init Stripe Payment Sheet ──────────────────────────
       const { error: initError } = await initPaymentSheet({
-        merchantDisplayName:        'Wugi',
-        paymentIntentClientSecret:  clientSecret,
-        customerId:                 customerId ?? undefined,
+        merchantDisplayName: 'Wugi',
+        customerId:          customerId ?? undefined,
         customerEphemeralKeySecret: customerEphemeralKey ?? undefined,
-        // Explicitly whitelist payment methods — card + Apple Pay only
-        // Prevents Klarna, Amazon Pay, Afterpay etc from appearing
-        paymentMethodTypes: ['card'],
-        applePay: {
-          merchantCountryCode: 'US',
-        },
+        applePay:            { merchantCountryCode: 'US' },
         defaultBillingDetails: {
           name:  isGuest ? guestName : userName,
           email: isGuest ? guestEmail : userEmail,
@@ -114,7 +103,75 @@ export function PaymentScreen({
         },
         allowsDelayedPaymentMethods: false,
         returnURL:        'wugi://payment-complete',
-        setupFutureUsage: userId ? 'OnSession' : undefined,
+        // intentConfiguration replaces paymentIntentClientSecret.
+        // confirmHandler fires after the user selects their payment method
+        // and taps Pay inside the sheet — perfect timing for Face ID.
+        intentConfiguration: {
+          mode: { amount: selection.total, currencyCode: 'usd' },
+          paymentMethodTypes: ['card'],
+          confirmHandler: async (paymentMethod, shouldSavePaymentMethod, intentCreationCallback) => {
+            try {
+              // Detect saved card: user has a Stripe customer AND is not saving a new card
+              // (shouldSavePaymentMethod=false + hasSavedCard = using existing card)
+              const usingSavedCard = hasSavedCardRef.current && !shouldSavePaymentMethod;
+              if (usingSavedCard) {
+                const hasHardware = await LocalAuthentication.hasHardwareAsync();
+                const isEnrolled  = await LocalAuthentication.isEnrolledAsync();
+                if (hasHardware && isEnrolled) {
+                  const result = await LocalAuthentication.authenticateAsync({
+                    promptMessage:         'Confirm payment with Face ID',
+                    fallbackLabel:         'Use Passcode',
+                    cancelLabel:           'Cancel',
+                    disableDeviceFallback: false,
+                  });
+                  if (!result.success) {
+                    // Face ID failed — cancel this attempt, sheet stays open
+                    // User can enter a new card instead
+                    await resetPaymentSheetCustomer();
+                    intentCreationCallback({
+                      error: {
+                        code: 'Failed',
+                        localizedDescription: 'Face ID required for saved card. Please use a different payment method.',
+                      },
+                    });
+                    return;
+                  }
+                }
+              }
+
+              // Face ID passed (or new card) — create PaymentIntent now
+              const json = await fetch(CREATE_PAYMENT_INTENT_URL, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ data: {
+                  eventId:        selection.eventId,
+                  ticketTypeId:   selection.ticketType.id,
+                  quantity:       selection.quantity,
+                  userId:         userId ?? undefined,
+                  guestName:      isGuest ? guestName.trim()  : undefined,
+                  guestEmail:     isGuest ? guestEmail.trim() : undefined,
+                  guestPhone:     phone.trim() || undefined,
+                  paymentMethodId: paymentMethod.id,
+                  savePaymentMethod: shouldSavePaymentMethod,
+                }}),
+              });
+              if (!json.ok) {
+                const err = await json.json().catch(() => ({}));
+                intentCreationCallback({
+                  error: { code: 'Failed', localizedDescription: err?.error?.message ?? 'Payment failed' },
+                });
+                return;
+              }
+              const data = await json.json();
+              const { clientSecret } = data.result ?? data;
+              intentCreationCallback({ clientSecret });
+            } catch (e: any) {
+              intentCreationCallback({
+                error: { code: 'Failed', localizedDescription: e.message ?? 'Something went wrong' },
+              });
+            }
+          },
+        },
       });
 
       if (initError) {
@@ -123,7 +180,7 @@ export function PaymentScreen({
         return;
       }
 
-      // ── Step 4: Present Payment Sheet ──────────────────────────────
+      // ── Step 3: Present Payment Sheet ──────────────────────────────
       const { error: payError } = await presentPaymentSheet();
       if (payError) {
         if (payError.code !== 'Canceled') {
@@ -133,15 +190,12 @@ export function PaymentScreen({
         return;
       }
 
-      // ── Step 4: Success ─────────────────────────────────────────────
-      // Payment Sheet confirmed. Webhook fires async to create passes.
-      // Poll the passes collection for up to 8 seconds for this userId+eventId.
-      const piId = clientSecret.split('_secret_')[0];
+      // ── Step 4: Success — poll passes collection for orderId ─────────
       setLoadingMsg('Getting your passes...');
       const startTime = Date.now();
       let foundOrderId: string | null = null;
 
-      while (Date.now() - startTime < 8000 && !foundOrderId) {
+      while (Date.now() - startTime < 10000 && !foundOrderId) {
         await new Promise(r => setTimeout(r, 1500));
         try {
           const { getFirestore, collection, getDocs, query, where, orderBy, limit } =
@@ -162,8 +216,7 @@ export function PaymentScreen({
         } catch {}
       }
 
-      // Navigate with real orderId if found, otherwise PI id as fallback
-      onSuccess(foundOrderId || piId, isGuest);
+      onSuccess(foundOrderId || `payment_${Date.now()}`, isGuest);
 
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Something went wrong. Please try again.');

@@ -203,17 +203,50 @@ exports.claimTransfer = functions.https.onRequest(async (req, res) => {
             claimedByUid: claimerUid || null,
             newOrderId: newOrderRef.id,
         });
-        // Generate a new pass for the recipient
+        // Create new pass doc for recipient in passes collection
+        // This is what the wallet proxy and pass view page looks for
+        const newPassRef = db.collection('passes').doc();
+        const newPassData = {
+            id: newPassRef.id,
+            orderId: newOrderRef.id,
+            userId: claimerUid || null,
+            eventId: order.eventId || null,
+            venueId: order.venueId || null,
+            ticketTypeId: order.items?.[0]?.ticketTypeId || null,
+            ticketTypeName: order.items?.[0]?.ticketTypeName || order.ticketType || '',
+            holderName: claimerName || claimerEmail,
+            holderEmail: claimerEmail.toLowerCase().trim(),
+            role: 'purchaser',
+            eventTitle: order.eventTitle || '',
+            venueName: order.venueName || '',
+            eventDate: order.eventDate || '',
+            eventTime: order.eventTime || '',
+            passColor: order.passColor || null,
+            colorLabel: order.colorLabel || null,
+            tableNumber: order.tableNumber || null,
+            scanStatus: 'valid',
+            isTransferred: true,
+            transferredFrom: transfer.orderId,
+            transferredFromName: order.buyerName || null,
+            transferredFromEmail: order.buyerEmail || null,
+            transferredAt: admin.firestore.FieldValue.serverTimestamp(),
+            appleWalletPassUrl: null,
+            source: 'transfer',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        await newPassRef.set(newPassData);
+        // Generate a new pass for the recipient — store under new passId
         let passUrl = null;
         try {
             const passBuffer = await (0, generatePass_1.buildPassBuffer)({
-                orderId: newOrderRef.id,
+                orderId: newPassRef.id, // use passId as the QR value so Door scanner finds it
                 eventTitle: order.eventTitle || '',
                 venueName: order.venueName || '',
                 eventDate: order.eventDate || '',
                 eventTime: order.eventTime || '',
-                ticketType: order.ticketType || '',
-                quantity: order.quantity || 1,
+                ticketType: order.items?.[0]?.ticketTypeName || order.ticketType || '',
+                quantity: 1,
                 buyerName: claimerName || claimerEmail,
                 buyerEmail: claimerEmail,
                 totalPaid: order.totalPaid || 0,
@@ -221,14 +254,30 @@ exports.claimTransfer = functions.https.onRequest(async (req, res) => {
                 colorLabel: order.colorLabel || null,
                 tableNumber: order.tableNumber || null,
             });
-            passUrl = await (0, generatePass_1.storePass)(newOrderRef.id, passBuffer);
+            passUrl = await (0, generatePass_1.storePass)(newPassRef.id, passBuffer);
+            await newPassRef.update({ appleWalletPassUrl: passUrl, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
             await newOrderRef.update({ passUrl, passGeneratedAt: admin.firestore.FieldValue.serverTimestamp() });
         }
         catch (passErr) {
             functions.logger.error('Pass generation during claim failed:', passErr);
         }
-        functions.logger.info('Transfer claimed:', transferDoc.id, 'new order:', newOrderRef.id);
-        res.json({ success: true, orderId: newOrderRef.id, passUrl });
+        // Invalidate original pass docs for this order — mark as transferred
+        const origPassesSnap = await db.collection('passes')
+            .where('orderId', '==', transfer.orderId)
+            .get();
+        if (!origPassesSnap.empty) {
+            const batch = db.batch();
+            origPassesSnap.docs.forEach(d => {
+                batch.update(d.ref, {
+                    isTransferred: true,
+                    scanStatus: 'transferred',
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            });
+            await batch.commit();
+        }
+        functions.logger.info('Transfer claimed:', transferDoc.id, 'new pass:', newPassRef.id, 'new order:', newOrderRef.id);
+        res.json({ success: true, orderId: newOrderRef.id, passId: newPassRef.id, passUrl });
     }
     catch (e) {
         functions.logger.error('claimTransfer error:', e);

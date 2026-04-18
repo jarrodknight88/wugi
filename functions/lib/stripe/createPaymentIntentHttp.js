@@ -58,7 +58,7 @@ exports.createPaymentIntentHttp = functions.https.onRequest(async (req, res) => 
         return;
     }
     const body = req.body?.data ?? req.body;
-    const { eventId, ticketTypeId, quantity, userId, guestName, guestEmail, guestPhone } = body;
+    const { eventId, ticketTypeId, quantity, userId, guestName, guestEmail, guestPhone, paymentMethodId, savePaymentMethod } = body;
     if (!eventId || !ticketTypeId || !quantity) {
         res.status(400).json({ error: { message: 'Missing required fields' } });
         return;
@@ -206,14 +206,17 @@ exports.createPaymentIntentHttp = functions.https.onRequest(async (req, res) => 
                 await db.collection('users').doc(userId).update({ stripeCustomerId,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp() });
             }
-            // Create ephemeral key so Payment Sheet can show saved cards
             const ek = await stripeUtils_1.stripe.ephemeralKeys.create({ customer: stripeCustomerId }, { apiVersion: '2023-10-16' });
             ephemeralKey = ek.secret;
         }
+        // ── setupOnly removed — PI always created here now ────────────────
         const paymentIntent = await stripeUtils_1.stripe.paymentIntents.create({
             amount: total,
             currency: 'usd',
-            setup_future_usage: userId ? 'on_session' : undefined,
+            // If paymentMethodId provided (intentConfiguration flow), attach it directly
+            payment_method: paymentMethodId || undefined,
+            confirm: paymentMethodId ? true : undefined,
+            setup_future_usage: (userId && (savePaymentMethod || !paymentMethodId)) ? 'on_session' : undefined,
             customer: stripeCustomerId,
             metadata: {
                 eventId, ticketTypeId, quantity: String(quantity),

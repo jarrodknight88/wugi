@@ -1,91 +1,80 @@
 import { adminDb } from "@/lib/firebase-admin"
 import { notFound } from "next/navigation"
-import Link from "next/link"
+import type { Metadata } from "next"
+import PassView from "./PassView"
 
 export const dynamic = "force-dynamic"
 
-async function getOrGeneratePass(orderId: string) {
-  // Check if pass already exists in Firestore
+async function getPass(passId: string) {
   try {
-    const doc = await adminDb.collection("orders").doc(orderId).get()
-    if (doc.exists && doc.data()?.passUrl) {
-      return { passUrl: doc.data()?.passUrl, order: doc.data() }
+    // First try passes collection (primary)
+    const passDoc = await adminDb.collection("passes").doc(passId).get()
+    if (passDoc.exists) {
+      const d = passDoc.data()!
+      return {
+        passId:        passDoc.id,
+        orderId:       d.orderId        || passDoc.id,
+        eventTitle:    d.eventTitle     || "",
+        venueName:     d.venueName      || "",
+        eventDate:     d.eventDate      || "",
+        eventTime:     d.eventTime      || "",
+        ticketTypeName: d.ticketTypeName || "Ticket",
+        holderName:    d.holderName     || "",
+        passColor:     d.passColor      || null,
+        colorLabel:    d.colorLabel     || null,
+        balanceDue:    d.balanceDue     ?? 0,
+        depositPaid:   d.depositPaid    ?? 0,
+        passUrl:       d.appleWalletPassUrl || d.passUrl || null,
+        status:        d.scanStatus     || "valid",
+        source:        d.source         || null,
+        transferredFromName: d.transferredFromName || null,
+      }
     }
-  } catch { /* order may not exist */ }
-
-  // Try to generate pass on demand using order data
-  // For now return null — pass generation happens post-checkout
-  return null
+    // Fallback: try orders collection (legacy)
+    const orderDoc = await adminDb.collection("orders").doc(passId).get()
+    if (orderDoc.exists) {
+      const d = orderDoc.data()!
+      return {
+        passId,
+        orderId:       passId,
+        eventTitle:    d.eventTitle  || d.eventName || "",
+        venueName:     d.venueName   || "",
+        eventDate:     d.eventDate   || "",
+        eventTime:     d.eventTime   || "",
+        ticketTypeName: d.items?.[0]?.ticketTypeName || "Ticket",
+        holderName:    d.buyerName   || "",
+        passColor:     d.passColor   || null,
+        colorLabel:    d.colorLabel  || null,
+        balanceDue:    d.balanceDue  ?? 0,
+        depositPaid:   d.depositPaid ?? 0,
+        passUrl:       d.passUrl     || null,
+        status:        "valid",
+        source:        d.source      || null,
+        transferredFromName: null,
+      }
+    }
+    return null
+  } catch { return null }
 }
 
-export default async function TicketReclaimPage({
-  params,
-}: {
-  params: Promise<{ orderId: string }>
-}) {
-  const { orderId } = await params
-  const result = await getOrGeneratePass(orderId)
+export async function generateMetadata({ params }: { params: Promise<{ passId: string }> }): Promise<Metadata> {
+  const { passId } = await params
+  const pass = await getPass(passId)
+  if (!pass) return { title: "Ticket | Wugi" }
+  return {
+    title: `${pass.eventTitle} | Wugi`,
+    description: `${pass.ticketTypeName} · ${pass.venueName} · ${pass.eventDate}`,
+    openGraph: {
+      title: `${pass.eventTitle} | Wugi`,
+      description: `${pass.ticketTypeName} at ${pass.venueName}`,
+      images: [{ url: "https://wugi.us/og-default.svg", width: 1200, height: 630 }],
+    },
+  }
+}
 
-  return (
-    <main className="min-h-screen bg-[#f5f3ef] dark:bg-[#111111] flex items-center justify-center px-4 transition-colors">
-      <div className="max-w-md w-full space-y-6">
-
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <Link href="/" className="text-[#2a7a5a] font-bold text-2xl tracking-tight">WUGI</Link>
-          <h1 className="text-xl font-bold text-[#111111] dark:text-white mt-4">Your Ticket</h1>
-          <p className="text-sm text-neutral-500 dark:text-[#888]">Order #{orderId}</p>
-        </div>
-
-        {result?.passUrl ? (
-          /* Pass available */
-          <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200 dark:border-[#2a2a2a] rounded-2xl p-6 space-y-4 text-center shadow-sm">
-            <span className="text-5xl">🎟️</span>
-            <div>
-              <p className="font-semibold text-[#111111] dark:text-white">{result.order?.eventTitle}</p>
-              <p className="text-sm text-neutral-500 dark:text-[#888]">{result.order?.venueName}</p>
-            </div>
-
-            {/* Add to Wallet */}
-            <a
-              href={result.passUrl}
-              className="flex items-center justify-center gap-2 w-full bg-black text-white font-semibold py-3.5 rounded-xl text-sm hover:bg-neutral-800 transition-colors"
-            >
-              Add to Apple Wallet
-            </a>
-
-            {/* Direct download */}
-            <a
-              href={result.passUrl}
-              download
-              className="block text-sm text-[#2a7a5a] hover:underline"
-            >
-              Download pass file (.pkpass)
-            </a>
-          </div>
-        ) : (
-          /* No pass found */
-          <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200 dark:border-[#2a2a2a] rounded-2xl p-6 space-y-4 text-center shadow-sm">
-            <span className="text-5xl">🔍</span>
-            <div>
-              <p className="font-semibold text-[#111111] dark:text-white">Pass not found</p>
-              <p className="text-sm text-neutral-500 dark:text-[#888] mt-1">
-                If you purchased a ticket, check your email for the confirmation and pass link.
-              </p>
-            </div>
-            <a
-              href="mailto:jarrod@wugi.us?subject=Lost Ticket&body=Order ID: orderId"
-              className="block w-full border border-[#2a7a5a] text-[#2a7a5a] font-semibold py-3 rounded-xl text-sm hover:bg-[#2a7a5a]/5 transition-colors"
-            >
-              Contact Support
-            </a>
-          </div>
-        )}
-
-        <p className="text-center text-xs text-neutral-400 dark:text-[#666]">
-          Need help? Email <a href="mailto:jarrod@wugi.us" className="text-[#2a7a5a]">jarrod@wugi.us</a>
-        </p>
-      </div>
-    </main>
-  )
+export default async function PassPage({ params }: { params: Promise<{ passId: string }> }) {
+  const { passId } = await params
+  const pass = await getPass(passId)
+  if (!pass) notFound()
+  return <PassView pass={pass} />
 }
