@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.asanaWebhook = exports.onTicketColorChange = exports.autoSettlePendingDoorSales = exports.cancelDoorSale = exports.refundDoorSale = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = exports.generateSeriesEventsScheduled = exports.generateSeriesEvents = exports.createDashboardUser = exports.validateSuperAdminPin = exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
+exports.asanaWebhook = exports.onTicketColorChange = exports.autoSettlePendingDoorSales = exports.cancelDoorSale = exports.refundDoorSale = exports.captureTerminalPayment = exports.createTerminalPaymentIntent = exports.createTerminalConnectionToken = exports.generateSeriesEventsScheduled = exports.generateSeriesEvents = exports.onUserCreated = exports.createDashboardUser = exports.validateSuperAdminPin = exports.generateDoorPin = exports.onTicketTypeSold = exports.onVenueChargebackUpdate = exports.releaseReserves = exports.sendEmail = exports.onTableColorChange = exports.passWebService = exports.cancelTransfer = exports.claimTransfer = exports.initiateTransfer = exports.createPass = exports.debugFCM = exports.onEventPublished = exports.sendPushNotification = exports.schedulePayouts = exports.createCheckoutSession = exports.createPaymentIntentHttp = exports.createPaymentIntent = exports.stripeWebhook = void 0;
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — Cloud Functions Index
 // ─────────────────────────────────────────────────────────────────────
@@ -79,6 +79,8 @@ var validateSuperAdminPin_1 = require("./door/validateSuperAdminPin");
 Object.defineProperty(exports, "validateSuperAdminPin", { enumerable: true, get: function () { return validateSuperAdminPin_1.validateSuperAdminPin; } });
 var createDashboardUser_1 = require("./users/createDashboardUser");
 Object.defineProperty(exports, "createDashboardUser", { enumerable: true, get: function () { return createDashboardUser_1.createDashboardUser; } });
+var onUserCreated_1 = require("./users/onUserCreated");
+Object.defineProperty(exports, "onUserCreated", { enumerable: true, get: function () { return onUserCreated_1.onUserCreated; } });
 var generateSeriesEvents_1 = require("./series/generateSeriesEvents");
 Object.defineProperty(exports, "generateSeriesEvents", { enumerable: true, get: function () { return generateSeriesEvents_1.generateSeriesEvents; } });
 Object.defineProperty(exports, "generateSeriesEventsScheduled", { enumerable: true, get: function () { return generateSeriesEvents_1.generateSeriesEventsScheduled; } });

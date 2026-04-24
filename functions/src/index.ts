@@ -24,6 +24,7 @@ export { onTicketTypeSold } from './tickets/updateInventory';
 export { generateDoorPin }      from './door/generateDoorPin';
 export { validateSuperAdminPin } from './door/validateSuperAdminPin';
 export { createDashboardUser }  from './users/createDashboardUser';
+export { onUserCreated }        from './users/onUserCreated';
 export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
 export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment, refundDoorSale, cancelDoorSale, autoSettlePendingDoorSales } from './terminal/terminalFunctions';
 export { onTicketColorChange } from './passes/ticketColorSync';
