@@ -219,20 +219,25 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     );
 
     if (current.screen === 'event') {
-      const venue = getVenueByName(current.event.venue);
+      // Scraped events carry venueName but not venue. EventData.venue is typed
+      // as string but is undefined at runtime for scraped events — until that
+      // type is widened (separate ticket), this guard is required at every
+      // navigation boundary that calls getVenueByName.
+      const eventVenueName = (current.event as any).venue ?? (current.event as any).venueName ?? '';
+      const venue = eventVenueName ? getVenueByName(eventVenueName) : undefined;
       return (
         <EventScreen
           event={current.event}
           onBack={pop}
           onVenuePress={() => venue && navigateToVenue(venue)}
-          onMapPress={() => navigateToMap(venue?.address || '', current.event.venue)}
+          onMapPress={() => navigateToMap(venue?.address || '', eventVenueName)}
           onGalleryPress={navigateToGallery}
           onFavoriteToggle={toggleFavorite}
           onGetTickets={current.event.hasTickets === true ? () => push({
             screen:    'ticketSelection',
             eventId:   current.event.id ?? '',
             eventName: current.event.title,
-            venueName: current.event.venue,
+            venueName: eventVenueName,
             eventDate: current.event.date,
             eventTime: current.event.time,
           }) : undefined}
