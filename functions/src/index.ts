@@ -26,6 +26,7 @@ export { validateSuperAdminPin } from './door/validateSuperAdminPin';
 export { createDashboardUser }  from './users/createDashboardUser';
 export { onUserCreated }        from './users/onUserCreated';
 export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
+export { rollForwardSeriesAnchors } from './series/rollForwardSeriesAnchors';
 export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment, refundDoorSale, cancelDoorSale, autoSettlePendingDoorSales } from './terminal/terminalFunctions';
 export { onTicketColorChange } from './passes/ticketColorSync';
 export { asanaWebhook }       from './asana/asanaWebhook';

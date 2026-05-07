@@ -75,7 +75,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
         {/* Hero image */}
         <View style={{ width: SCREEN_WIDTH, position: 'relative' }}>
           <Image
-            source={{ uri: venue.media[selectedThumb] }}
+            source={{ uri: venue.media[selectedThumb]?.uri }}
             style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH * 0.7 }}
             resizeMode="cover"
           />
@@ -99,7 +99,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             {venue.media.map((item, index) => (
               <TouchableOpacity key={index} onPress={() => setSelectedThumb(index)}>
                 <Image
-                  source={{ uri: item }}
+                  source={{ uri: item.uri }}
                   style={[{ width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: 10, opacity: 0.5 }, index === selectedThumb && { opacity: 1, borderWidth: 2, borderColor: theme.accent }]}
                   resizeMode="cover"
                 />

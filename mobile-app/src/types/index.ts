@@ -44,7 +44,7 @@ export type VenueData = {
   logoUrl?: string;
   attributes: string[];
   about: string;
-  media: string[];
+  media: { type: string; uri: string }[];
   menuDescription: string;
   menuAttributes: string[];
   bestSellers: {
@@ -125,7 +125,9 @@ export type FSVenue = {
   attributes: string[];
   vibes: string[];
   about: string;
-  media: string[];
+  // Legacy docs may store either bare URLs or {type, uri} objects.
+  // toVenueData() normalizes to object shape before render.
+  media: (string | { type: string; uri: string })[];
   status: string;
   createdAt: any;
 };

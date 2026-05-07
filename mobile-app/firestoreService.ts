@@ -61,7 +61,9 @@ export type FSVenue = {
   attributes: string[];
   vibes: string[];
   about: string;
-  media: string[];
+  // Legacy docs may store either bare URLs or {type, uri} objects.
+  // toVenueData() normalizes to object shape before render.
+  media: (string | { type: string; uri: string })[];
 
   // Status model:
   //   pending_review — confidence < 80, needs manual approval, visible in app

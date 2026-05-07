@@ -31,10 +31,15 @@ function fsEventToCard(e: FSEvent): ForYouCard {
 }
 
 function fsVenueToCard(v: FSVenue): ForYouCard {
+  // Normalize legacy string-array media to {type, uri} objects so the
+  // VenueData payload + the card's flat image field both read cleanly.
+  const normalizedMedia = (v.media || []).map(m =>
+    typeof m === 'string' ? { type: 'image', uri: m } : m
+  );
   return {
     id: v.id, type: 'venue',
     title: v.name, subtitle: `${v.category || 'Venue'} · ${v.neighborhood || 'Atlanta'}`,
-    image: v.media?.[0] || `https://picsum.photos/seed/${v.id}/600/900`,
+    image: normalizedMedia[0]?.uri || `https://picsum.photos/seed/${v.id}/600/900`,
     tag: v.vibes?.[0] || 'Venue', tagColor: '#7c3aed',
     data: {
       id: v.id, name: v.name, category: v.category || '',
@@ -42,7 +47,7 @@ function fsVenueToCard(v: FSVenue): ForYouCard {
       website: v.website || '', instagram: v.instagram || '',
       about: v.about || '', attributes: v.attributes || [],
       vibes: v.vibes || [], status: v.status,
-      media: v.media || [], rating: v.rating || null, priceLevel: v.priceLevel || '',
+      media: normalizedMedia, rating: v.rating || null, priceLevel: v.priceLevel || '',
       isClaimed: v.isClaimed || false, isFeatured: (v as any).isFeatured || false,
     } as VenueData,
   };

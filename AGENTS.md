@@ -44,6 +44,13 @@ missing fields as null/false. This has caused multiple launch-blocking bugs.
 **New filters require either (a) confirmation the field is universally 
 written across all writers, or (b) a backfill + writer-update plan.**
 
+**Calibration as of 2026-05-07:** `events.isFeatured`, `events.isSeriesAnchor`, 
+`venues.isFeatured`, `events.createdAt` (approved status only), and 
+`venues.createdAt` are all CONFIRMED universally present in `wugi-prod`. 
+Theoretical exposure on these fields without a corresponding writer regression 
+should be flagged P3 (informational) not P1. Re-audit if non-trivial schema 
+changes land. Audit script: `mobile-app/scripts/backfill-missing-fields.js --dry-run --list`.
+
 ## Other Firestore patterns
 
 - **Recursive rule evaluation.** Flag Firestore rules that call 

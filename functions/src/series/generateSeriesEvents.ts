@@ -36,10 +36,24 @@ async function generateForSeries(seriesId: string, weeksAhead = 8) {
   const endDate = s.endDate?.toDate?.() || null;
   const generated: string[] = [];
 
-  // Get existing instance dates to avoid duplicates
+  // Get existing occurrences for both dedupe AND anchor-state context.
   const existing = await db.collection('events')
     .where('seriesId', '==', seriesId).get();
   const existingDates = new Set(existing.docs.map(d => d.data().instanceDate));
+
+  // Anchor-picking — mirrors backfill-series-ids.js / scrape series-stamping
+  // pass: lowest future-or-today occurrence becomes the anchor. We only set
+  // anchor=true on a NEW occurrence if no existing sibling already holds a
+  // valid anchor (true + future-or-today). rollForwardSeriesAnchors handles
+  // ongoing demote/promote as dates pass.
+  const TODAY_ISO = new Date().toISOString().slice(0, 10);
+  const hasValidExistingAnchor = existing.docs.some(d => {
+    const data = d.data();
+    return data.isSeriesAnchor === true && (data.dateISO || '') >= TODAY_ISO;
+  });
+  // Cursor advances forward each iteration, so the first non-skipped new
+  // occurrence is necessarily the lowest-future new one.
+  let newAnchorAssigned = false;
 
   let cursor = nextOccurrence(s.day, now);
 
@@ -48,6 +62,9 @@ async function generateForSeries(seriesId: string, weeksAhead = 8) {
 
     const instanceDate = formatDate(cursor);
     if (!existingDates.has(instanceDate)) {
+      const isAnchor = !hasValidExistingAnchor && !newAnchorAssigned;
+      if (isAnchor) newAnchorAssigned = true;
+
       const ref = await db.collection('events').add({
         title:       s.name,
         venue:       s.venueName || '',
@@ -64,6 +81,12 @@ async function generateForSeries(seriesId: string, weeksAhead = 8) {
         seriesInstance: true,
         instanceDate,
         promoterId:  s.promoterId || null,
+        // Always present so consumer feeds that orderBy('isFeatured') or
+        // where('isSeriesAnchor') don't silently exclude these generated
+        // occurrences. Anchor selection above mirrors the canonical pattern
+        // from backfill-series-ids.js. Promotion scripts flip isFeatured.
+        isSeriesAnchor: isAnchor,
+        isFeatured:     false,
         createdAt:   admin.firestore.FieldValue.serverTimestamp(),
         updatedAt:   admin.firestore.FieldValue.serverTimestamp(),
       });

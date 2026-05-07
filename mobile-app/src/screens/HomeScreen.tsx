@@ -37,7 +37,11 @@ function toVenueData(v: FSVenue): VenueData {
     logoUrl: (v as any).logoUrl || '',
     website: v.website || '', instagram: v.instagram || '',
     attributes: v.attributes || [], about: v.about || '',
-    media: v.media || [],
+    // Normalize legacy string-array media to {type, uri} objects so all
+    // downstream renders can read .uri uniformly.
+    media: (v.media || []).map(m =>
+      typeof m === 'string' ? { type: 'image', uri: m } : m
+    ),
     menuDescription: v.about || '', menuAttributes: v.attributes || [],
     bestSellers: [], upcomingEvents: [], galleries: [],
   };

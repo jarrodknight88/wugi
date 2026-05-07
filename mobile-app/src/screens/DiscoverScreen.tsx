@@ -35,7 +35,11 @@ function toVenueData(v: FSVenue): VenueData {
     logoUrl: (v as any).logoUrl || '',
     website: v.website || '', instagram: v.instagram || '',
     attributes: v.attributes || [], about: v.about || '',
-    media: v.media || [],
+    // Normalize legacy string-array media to {type, uri} objects so all
+    // downstream renders can read .uri uniformly.
+    media: (v.media || []).map(m =>
+      typeof m === 'string' ? { type: 'image', uri: m } : m
+    ),
     menuDescription: v.about || '', menuAttributes: v.attributes || [],
     bestSellers: [], upcomingEvents: [], galleries: [],
   };
@@ -175,7 +179,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
       console.log('DiscoverScreen: fetch failed, using mock', e);
       const results: DiscoverItem[] = [];
       EVENTS.forEach(ev => results.push({ kind: 'event', data: ev, image: (ev.media || [])[0]?.uri || 'https://picsum.photos/seed/ev/400/400' }));
-      VENUES.forEach(v  => results.push({ kind: 'venue', data: v,  image: (v.media  || [])[0]   || 'https://picsum.photos/seed/vn/400/400' }));
+      VENUES.forEach(v  => results.push({ kind: 'venue', data: v,  image: (v.media  || [])[0]?.uri || 'https://picsum.photos/seed/vn/400/400' }));
       setAllResults(results);
     }
   };
