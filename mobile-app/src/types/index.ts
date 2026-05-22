@@ -23,6 +23,10 @@ export type EventData = {
   id: string;
   title: string;
   venue: string;
+  // venueId is the Firestore venue doc id used by EventScreen's useVenueById
+  // lookup. Optional because hand-seeded mock data and notification deep-links
+  // may not carry it; the lookup hook treats missing venueId as a no-op.
+  venueId?: string;
   date: string;
   time: string;
   age: string;
@@ -56,6 +60,47 @@ export type VenueData = {
   }[];
   upcomingEvents: EventData[];
   galleries: GalleryData[];
+
+  // Added for the Scope B+ reskin. Optional so existing seed/mock data
+  // without these fields still renders (the screen hides slots that are
+  // missing). Populated by the Phase 2 Firestore ingest.
+  shortDescription?: string;
+  neighborhood?: string;
+  priceTier?: string;          // e.g. "$", "$$", "$$$", "$$$$"
+  rating?: number | null;      // venue-level rating, e.g. 4.2 (null = unrated)
+  age?: string;                // e.g. "21+", "All Ages"
+  dressCode?: string;
+  hoursText?: string;
+  openStatusHint?: string;     // e.g. "OPEN · TILL 12 AM"
+  amenities?: string[];
+  vibes?: string[];
+  reservationProvider?: 'opentable' | 'direct' | string;
+  reservationUrl?: string;
+  reservationUrlWithDefaults?: string;
+  ctaPrimary?: string;         // e.g. "Reserve a table" or "Get a Section"
+  ctaSecondary?: string;       // e.g. "Directions"
+};
+
+// ── Menu ──────────────────────────────────────────────────────────────
+// Menu items live at venues/{venueId}/menu/{itemId}. Rendered by
+// MenuScreen (grouped by section) and MenuItemScreen (single dish detail).
+// Phase 2 ingest populates these from scripts/venue-data/*.json; until
+// then the subcollection is empty and MenuScreen shows a tasteful empty
+// state. allergens/ingredients/pairings are design-spec fields not yet
+// populated — MenuItemScreen hides slots that come back empty.
+export type MenuItem = {
+  id: string;
+  name: string;
+  description?: string;
+  price?: number;
+  priceDisplay?: string;
+  section?: string;
+  tags?: string[];
+  badges?: string[];
+  imageUrl?: string;
+  allergens?: string[];
+  ingredients?: string[];
+  pairings?: string[];
 };
 
 // ── For You ───────────────────────────────────────────────────────────
@@ -95,7 +140,9 @@ export type NavEntry =
   | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }
   | { screen: 'pass'; orderId: string; isGuest?: boolean }
-  | { screen: 'scan'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string };
+  | { screen: 'scan'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
+  | { screen: 'menu'; venueId: string; venueName: string }
+  | { screen: 'menuItem'; venueId: string; venueName: string; item: MenuItem };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {
@@ -130,6 +177,22 @@ export type FSVenue = {
   media: (string | { type: string; uri: string })[];
   status: string;
   createdAt: any;
+
+  // Reskin fields (optional — may be absent on docs predating Phase 2 ingest).
+  shortDescription?: string;
+  neighborhood?: string;
+  priceTier?: string;
+  rating?: number | null;
+  age?: string;
+  dressCode?: string;
+  hoursText?: string;
+  openStatusHint?: string;
+  amenities?: string[];
+  reservationProvider?: 'opentable' | 'direct' | string;
+  reservationUrl?: string;
+  reservationUrlWithDefaults?: string;
+  ctaPrimary?: string;
+  ctaSecondary?: string;
 };
 
 export type FSDeal = {

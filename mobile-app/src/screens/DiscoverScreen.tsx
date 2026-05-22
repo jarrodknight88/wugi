@@ -3,11 +3,8 @@
 // Wired to Firestore — falls back to mock if empty/error
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, Image, TouchableOpacity, ScrollView,
-  SafeAreaView, TextInput, Dimensions, ActivityIndicator,
-  StyleSheet, RefreshControl,
-} from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, TextInput, Dimensions, ActivityIndicator, StyleSheet, RefreshControl,  } from 'react-native';
+import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
@@ -20,7 +17,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // ── Converters ────────────────────────────────────────────────────────
 function toEventData(e: FSEvent): EventData {
   return {
-    id: e.id, title: e.title, venue: e.venue,
+    id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
     hasTickets: (e as any).hasTickets === true,
@@ -42,6 +39,15 @@ function toVenueData(v: FSVenue): VenueData {
     ),
     menuDescription: v.about || '', menuAttributes: v.attributes || [],
     bestSellers: [], upcomingEvents: [], galleries: [],
+    shortDescription: v.shortDescription, neighborhood: v.neighborhood,
+    priceTier: v.priceTier, rating: v.rating, age: v.age,
+    dressCode: v.dressCode, hoursText: v.hoursText,
+    openStatusHint: v.openStatusHint, amenities: v.amenities,
+    vibes: v.vibes,
+    reservationProvider: v.reservationProvider,
+    reservationUrl: v.reservationUrl,
+    reservationUrlWithDefaults: v.reservationUrlWithDefaults,
+    ctaPrimary: v.ctaPrimary, ctaSecondary: v.ctaSecondary,
   };
 }
 
@@ -133,9 +139,15 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
       const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
         await import('../../firestoreService');
 
+      // VENUE-DATA-07 D: bumped 30 → 100. Catalog has 484 venues + 569
+      // events. Full cursor-based infinite scroll is wired in
+      // useInfiniteVenues / useInfiniteEvents (src/hooks/useCatalogQueries.ts)
+      // + getApprovedVenuesPage / getApprovedEventsPage (firestoreService.ts)
+      // — DiscoverScreen rewrite to consume them is a follow-up ticket
+      // because it'd require reshaping the DiscoverItem composition logic.
       const [liveEvents, liveVenues, liveDeals] = await Promise.all([
-        getApprovedEvents([], 30),
-        getApprovedVenues([], 30),
+        getApprovedEvents([], 100),
+        getApprovedVenues([], 100),
         getActiveDeals([], 10),
       ]);
 
@@ -163,7 +175,14 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
       venues.forEach(v => results.push({
         kind: 'venue',
         data: toVenueData(v),
-        image: (v.media || [])[0] || `https://picsum.photos/seed/${v.id}/400/400`,
+        // VENUE-DATA-08 A.5: media items are {type, uri} objects post-INFRA-VENUE-01;
+        // also handle legacy string-array shape on hand-seeded mock data.
+        image: (() => {
+          const first = (v.media || [])[0] as any;
+          if (!first) return `https://picsum.photos/seed/${v.id}/400/400`;
+          if (typeof first === 'string') return first;
+          return first?.uri || `https://picsum.photos/seed/${v.id}/400/400`;
+        })(),
       }));
 
       liveDeals.forEach(d => results.push({
@@ -238,7 +257,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
         onPress={() => handleItemPress(item)}
         activeOpacity={0.85}
       >
-        <Image source={{ uri: item.image }} style={{ width: 88, height: 88 }} resizeMode="cover"/>
+        <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={{ width: 88, height: 88 }} contentFit="cover"/>
         <View style={{ flex: 1, padding: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 }}>
             <View style={{ backgroundColor: tag.color + '22', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
@@ -264,7 +283,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
         onPress={() => handleItemPress(item)}
         activeOpacity={0.85}
       >
-        <Image source={{ uri: item.image }} style={{ width: COL_WIDTH, height: COL_WIDTH }} resizeMode="cover"/>
+        <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={{ width: COL_WIDTH, height: COL_WIDTH }} contentFit="cover"/>
         <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: tag.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
           <Text style={{ color: '#fff', fontSize: 9, fontWeight: '700' }}>{tag.label.toUpperCase()}</Text>
         </View>
@@ -414,7 +433,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
         {/* Results */}
         {showMap ? (
           <View style={{ marginHorizontal: 16, borderRadius: 16, overflow: 'hidden', height: SCREEN_HEIGHT * 0.55 }}>
-            <Image source={{ uri: 'https://picsum.photos/seed/mapview/800/600' }} style={{ width: '100%', height: '100%' }} resizeMode="cover"/>
+            <Image cachePolicy="memory-disk" source={{ uri: 'https://picsum.photos/seed/mapview/800/600' }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
           </View>
         ) : viewMode === 'list' ? (
           <View style={{ paddingHorizontal: 16 }}>

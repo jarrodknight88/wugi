@@ -11,14 +11,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, useColorScheme } from 'react-native';
 import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
-import { getVenueByName } from '../constants/mockData';
 import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
 
 // Screens
-import { SplashScreen }     from '../screens/SplashScreen';
-import { SignupScreen }     from '../screens/SignupScreen';
-import { OnboardingScreen } from '../screens/OnboardingScreen';
-import { UsernameScreen }   from '../screens/UsernameScreen';
+import { SplashScreen }         from '../screens/SplashScreen';
+import { SignupScreen }         from '../screens/SignupScreen';
+import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
+import { OnboardingScreen }     from '../screens/OnboardingScreen';
+import { UsernameScreen }       from '../screens/UsernameScreen';
 import { HomeScreen }       from '../screens/HomeScreen';
 import { DiscoverScreen }   from '../screens/DiscoverScreen';
 import { ForYouScreen }     from '../screens/ForYouScreen';
@@ -26,6 +26,8 @@ import { FavoritesScreen }  from '../screens/FavoritesScreen';
 import { AccountScreen }    from '../screens/AccountScreen';
 import { EventScreen }      from '../screens/EventScreen';
 import { VenueScreen }      from '../screens/VenueScreen';
+import { MenuScreen }       from '../screens/MenuScreen';
+import { MenuItemScreen }   from '../screens/MenuItemScreen';
 import { GalleryScreen }    from '../screens/GalleryScreen';
 import { PhotoViewer }      from '../screens/PhotoViewer';
 import { MapScreen }        from '../screens/MapScreen';
@@ -39,7 +41,8 @@ import { PassScreen }            from '../features/ticketing/PassScreen';
 import type { TicketSelection }  from '../features/ticketing/TicketSelectionScreen';
 
 // Components
-import { TabBar } from '../components/TabBar';
+import { TabBar }              from '../components/TabBar';
+import { EmailVerifyBanner }   from '../components/EmailVerifyBanner';
 
 // ── Inner navigator — has access to FirebaseContext ───────────────────
 function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (data: Record<string, string>) => void) => void }) {
@@ -48,12 +51,14 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   const { userVibes, user, authLoading } = useFirebase();
 
   // Phases:
-  //   splash     → always shown first (brand moment)
-  //   signup     → auth gate for new/returning/guest
-  //   onboarding → vibe selection slides (new users only)
-  //   username   → username picker (new users only, after vibe slides)
-  //   main       → main tab experience
-  const [appPhase,      setAppPhase]      = useState<'splash' | 'signup' | 'onboarding' | 'username' | 'main'>('splash');
+  //   splash           → always shown first (brand moment)
+  //   signup           → auth gate for new/returning/guest
+  //   forgot-password  → password reset (entered from signup)
+  //   onboarding       → vibe selection slides (new users only)
+  //   username         → username picker (new users only, after vibe slides)
+  //   main             → main tab experience
+  const [appPhase,           setAppPhase]           = useState<'splash' | 'signup' | 'forgot-password' | 'onboarding' | 'username' | 'main'>('splash');
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const splashDoneRef = useRef(false);
   const routedRef     = useRef(false);
   const userRef       = useRef(user); // always holds latest user value
@@ -116,6 +121,10 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             id: eventId,
             title: data.eventTitle ?? 'Event',
             venue: data.venueName ?? '',
+            // FCM payload may carry venueId so EventScreen can resolve the
+            // venue identity block via useVenueById. Optional; absence is
+            // a no-op (block hides) rather than a render failure.
+            venueId: data.venueId ?? '',
             date: '',
             time: '',
             about: '',
@@ -146,6 +155,17 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       onSignupComplete={() => setAppPhase('onboarding')}
       onSignInComplete={() => setAppPhase('main')}
       onGuest={() => setAppPhase('main')}
+      onForgotPassword={(currentEmail) => {
+        setForgotPasswordEmail(currentEmail);
+        setAppPhase('forgot-password');
+      }}
+    />
+  );
+
+  if (appPhase === 'forgot-password') return (
+    <ForgotPasswordScreen
+      initialEmail={forgotPasswordEmail}
+      onBack={() => setAppPhase('signup')}
     />
   );
 
@@ -219,18 +239,28 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     );
 
     if (current.screen === 'event') {
-      // Scraped events carry venueName but not venue. EventData.venue is typed
-      // as string but is undefined at runtime for scraped events — until that
-      // type is widened (separate ticket), this guard is required at every
-      // navigation boundary that calls getVenueByName.
+      // EventScreen now resolves its own venue via useVenueById(event.venueId)
+      // (2026-05-08 fix — the prior getVenueByName(eventVenueName) only matched
+      // 3 hardcoded mock venues and returned undefined for every Firestore event,
+      // leaving address/phone/website/logo blank). The navigator no longer needs
+      // to do venue resolution for the screen's render — only for the
+      // onVenuePress / onMapPress callbacks below, which are stop-gapped to use
+      // event-side data until the long-term Approach 2 refactor lands (see
+      // memory: approach-2-event-venue-embedding-followup).
       const eventVenueName = (current.event as any).venue ?? (current.event as any).venueName ?? '';
-      const venue = eventVenueName ? getVenueByName(eventVenueName) : undefined;
       return (
         <EventScreen
           event={current.event}
           onBack={pop}
-          onVenuePress={() => venue && navigateToVenue(venue)}
-          onMapPress={() => navigateToMap(venue?.address || '', eventVenueName)}
+          // onVenuePress: no-op until VenueScreen accepts a venueId (Approach 2).
+          // The chevron stays tappable but won't navigate; tonight's hotfix focuses
+          // on rendering the event detail correctly, not cross-navigation.
+          onVenuePress={() => { /* TODO Approach 2: navigate to venue by id */ }}
+          // onMapPress now receives the address resolved by EventScreen's
+          // useVenueById lookup — the prior `event.address` read was always
+          // empty for Firestore events (events don't carry venue address;
+          // only venues do).
+          onMapPress={(addr, name) => navigateToMap(addr, name)}
           onGalleryPress={navigateToGallery}
           onFavoriteToggle={toggleFavorite}
           onGetTickets={current.event.hasTickets === true ? () => push({
@@ -253,6 +283,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         onEventPress={navigateToEvent}
         onMapPress={() => navigateToMap(current.venue.address, current.venue.name)}
         onGalleryPress={navigateToGallery}
+        onMenuPress={() => push({ screen: 'menu', venueId: current.venue.id, venueName: current.venue.name })}
         onGetTickets={(activeEvent) => push({
           screen:    'ticketSelection',
           eventId:   activeEvent.id,
@@ -265,6 +296,25 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       />
     );
 
+    if (current.screen === 'menu') return (
+      <MenuScreen
+        venueId={current.venueId}
+        venueName={current.venueName}
+        theme={theme}
+        onBack={pop}
+        onItemPress={(item) => push({ screen: 'menuItem', venueId: current.venueId, venueName: current.venueName, item })}
+      />
+    );
+
+    if (current.screen === 'menuItem') return (
+      <MenuItemScreen
+        item={current.item}
+        venueName={current.venueName}
+        theme={theme}
+        onBack={pop}
+      />
+    );
+
     return null;
   };
 
@@ -273,6 +323,9 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   // to an event/venue and pressing back
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {/* Email verification banner — sits above tabs, hidden when stack open */}
+      {!stackVisible && <EmailVerifyBanner />}
+
       {/* Tabs — always mounted, hidden behind stack */}
       <View style={{ flex: 1, display: stackVisible ? 'none' : 'flex' }}>
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}

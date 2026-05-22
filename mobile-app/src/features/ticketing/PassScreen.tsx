@@ -153,7 +153,7 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
   if (!pass) return null;
 
   const passColor    = pass.color || theme.accent;
-  const statusColor  = pass.scanStatus === 'valid' ? passColor : pass.scanStatus === 'scanned' ? '#e67e22' : '#e74c3c';
+  const statusColor  = pass.scanStatus === 'valid' ? passColor : pass.scanStatus === 'scanned' ? theme.statusWarning : theme.statusDanger;
   const statusLabel  = pass.scanStatus === 'valid' ? '✓ Valid' : pass.scanStatus === 'scanned' ? 'Used' : 'Invalid';
   const hasBalance   = (pass.balanceDue ?? 0) > 0;
   const isVerified   = pass.idVerification?.verified === true;
@@ -175,7 +175,7 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
         <View style={{ alignItems: 'center', marginBottom: 24 }}>
           <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
-              <Path d="M5 12l5 5L20 7" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+              <Path d="M5 12l5 5L20 7" stroke={theme.onAccent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
             </Svg>
           </View>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>You're in!</Text>
@@ -186,20 +186,20 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
 
         {/* Pass card */}
         <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1.5, borderColor: passColor, marginBottom: 16, shadowColor: passColor, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
-          {/* Header */}
-          <View style={{ backgroundColor: passColor, padding: 16, alignItems: 'center' }}>
-            <Text style={{ color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: -1 }}>wugi</Text>
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800', marginTop: 4 }} numberOfLines={1}>{pass.eventName}</Text>
-            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 }}>{pass.venueName}{pass.eventDate ? ` · ${pass.eventDate}` : ''}{pass.eventTime ? ` · ${pass.eventTime}` : ''}</Text>
+          {/* Header — wugi wordmark + event title on the brand-color band */}
+          <View style={{ backgroundColor: passColor, padding: 18, alignItems: 'center' }}>
+            <Text style={{ color: theme.onAccent, fontSize: 22, fontWeight: '900', letterSpacing: -1 }}>wugi</Text>
+            <Text style={{ color: theme.onAccent, fontSize: 15, fontWeight: '800', marginTop: 4 }} numberOfLines={1}>{pass.eventName}</Text>
+            <Text style={{ color: theme.onImageSoft, fontSize: 12, marginTop: 2 }}>{pass.venueName}{pass.eventDate ? ` · ${pass.eventDate}` : ''}{pass.eventTime ? ` · ${pass.eventTime}` : ''}</Text>
           </View>
 
-          {/* Balance due warning */}
+          {/* Balance due warning — tinted to the warning token so it works in both themes */}
           {hasBalance && (
-            <View style={{ backgroundColor: '#2a1a00', padding: 12, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#e6a817' }}>
-              <Text style={{ color: '#e6a817', fontWeight: '800', fontSize: 14 }}>
+            <View style={{ backgroundColor: theme.statusWarning + '15', padding: 12, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: theme.statusWarning }}>
+              <Text style={{ color: theme.statusWarning, fontWeight: '800', fontSize: 14 }}>
                 ⚠️  ${((pass.balanceDue ?? 0) / 100).toFixed(2)} balance due at door
               </Text>
-              <Text style={{ color: '#a16207', fontSize: 11, marginTop: 2 }}>Please have payment ready upon arrival</Text>
+              <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }}>Please have payment ready upon arrival</Text>
             </View>
           )}
 
@@ -290,7 +290,7 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
               onPress={onSignUp}
               style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
             >
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Create a free account</Text>
+              <Text style={{ color: theme.onAccent, fontSize: 14, fontWeight: '700' }}>Create a free account</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center' }}>
               <Text style={{ color: theme.subtext, fontSize: 12 }}>No thanks, I'll find it in my email</Text>
