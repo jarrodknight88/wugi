@@ -1,48 +1,28 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — HomeScreen
-// Fetches live data from Firestore, falls back to mock if empty/error
+//
+// Plan-first "Tonight" digest, restyled to the Claude Design handoff
+// (wugi-design-system @ consumer-app). Home owns "for me, right now,
+// tonight": a time-aware hero, vibe-matched picks, where-to-start
+// venues, and a weekend look-ahead.
+//
+// Real-data-only build: shelves from the design that need backends we
+// don't have yet are omitted rather than mocked —
+//   • "Your Plan" (passes + saved)  → favorites/passes not wired here
+//   • "Recent Galleries" (Lens)     → only mock galleries exist today
+// Fetches live data from Firestore, falls back to mock if empty/error.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, ActivityIndicator, Dimensions, StyleSheet, RefreshControl, Pressable } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, ActivityIndicator, StyleSheet, RefreshControl, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from '../types';
-import { EVENTS, VENUES, DEALS, VIBE_LIST, ALL_GALLERIES, makeGallery } from '../constants/mockData';
-import { SectionHeader }    from '../components/SectionHeader';
-import { FeaturedCarousel } from '../components/FeaturedCarousel';
-import { CameraIcon, StarIcon } from '../components/icons';
-import { StoriesBar }       from '../features/stories/StoriesBar';
-import { HeartBurst, type HeartBurstHandle } from '../components/HeartBurst';
-import { useDoubleTap } from '../hooks/useDoubleTap';
+import type { EventData, VenueData, GalleryData, FSEvent, FSVenue } from '../types';
+import { EVENTS, VENUES, makeGallery } from '../constants/mockData';
+import { CameraIcon, ChevronRightIcon } from '../components/icons';
 
-// ── Tonight's Picks card ─────────────────────────────────────────────
-// Pulled out so HeartBurst ref + useDoubleTap state survive FlatList
-// re-renders. Double-tap fires the heart bloom (favorite hook lives at
-// the navigator and isn't wired through here yet — for now the burst is
-// the user-visible affordance and we log to a callback if provided).
-function PicksCard({
-  item, theme, onPress, onFavorite,
-}: { item: EventData; theme: Theme; onPress: () => void; onFavorite?: () => void }) {
-  const heart = useRef<HeartBurstHandle>(null);
-  const handlePress = useDoubleTap({
-    onDoubleTap: () => { heart.current?.burst(); onFavorite?.(); },
-    onSingleTap: onPress,
-  });
-  return (
-    <Pressable onPress={handlePress} style={{ width: 130, height: 200, borderRadius: 12, overflow: 'hidden' }}>
-      <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
-      <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
-        <Text style={{ color: theme.accent, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 }}>{item.time}</Text>
-        <Text style={{ color: theme.onImage, fontSize: 12, fontWeight: '700', lineHeight: 15, marginBottom: 2 }} numberOfLines={2}>{item.title}</Text>
-        <Text style={{ color: theme.onImageMuted, fontSize: 10 }} numberOfLines={1}>{item.venue}</Text>
-      </View>
-      <HeartBurst ref={heart}/>
-    </Pressable>
-  );
-}
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Monospace family for the design's "letterpress" eyebrow/kicker labels.
+// System mono only (Menlo on iOS) — no custom font, per build constraints.
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) as string;
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
 // Buckets the current hour into morning / afternoon / evening / late-night.
@@ -55,11 +35,11 @@ function getDayBucket(d: Date = new Date()): DayBucket {
   if (h >= 17 && h < 24) return 'evening';
   return 'lateNight';
 }
-const HERO_COPY: Record<DayBucket, { kicker: string; title: string; sub: string }> = {
-  morning:   { kicker: 'THIS MORNING',  title: 'Start the day',       sub: 'Brunch, coffee, and patios.' },
-  afternoon: { kicker: 'THIS AFTERNOON', title: 'Where to land',      sub: 'Happy-hour picks worth the detour.' },
-  evening:   { kicker: 'TONIGHT',        title: 'Atlanta tonight',    sub: 'Where the energy is going.' },
-  lateNight: { kicker: 'AFTER HOURS',   title: 'Still open right now', sub: 'Late kitchens and last-call spots.' },
+const HERO_COPY: Record<DayBucket, { kicker: string; title: string; sub: string; cta: string }> = {
+  morning:   { kicker: 'BRUNCH HOUR', title: 'Brunch nearby',        sub: 'Where to start your day in Atlanta',         cta: 'See brunch spots' },
+  afternoon: { kicker: 'TONIGHT',     title: 'Tonight at a glance',  sub: 'Picked for your vibes',                      cta: 'See tonight' },
+  evening:   { kicker: 'TONIGHT',     title: "Tonight's scene",      sub: 'Venues, events, and dishes from your vibes', cta: 'Start exploring' },
+  lateNight: { kicker: 'STILL OPEN',  title: 'Still open near you',  sub: 'Late-night spots from your vibes',           cta: 'See late-night' },
 };
 
 // ── Firestore → local type converters ────────────────────────────────
@@ -105,7 +85,30 @@ function toVenueData(v: FSVenue): VenueData {
 // Mock → FS type helpers for fallback
 const mockToFSEvent = (e: EventData): FSEvent => ({ id:e.id, title:e.title, venue:e.venue, venueId:e.venueId ?? '', date:e.date, time:e.time, age:e.age, about:e.about, vibes:['Boujee'], media:e.media || [], status:'approved', createdAt:null });
 const mockToFSVenue = (v: VenueData): FSVenue => ({ id:v.id, name:v.name, category:v.category, address:v.address, phone:v.phone, website:v.website, instagram:v.instagram, attributes:v.attributes || [], vibes:['Boujee'], about:v.about, media:v.media || [], status:'approved', createdAt:null });
-const mockToFSDeal  = (d: typeof DEALS[0]): FSDeal => ({ id:d.id, title:d.title, venueName:d.venueName, venueId:'', detail:d.detail, image:d.image, vibes:['Boujee'], expiresAt:null });
+
+// ── Shelf header — mono kicker + bold title, optional "All →" ─────────
+function ShelfHeader({ kicker, title, theme, onSeeAll }: {
+  kicker: string; title: string; theme: Theme; onSeeAll?: () => void;
+}) {
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1}>
+          {kicker}
+        </Text>
+        <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700', letterSpacing: -0.3 }}>
+          {title}
+        </Text>
+      </View>
+      {onSeeAll && (
+        <TouchableOpacity onPress={onSeeAll} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>All</Text>
+          <ChevronRightIcon color={theme.accent}/>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
 
 type Props = {
   theme: Theme;
@@ -116,35 +119,30 @@ type Props = {
   onCameraPress:  () => void;
 };
 
-export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, userVibes, onCameraPress }: Props) {
-  const [events,    setEvents]    = useState<FSEvent[]>([]);
-  const [venues,    setVenues]    = useState<FSVenue[]>([]);
-  const [deals,     setDeals]     = useState<FSDeal[]>([]);
-  const [loading,   setLoading]   = useState(true);
+export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCameraPress }: Props) {
+  const [events,     setEvents]     = useState<FSEvent[]>([]);
+  const [venues,     setVenues]     = useState<FSVenue[]>([]);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = async () => {
     try {
-      const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
+      const { getApprovedEvents, getApprovedVenues } =
         await import('../../firestoreService');
 
-      // VENUE-DATA-07 D: bumped 20 → 100 for venues+events. Home's
-      // multi-section layout (Featured, Near Me, etc.) benefits from a
-      // larger pool to slice from. Deals stay at 5 (small cap deliberate).
-      const [liveEvents, liveVenues, liveDeals] = await Promise.all([
+      // Larger pool (100) so the picks / weekend / where-to-start shelves
+      // have room to slice from after vibe filtering.
+      const [liveEvents, liveVenues] = await Promise.all([
         getApprovedEvents(userVibes, 100),
         getApprovedVenues(userVibes, 100),
-        getActiveDeals(userVibes, 5),
       ]);
 
       setEvents(liveEvents.length > 0 ? liveEvents : EVENTS.map(mockToFSEvent));
       setVenues(liveVenues.length > 0 ? liveVenues : VENUES.map(mockToFSVenue));
-      setDeals(liveDeals.length  > 0 ? liveDeals  : DEALS.map(mockToFSDeal));
     } catch (e) {
       console.log('HomeScreen: Firestore fetch failed, using mock data', e);
       setEvents(EVENTS.map(mockToFSEvent));
       setVenues(VENUES.map(mockToFSVenue));
-      setDeals(DEALS.map(mockToFSDeal));
     }
   };
 
@@ -167,17 +165,20 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
 
   const eventList = events.map(toEventData);
   const venueList = venues.map(toVenueData);
-  // Featured: isFeatured events sorted by sortOrder, fallback to first 3
+  // Hero is backed by the top featured event (real data) — no dedicated
+  // editorial hero-image source exists, so we borrow the lead event's media.
   const featuredEvents = events.filter(e => (e as any).isFeatured);
-  const featured  = (featuredEvents.length > 0 ? featuredEvents : events).slice(0, 3).map(toEventData);
-  const tonight   = eventList.slice(0, 6);
-  const upcoming  = eventList.slice(0, 5);
+  const heroEvent = (featuredEvents.length > 0 ? featuredEvents : events)[0]
+    ? toEventData((featuredEvents.length > 0 ? featuredEvents : events)[0]) : undefined;
+  const picks   = eventList.slice(0, 8);
+  const weekend = eventList.slice(0, 6);
+  const starters = venueList.slice(0, 5);
 
   // Time-aware hero copy — computed once per render (cheap).
   const bucket = getDayBucket();
   const hero   = HERO_COPY[bucket];
-  // "Because · [vibe]" reason for the first picks shelf. Falls back to the
-  // bucket kicker so the slot never reads blank for a no-vibe user.
+  // "BECAUSE · [vibe]" reason for picks cards. Falls back to the bucket
+  // kicker so the chip never reads blank for a no-vibe user.
   const picksReason = userVibes[0] ? `BECAUSE · ${userVibes[0].toUpperCase()}` : hero.kicker;
 
   if (loading) {
@@ -191,6 +192,8 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {/* Minimal header — wordmark + camera + vibe summary. No vibe-picker
+          (moved to onboarding in the design). */}
       <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ width: 36 }}/>
@@ -200,13 +203,11 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
           </TouchableOpacity>
         </View>
         {userVibes.length > 0 && (
-          <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
-            Showing {userVibes.join(' · ')} vibes
+          <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 4, fontFamily: MONO, letterSpacing: 0.4 }}>
+            {userVibes.slice(0, 3).join(' · ').toUpperCase()}
           </Text>
         )}
       </SafeAreaView>
-
-      <StoriesBar theme={theme} onAddStory={onCameraPress}/>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -219,149 +220,110 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
           />
         }
       >
-        {/* Time-aware hero — morning / afternoon / evening / late-night */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
-          <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '700', letterSpacing: 1.5 }}>
-            {hero.kicker}
-          </Text>
-          <Text style={{ color: theme.text, fontSize: 28, fontWeight: '900', letterSpacing: -0.8, marginTop: 4 }}>
-            {hero.title}
-          </Text>
-          <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 4 }}>
-            {hero.sub}
-          </Text>
-        </View>
-
-        {/* Tonight's Picks — kicker line + Because · vibe reason */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 12, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={{ color: theme.subtext, fontSize: 10, fontWeight: '700', letterSpacing: 1.2 }} numberOfLines={1}>
-              {picksReason}
+        {/* Time-aware hero — image-backed by the lead featured event */}
+        <TouchableOpacity
+          activeOpacity={heroEvent ? 0.92 : 1}
+          onPress={() => heroEvent && onEventPress(heroEvent)}
+          style={{ height: 280, marginHorizontal: 16, marginTop: 12, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.card }}
+        >
+          {heroEvent && (
+            <Image
+              cachePolicy="memory-disk"
+              source={{ uri: (heroEvent.media || [])[0]?.uri || 'https://picsum.photos/seed/homehero/800/600' }}
+              style={StyleSheet.absoluteFillObject}
+              contentFit="cover"
+            />
+          )}
+          <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18 }}>
+            <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '700', letterSpacing: 0.6, fontFamily: MONO, marginBottom: 8 }}>
+              {hero.kicker}
             </Text>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800', marginTop: 2 }}>
-              Tonight's Picks
+            <Text style={{ color: theme.onImage, fontSize: 32, fontWeight: '900', letterSpacing: -1, marginBottom: 6 }}>
+              {hero.title}
             </Text>
+            <Text style={{ color: theme.onImageSoft, fontSize: 13, marginBottom: 14 }}>
+              {hero.sub}
+            </Text>
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(244,239,225,0.15)', borderWidth: 1, borderColor: 'rgba(244,239,225,0.25)', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16 }}>
+                <Text style={{ color: theme.onImage, fontSize: 13, fontWeight: '600' }}>{hero.cta}</Text>
+                <Text style={{ color: theme.onImage, fontSize: 13, fontWeight: '600', marginLeft: 6 }}>→</Text>
+              </View>
+            </View>
           </View>
-        </View>
-        {featured.length > 0
-          ? <View style={{ marginTop: 10 }}><FeaturedCarousel theme={theme} onEventPress={onEventPress} events={featured}/></View>
-          : <Text style={{ color: theme.subtext, fontSize: 13, paddingHorizontal: 16, marginTop: 8, marginBottom: 12 }}>No events right now — check back soon.</Text>
-        }
+        </TouchableOpacity>
 
-        {tonight.length > 0 && (
-          <FlatList data={tonight} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} style={{ marginTop: 12 }}
-            renderItem={({ item }) => (
-              <PicksCard item={item} theme={theme} onPress={() => onEventPress(item)}/>
-            )}
-          />
+        {/* Picks for you — vibe-matched events */}
+        {picks.length > 0 && (
+          <>
+            <ShelfHeader kicker="FOR YOUR VIBES" title="Picks for you" theme={theme}/>
+            <FlatList
+              data={picks} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={{ width: 170, height: 240, borderRadius: 14, overflow: 'hidden' }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
+                  <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+                  <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
+                  <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ color: theme.onImage, fontSize: 9, fontWeight: '700', letterSpacing: 0.5, fontFamily: MONO }} numberOfLines={1}>{picksReason}</Text>
+                  </View>
+                  <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 14 }}>
+                    <Text style={{ color: theme.onImage, fontSize: 15, fontWeight: '700', letterSpacing: -0.2, lineHeight: 18, marginBottom: 3 }} numberOfLines={2}>{item.title}</Text>
+                    <Text style={{ color: theme.onImageMuted, fontSize: 11 }} numberOfLines={1}>{item.venue}{item.time ? ` · ${item.time}` : ''}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          </>
         )}
 
-        <SectionHeader title="Upcoming Events" theme={theme} onSeeAll={() => {}}/>
-        {upcoming.length > 0
-          ? <FlatList data={upcoming} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+        {/* Where to start — vibe-matched venues, open tonight */}
+        {starters.length > 0 && (
+          <>
+            <ShelfHeader kicker="FROM YOUR VIBES · OPEN TONIGHT" title="Where to start" theme={theme}/>
+            <View style={{ marginHorizontal: 16, borderRadius: 14, borderWidth: 1, overflow: 'hidden', backgroundColor: theme.card, borderColor: theme.border }}>
+              {starters.map((item, index) => {
+                const sub = [item.neighborhood, item.priceTier].filter(Boolean).join(' · ');
+                const hours = item.hoursText || item.openStatusHint;
+                return (
+                  <TouchableOpacity key={item.id} onPress={() => onVenuePress(item)} activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: index > 0 ? 1 : 0, borderTopColor: theme.divider }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{item.name}</Text>
+                      {sub.length > 0 && <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{sub}</Text>}
+                    </View>
+                    {hours && (
+                      <Text style={{ color: theme.subtext, fontSize: 10, fontWeight: '600', letterSpacing: 0.4, fontFamily: MONO, textTransform: 'uppercase' }} numberOfLines={1}>{hours}</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        {/* This weekend — short look-ahead */}
+        {weekend.length > 0 && (
+          <>
+            <ShelfHeader kicker="LOOKING AHEAD" title="This weekend" theme={theme}/>
+            <FlatList
+              data={weekend} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 150, height: 220, borderRadius: 12, overflow: 'hidden' }} onPress={() => onEventPress(item)} activeOpacity={0.88}>
+                <TouchableOpacity style={{ width: 140, height: 190, borderRadius: 12, overflow: 'hidden' }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
                   <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
                   <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
-                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
-                    <Text style={{ color: theme.accent, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 }}>{item.date}</Text>
-                    <Text style={{ color: theme.onImage, fontSize: 13, fontWeight: '700', marginBottom: 1 }} numberOfLines={1}>{item.title}</Text>
-                    <Text style={{ color: theme.onImageMuted, fontSize: 11 }} numberOfLines={1}>{item.venue}</Text>
+                  <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 12 }}>
+                    <Text style={{ color: theme.accent, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, fontFamily: MONO, marginBottom: 2 }} numberOfLines={1}>{item.date}</Text>
+                    <Text style={{ color: theme.onImage, fontSize: 12, fontWeight: '700', lineHeight: 15 }} numberOfLines={2}>{item.title}</Text>
                   </View>
                 </TouchableOpacity>
               )}
             />
-          : <Text style={{ color: theme.subtext, fontSize: 13, paddingHorizontal: 16 }}>No upcoming events.</Text>
-        }
+          </>
+        )}
 
-        <SectionHeader title="Deals & Specials" theme={theme} onSeeAll={() => {}}/>
-        {deals.length > 0
-          ? <FlatList data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 220, height: 150, borderRadius: 12, overflow: 'hidden' }} activeOpacity={0.88}>
-                  <Image cachePolicy="memory-disk" source={{ uri: item.image || 'https://picsum.photos/seed/deal/400/300' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
-                  <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
-                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: theme.accent, paddingHorizontal: 10, paddingVertical: 5, borderBottomLeftRadius: 10 }}>
-                    <Text style={{ color: theme.onAccent, fontSize: 9, fontWeight: '800', letterSpacing: 1 }}>DEAL</Text>
-                  </View>
-                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12 }}>
-                    <Text style={{ color: theme.onImage, fontSize: 14, fontWeight: '800', marginBottom: 2 }}>{item.title}</Text>
-                    <Text style={{ color: theme.onImageSoft, fontSize: 11, marginBottom: 4 }}>{item.venueName}</Text>
-                    <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '600' }}>{item.detail}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          : <Text style={{ color: theme.subtext, fontSize: 13, paddingHorizontal: 16 }}>No active deals.</Text>
-        }
-
-        <SectionHeader title="Explore by Vibe" theme={theme}/>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 8 }}>
-          {VIBE_LIST.map(vibe => (
-            <TouchableOpacity key={vibe.id} style={{ width: (SCREEN_WIDTH - 40) / 2, height: 80, borderRadius: 12, overflow: 'hidden', justifyContent: 'center', paddingLeft: 14 }} activeOpacity={0.85}>
-              <Image cachePolicy="memory-disk" source={{ uri: vibe.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
-              <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: vibe.color + 'cc' }}/>
-              <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: vibe.accent }}/>
-              <Text style={{ color: theme.onImage, fontSize: 14, fontWeight: '800', letterSpacing: -0.2 }}>{vibe.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <SectionHeader title="Featured Venues" theme={theme} onSeeAll={() => {}}/>
-        {venueList.length > 0
-          ? <FlatList data={venueList} keyExtractor={v => v.id} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 200, height: 160, borderRadius: 12, overflow: 'hidden' }} onPress={() => onVenuePress(item)} activeOpacity={0.88}>
-                  <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/300' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
-                  <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
-                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12 }}>
-                    <Text style={{ color: theme.onImage, fontSize: 14, fontWeight: '800', marginBottom: 4 }}>{item.name}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={{ color: theme.onImageSoft, fontSize: 11 }}>{item.category}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                        <StarIcon color={theme.iconAccent}/>
-                        <Text style={{ color: theme.onImage, fontSize: 11, fontWeight: '600' }}>{typeof item.rating === 'number' ? item.rating.toFixed(1) : '4.7'}</Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          : <Text style={{ color: theme.subtext, fontSize: 13, paddingHorizontal: 16 }}>No venues yet.</Text>
-        }
-
-        <SectionHeader title="Near Me" theme={theme} onSeeAll={() => {}}/>
-        {venueList.length > 0
-          ? <View style={{ marginHorizontal: 16, borderRadius: 12, borderWidth: 1, overflow: 'hidden', backgroundColor: theme.card, borderColor: theme.divider }}>
-              {venueList.slice(0, 4).map((item, index) => (
-                <TouchableOpacity key={item.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: index === Math.min(venueList.length, 4) - 1 ? 0 : 1, borderBottomColor: theme.divider, gap: 12 }} onPress={() => onVenuePress(item)} activeOpacity={0.7}>
-                  <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/120/120' }} style={{ width: 44, height: 44, borderRadius: 8 }} contentFit="cover"/>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700', marginBottom: 2 }}>{item.name}</Text>
-                    <Text style={{ color: theme.subtext, fontSize: 11 }}>{item.category}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.accent }}/>
-                    <Text style={{ color: theme.accent, fontSize: 10, fontWeight: '600' }}>Open</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          : <Text style={{ color: theme.subtext, fontSize: 13, paddingHorizontal: 16 }}>No venues nearby.</Text>
-        }
-
-        <SectionHeader title="Recent Galleries" theme={theme}/>
-        <FlatList data={ALL_GALLERIES.slice(0, 6)} keyExtractor={g => g.id} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={{ width: 140, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} onPress={() => onGalleryPress(item)} activeOpacity={0.88}>
-              <Image cachePolicy="memory-disk" source={{ uri: item.coverImage }} style={{ width: 140, height: 140 }} contentFit="cover"/>
-              <View style={{ padding: 10 }}>
-                <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>{item.title}</Text>
-                <Text style={{ color: theme.subtext, fontSize: 10, marginTop: 2 }}>{item.photos.length} photos</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-        />
         <View style={{ height: 40 }}/>
       </ScrollView>
     </View>
