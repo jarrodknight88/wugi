@@ -1,16 +1,30 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — VenueScreen
+//
+// Venue detail, brought to full fidelity against the Claude Design handoff
+// (wugi-design-system @ consumer-app VenueScreen). A place, not a moment:
+//   • Photo carousel hero with the venue name overlaid
+//   • Stats trio (open status · rating · price) + category
+//   • Attribute pills (amenities)
+//   • About + info card (address / phone / website / instagram / hours)
+//   • Upcoming events AT this venue (wired to real Firestore events)
+//   • Sticky Directions + Reserve CTAs
+//
+// Type via FONTS.* (PP Neue Montreal); mono eyebrows/stats via MONO.
+// Real-data-only: sections with no backing data are omitted, not faked.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData } from '../types';
-import { BackIcon, ShareIcon, StarIcon, ChevronRightIcon } from '../components/icons';
-import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
+import { BackIcon, ShareIcon, StarIcon, ChevronRightIcon, LocationIcon } from '../components/icons';
+import { FONTS, MONO } from '../constants/fonts';
+import { makeGallery } from '../constants/mockData';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const HERO_HEIGHT = Math.round(SCREEN_WIDTH * 0.7);
+const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2); // design hero aspect ratio
+const STATUS_GREEN = '#5c9a7e'; // design --status-valid / live-dot (warm sage)
 
 type ActiveTicketEvent = {
   id: string;
@@ -30,56 +44,69 @@ type Props = {
   theme: Theme;
 };
 
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, theme }: Props) {
+export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onMenuPress, onGetTickets, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
+  const [upcoming, setUpcoming] = useState<EventData[]>([]);
   const [activeTicketEvent, setActiveTicketEvent] = useState<ActiveTicketEvent | null>(null);
   const heroRef = useRef<FlatList<{ type: string; uri: string }>>(null);
-  const THUMB_SIZE  = 60;
   const heroMedia = venue.media.length > 0 ? venue.media : [{ type: 'image', uri: '' }];
-  const THUMB_TOTAL = heroMedia.length * (THUMB_SIZE + 8) + 24;
   const hasMultiHero = heroMedia.length > 1;
 
-  // Look up active ticket events for this venue
+  // Real events at this venue — drives Upcoming Events + the Get Tickets CTA.
+  // Query by venueId only (single-field, no composite index needed); filter
+  // approved + derive the ticketed event in JS.
   useEffect(() => {
-    const lookup = async () => {
+    let cancelled = false;
+    const run = async () => {
       try {
         const { getFirestore, collection, getDocs, query, where } =
           await import('@react-native-firebase/firestore');
-        const db   = getFirestore();
-        const snap = await getDocs(
-          query(
-            collection(db, 'events'),
-            where('venueId', '==', venue.id),
-            where('hasTickets', '==', true),
-            where('status', '==', 'approved'),
-          )
-        );
-        if (!snap.empty) {
-          const ev = snap.docs[0].data();
-          setActiveTicketEvent({
-            id:   snap.docs[0].id,
-            name: ev.name ?? ev.title ?? venue.name,
-            date: ev.date ?? '',
-            time: ev.time ?? '',
-          });
+        const db = getFirestore();
+        const snap = await getDocs(query(collection(db, 'events'), where('venueId', '==', venue.id)));
+        const approved = snap.docs.filter(d => d.data().status === 'approved');
+        const evs: EventData[] = approved.slice(0, 8).map(d => {
+          const e = d.data();
+          return {
+            id: d.id, title: e.title || e.name || '', venue: venue.name, venueId: venue.id,
+            date: e.date || '', time: e.time || '', age: e.age || venue.age || '', about: e.about || '',
+            media: (e.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
+            hasTickets: e.hasTickets === true,
+            gallery: makeGallery(d.id, e.title || e.name || '', venue.name, e.date || '', ['gp1','gp2','gp3','gp4']),
+          };
+        });
+        const ticketDoc = approved.find(d => d.data().hasTickets === true);
+        if (!cancelled) {
+          setUpcoming(evs);
+          if (ticketDoc) {
+            const ev = ticketDoc.data();
+            setActiveTicketEvent({ id: ticketDoc.id, name: ev.name ?? ev.title ?? venue.name, date: ev.date ?? '', time: ev.time ?? '' });
+          }
         }
       } catch (e) {
-        // No active ticket events — CTA stays hidden
+        // No events / query failed — Upcoming + ticket CTA stay hidden
       }
     };
-    lookup();
+    run();
+    return () => { cancelled = true; };
   }, [venue.id]);
 
-  // Determine which stats to surface (hide slots with no data)
-  const statsToShow: { label: string; sub?: string }[] = [];
-  if (venue.openStatusHint) statsToShow.push({ label: venue.openStatusHint });
-  else if (venue.hoursText) statsToShow.push({ label: 'HOURS', sub: venue.hoursText.split('  ·  ')[0] });
-  if (typeof venue.rating === 'number') statsToShow.push({ label: `★ ${venue.rating.toFixed(1)}` });
-  if (venue.priceTier) statsToShow.push({ label: venue.priceTier });
+  // Stats trio — open status (green) · rating · price. Render only what exists.
+  const openLabel = venue.openStatusHint || (venue.hoursText ? venue.hoursText.split('  ·  ')[0] : undefined);
+  const stats: { kind: 'open' | 'rating' | 'price'; value: string }[] = [];
+  if (openLabel) stats.push({ kind: 'open', value: openLabel });
+  if (typeof venue.rating === 'number') stats.push({ kind: 'rating', value: venue.rating.toFixed(1) });
+  if (venue.priceTier) stats.push({ kind: 'price', value: venue.priceTier });
 
-  // Attribute pills — prefer the new amenities[] from Phase 2, fall back
-  // to legacy attributes[] so pre-ingest docs still render something.
+  // Attribute pills — prefer Phase-2 amenities[], fall back to legacy attributes[].
   const pillList = (venue.amenities && venue.amenities.length > 0) ? venue.amenities : venue.attributes;
+
+  // Info-card rows — only render rows with data.
+  const infoRows: { label: string; value: string; accent?: boolean; onPress?: () => void }[] = [];
+  if (venue.address)  infoRows.push({ label: 'ADDRESS', value: venue.address, accent: true, onPress: onMapPress });
+  if (venue.phone)    infoRows.push({ label: 'PHONE', value: venue.phone, onPress: () => Linking.openURL(`tel:${venue.phone}`).catch(() => {}) });
+  if (venue.website)  infoRows.push({ label: 'WEBSITE', value: venue.website.replace(/^https?:\/\//, ''), onPress: () => Linking.openURL(venue.website.startsWith('http') ? venue.website : `https://${venue.website}`).catch(() => {}) });
+  if (venue.instagram) infoRows.push({ label: 'INSTAGRAM', value: venue.instagram, onPress: () => Linking.openURL(`https://instagram.com/${venue.instagram.replace('@', '')}`).catch(() => {}) });
+  if (venue.hoursText) infoRows.push({ label: 'HOURS', value: venue.hoursText });
 
   // Sticky CTA wiring
   const reservationHref = venue.reservationProvider === 'opentable'
@@ -95,19 +122,17 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
     const i = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     if (i !== heroIndex) setHeroIndex(i);
   };
-
   const jumpHero = (i: number) => {
     setHeroIndex(i);
     heroRef.current?.scrollToOffset({ offset: i * SCREEN_WIDTH, animated: true });
   };
-
   const openReserve = () => { if (reservationHref) Linking.openURL(reservationHref).catch(() => {}); };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
 
-        {/* Hero — paged horizontal carousel; degrades to single image */}
+        {/* Hero — paged carousel with the venue name overlaid */}
         <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT, position: 'relative' }}>
           <FlatList
             ref={heroRef}
@@ -120,220 +145,133 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             onScroll={onHeroScroll}
             scrollEventThrottle={16}
             renderItem={({ item }) => (
-              <Image
-                cachePolicy="memory-disk"
-                source={{ uri: item.uri }}
-                style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }}
-                contentFit="cover"
-              />
+              <Image cachePolicy="memory-disk" source={{ uri: item.uri }} style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }} contentFit="cover"/>
             )}
           />
-          {/* Page dots — only when >1 image */}
-          {hasMultiHero && (
-            <View style={{ position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-              {heroMedia.map((_, i) => (
-                <View
-                  key={`dot-${i}`}
-                  style={{
-                    width: i === heroIndex ? 18 : 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: i === heroIndex ? theme.onImage : theme.onImageMuted,
-                  }}
-                />
-              ))}
-            </View>
-          )}
+
+          {/* Bottom scrim for name legibility (no gradient dep) */}
+          <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: Math.round(HERO_HEIGHT * 0.55), backgroundColor: theme.overlayMedium }}/>
+
+          {/* Top controls — back + share, round blur buttons */}
           <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
-            <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.overlayMedium, alignItems: 'center', justifyContent: 'center' }} onPress={onBack}>
+            <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }} onPress={onBack}>
               <BackIcon color={theme.onImage}/>
             </TouchableOpacity>
-            <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.overlayMedium, alignItems: 'center', justifyContent: 'center' }}>
+            <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
               <ShareIcon color={theme.onImage}/>
             </TouchableOpacity>
           </SafeAreaView>
+
+          {/* Venue name */}
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 30, paddingHorizontal: 20 }}>
+            <Text style={{ color: theme.onImage, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.2, lineHeight: 36 }} numberOfLines={3}>
+              {venue.name}
+            </Text>
+          </View>
+
+          {/* Carousel dots */}
+          {hasMultiHero && (
+            <View style={{ position: 'absolute', bottom: 14, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 }}>
+              {heroMedia.map((_, i) => (
+                <TouchableOpacity key={`dot-${i}`} onPress={() => jumpHero(i)} style={{ width: i === heroIndex ? 22 : 6, height: 6, borderRadius: 3, backgroundColor: i === heroIndex ? theme.onImage : theme.onImageMuted }}/>
+              ))}
+            </View>
+          )}
         </View>
 
-        {/* Thumbnail strip — only when >1 hero image */}
-        {hasMultiHero && (
-          <View style={{ position: 'relative' }}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={[{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }, THUMB_TOTAL <= SCREEN_WIDTH && { flexGrow: 1, justifyContent: 'center' }]}
-            >
-              {heroMedia.map((item, index) => (
-                <TouchableOpacity key={index} onPress={() => jumpHero(index)}>
-                  <Image cachePolicy="memory-disk"
-                    source={{ uri: item.uri }}
-                    style={[{ width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: 10, opacity: 0.5 }, index === heroIndex && { opacity: 1, borderWidth: 2, borderColor: theme.accent }]}
-                    contentFit="cover"
-                  />
-                </TouchableOpacity>
+        {/* Stats trio + category */}
+        {stats.length > 0 && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {stats.map((s, i) => (
+                <View key={i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 5 }}>
+                  {s.kind === 'open' && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: STATUS_GREEN }}/>}
+                  {s.kind === 'rating' && <StarIcon color={theme.iconAccent}/>}
+                  <Text style={{ color: s.kind === 'open' ? STATUS_GREEN : theme.text, fontSize: 12, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.3 }} numberOfLines={1}>
+                    {s.value}
+                  </Text>
+                </View>
               ))}
-            </ScrollView>
-            {THUMB_TOTAL > SCREEN_WIDTH && (
-              <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg, opacity: 0.85 }} pointerEvents="none">
-                <ChevronRightIcon color={theme.subtext}/>
+            </View>
+            {!!venue.category && (
+              <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>{venue.category}</Text>
+            )}
+          </View>
+        )}
+
+        {/* Attribute pills — wrap */}
+        {pillList && pillList.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, paddingTop: 14 }}>
+            {pillList.map(a => (
+              <View key={a} style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
+                <Text style={{ color: theme.text, fontSize: 12, fontFamily: FONTS.medium }}>{a}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* About + info card */}
+        {(!!venue.about || infoRows.length > 0) && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+            <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 10 }}>ABOUT THE PLACE</Text>
+            {!!venue.about && (
+              <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.body, lineHeight: 22, marginBottom: 16 }}>{venue.about}</Text>
+            )}
+            {infoRows.length > 0 && (
+              <View style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: 'hidden' }}>
+                {infoRows.map((r, i) => (
+                  <TouchableOpacity key={r.label} disabled={!r.onPress} activeOpacity={r.onPress ? 0.7 : 1}
+                    onPress={r.onPress}
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
+                    <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.4 }}>{r.label}</Text>
+                    <Text style={{ color: r.accent ? theme.accent : theme.text, fontSize: 12, fontFamily: FONTS.medium, flexShrink: 1, textAlign: 'right' }} numberOfLines={2}>{r.value}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             )}
           </View>
         )}
 
-        {/* Identity block */}
-        <VenueIdentityBlock
-          name={venue.name}
-          address={venue.address}
-          phone={venue.phone}
-          website={venue.website}
-          instagram={venue.instagram}
-          logoUrl={(venue as any).logoUrl || ''}
-          onAddressPress={onMapPress}
-          theme={theme}
-        />
-
-        {/* Stats stripe — Open / Rating / Price. Hidden if nothing to show. */}
-        {statsToShow.length > 0 && (
-          <View style={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 14, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, overflow: 'hidden' }}>
-            {statsToShow.map((s, i) => (
-              <React.Fragment key={`stat-${i}`}>
-                {i > 0 && <View style={{ width: 1, backgroundColor: theme.divider, marginVertical: 10 }}/>}
-                <View style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 8, alignItems: 'center' }}>
-                  <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' }} numberOfLines={1}>
-                    {s.label}
-                  </Text>
-                  {s.sub && (
-                    <Text style={{ color: theme.subtext, fontSize: 10, marginTop: 2, textAlign: 'center' }} numberOfLines={1}>
-                      {s.sub}
-                    </Text>
-                  )}
-                </View>
-              </React.Fragment>
-            ))}
-          </View>
-        )}
-
-        {/* Attribute pills */}
-        {pillList && pillList.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 8 }}>
-            {pillList.map(a => (
-              <View key={a} style={{ backgroundColor: theme.pill, borderWidth: 1, borderColor: theme.pillBorder, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 }}>
-                <Text style={{ color: theme.subtext, fontSize: 12, fontWeight: '500' }}>{a}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* About */}
-        <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 16, marginTop: 16 }}/>
-        <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-          <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700', marginBottom: 8 }}>About</Text>
-          <Text style={{ color: theme.subtext, fontSize: 14, lineHeight: 20 }}>{venue.about}</Text>
-        </View>
-
-        {/* Menu — tap row opens MenuScreen */}
-        <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 16, marginTop: 16 }}/>
-        <TouchableOpacity
-          onPress={onMenuPress}
-          disabled={!onMenuPress}
-          activeOpacity={onMenuPress ? 0.7 : 1}
-          style={{ paddingHorizontal: 16, paddingTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}
-        >
-          <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>Menu</Text>
-          {onMenuPress && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>View menu</Text>
-              <ChevronRightIcon color={theme.accent}/>
-            </View>
-          )}
-        </TouchableOpacity>
-        <Text style={{ paddingHorizontal: 16, color: theme.subtext, fontSize: 14, lineHeight: 20 }}>{venue.menuDescription}</Text>
-
-        {/* Best Sellers */}
-        {venue.bestSellers.length > 0 && (
-          <>
-            <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 16, marginTop: 16 }}/>
-            <View style={{ paddingHorizontal: 16, paddingTop: 16, marginBottom: 12 }}>
-              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>Best Sellers</Text>
-            </View>
-            <FlatList
-              data={venue.bestSellers}
-              keyExtractor={i => i.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 140, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}>
-                  <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={{ width: 140, height: 140 }} contentFit="cover"/>
-                  <View style={{ padding: 8 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{item.name}</Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                      <Text style={{ color: theme.subtext, fontSize: 11 }}>{item.category}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                        <StarIcon color={theme.iconAccent}/>
-                        <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '600' }}>{item.rating}</Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          </>
-        )}
-
-        {/* Upcoming Events */}
-        {venue.upcomingEvents.length > 0 && (
-          <>
-            <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 16, marginTop: 16 }}/>
-            <View style={{ paddingHorizontal: 16, paddingTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>Upcoming Events</Text>
-              <ChevronRightIcon color={theme.subtext}/>
-            </View>
-            <FlatList
-              data={venue.upcomingEvents}
-              keyExtractor={e => e.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 150, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} onPress={() => onEventPress(item)}>
-                  <Image cachePolicy="memory-disk" source={{ uri: item.media[0].uri }} style={{ width: 150, height: 190 }} contentFit="cover"/>
-                  <View style={{ padding: 10 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>{item.title}</Text>
-                    <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }}>{item.date}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          </>
-        )}
-
-        {/* Galleries */}
-        {venue.galleries.length > 0 && (
-          <>
-            <View style={{ height: 1, backgroundColor: theme.divider, marginHorizontal: 16, marginTop: 16 }}/>
-            <TouchableOpacity
-              style={{ paddingHorizontal: 16, paddingTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}
-              onPress={() => venue.galleries[0] && onGalleryPress(venue.galleries[0])}
-            >
-              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>Galleries</Text>
+        {/* Menu — entry point to MenuScreen (kept for functional access) */}
+        {onMenuPress && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+            <TouchableOpacity onPress={onMenuPress} activeOpacity={0.7}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14 }}>
+              <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>Menu</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>View all</Text>
+                <Text style={{ color: theme.accent, fontSize: 12, fontFamily: FONTS.medium }}>View full menu</Text>
                 <ChevronRightIcon color={theme.accent}/>
               </View>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Upcoming events at this venue */}
+        {upcoming.length > 0 && (
+          <>
+            <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
+              <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>
+                HAPPENING HERE · {upcoming.length} UPCOMING
+              </Text>
+              <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>What's on the calendar</Text>
+            </View>
             <FlatList
-              data={venue.galleries}
-              keyExtractor={g => g.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+              data={upcoming} keyExtractor={e => e.id} horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 160, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} onPress={() => onGalleryPress(item)}>
-                  <Image cachePolicy="memory-disk" source={{ uri: item.coverImage }} style={{ width: 160, height: 160 }} contentFit="cover"/>
-                  <View style={{ padding: 10 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{item.title}</Text>
-                    <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }}>{item.photos.length} photos · {item.date}</Text>
+                <TouchableOpacity style={{ width: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
+                  <View style={{ height: 110 }}>
+                    <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/300' }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
+                    <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.overlaySoft }}/>
+                    {!!item.date && (
+                      <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 }}>
+                        <Text style={{ color: theme.onImage, fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.4 }}>{item.date}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ padding: 12 }}>
+                    <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
+                    {!!item.time && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>{item.time}</Text>}
                   </View>
                 </TouchableOpacity>
               )}
@@ -341,33 +279,25 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           </>
         )}
 
-        <View style={{ height: stickyHeight + 8 }}/>
+        <View style={{ height: stickyHeight + 16 }}/>
       </ScrollView>
 
-      {/* Sticky bottom: Get Tickets (if active event) over Directions+Reserve pair */}
+      {/* Sticky bottom: Get Tickets (if active event) over Directions + Reserve */}
       {(showTicketCTA || showReserve) && (
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, gap: 10 }}>
           {showTicketCTA && (
-            <TouchableOpacity
-              onPress={() => onGetTickets!(activeTicketEvent!)}
-              style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center' }}
-            >
-              <Text style={{ color: theme.onAccent, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 }}>Get Tickets</Text>
+            <TouchableOpacity onPress={() => onGetTickets!(activeTicketEvent!)} style={{ backgroundColor: theme.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center' }}>
+              <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: 0.3 }}>Get Tickets</Text>
             </TouchableOpacity>
           )}
           {showReserve && (
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity
-                onPress={onMapPress}
-                style={{ flex: 1, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
-              >
-                <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>{directionsLabel}</Text>
+              <TouchableOpacity onPress={onMapPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingVertical: 15, paddingHorizontal: 22 }}>
+                <LocationIcon color={theme.subtext}/>
+                <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.medium }}>{directionsLabel}</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={openReserve}
-                style={{ flex: 1, backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
-              >
-                <Text style={{ color: theme.onAccent, fontSize: 15, fontWeight: '700' }}>{reserveLabel}</Text>
+              <TouchableOpacity onPress={openReserve} style={{ flex: 1, backgroundColor: theme.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', shadowColor: theme.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 6 }}>
+                <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: -0.1 }}>{reserveLabel}</Text>
               </TouchableOpacity>
             </View>
           )}
