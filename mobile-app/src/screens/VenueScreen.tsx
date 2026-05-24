@@ -17,14 +17,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, GalleryData } from '../types';
+import type { EventData, VenueData, GalleryData, GalleryDoc } from '../types';
 import { BackIcon, ShareIcon, StarIcon, ChevronRightIcon, LocationIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 import { makeGallery } from '../constants/mockData';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2); // design hero aspect ratio
-const STATUS_GREEN = '#5c9a7e'; // design --status-valid / live-dot (warm sage)
+const STATUS_GREEN = '#5c9a7e';   // design --status-valid / live-dot (warm sage)
+const GALLERY_PURPLE = '#9b59b6'; // design --tag-photos / Lens accent
 
 type ActiveTicketEvent = {
   id: string;
@@ -44,10 +45,22 @@ type Props = {
   theme: Theme;
 };
 
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onMenuPress, onGetTickets, theme }: Props) {
+export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
+  const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
   const [activeTicketEvent, setActiveTicketEvent] = useState<ActiveTicketEvent | null>(null);
+
+  // Map a top-level gallery doc to the GalleryData shape the gallery viewer
+  // expects (consumer app is read-only against the galleries collection).
+  const toGalleryData = (g: GalleryDoc): GalleryData => ({
+    id: g.id,
+    title: g.title,
+    venue: venue.name,
+    date: g.date,
+    coverImage: g.coverImage,
+    photos: (g.images || []).map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 })),
+  });
   const heroRef = useRef<FlatList<{ type: string; uri: string }>>(null);
   const heroMedia = venue.media.length > 0 ? venue.media : [{ type: 'image', uri: '' }];
   const hasMultiHero = heroMedia.length > 1;
@@ -75,15 +88,27 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onMenuPre
           };
         });
         const ticketDoc = approved.find(d => d.data().hasTickets === true);
+
+        // Galleries — top-level collection, queried by venueId only (single
+        // field, no composite index) and sorted by createdAt desc client-side.
+        const gsnap = await getDocs(query(collection(db, 'galleries'), where('venueId', '==', venue.id)));
+        const gdocs: GalleryDoc[] = gsnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as object) }) as GalleryDoc);
+        gdocs.sort((a, b) => {
+          const ta = (a.createdAt as any)?.toMillis ? (a.createdAt as any).toMillis() : 0;
+          const tb = (b.createdAt as any)?.toMillis ? (b.createdAt as any).toMillis() : 0;
+          return tb - ta;
+        });
+
         if (!cancelled) {
           setUpcoming(evs);
+          setGalleries(gdocs);
           if (ticketDoc) {
             const ev = ticketDoc.data();
             setActiveTicketEvent({ id: ticketDoc.id, name: ev.name ?? ev.title ?? venue.name, date: ev.date ?? '', time: ev.time ?? '' });
           }
         }
       } catch (e) {
-        // No events / query failed — Upcoming + ticket CTA stay hidden
+        // No events/galleries or query failed — those sections stay hidden
       }
     };
     run();
@@ -272,6 +297,37 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onMenuPre
                   <View style={{ padding: 12 }}>
                     <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
                     {!!item.time && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>{item.time}</Text>}
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          </>
+        )}
+
+        {/* Galleries — real top-level `galleries` collection (Lens styling) */}
+        {galleries.length > 0 && (
+          <>
+            <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
+              <Text style={{ color: GALLERY_PURPLE, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>
+                GALLERIES · {galleries.length} {galleries.length === 1 ? 'NIGHT' : 'NIGHTS'}
+              </Text>
+              <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>Nights here, captured</Text>
+            </View>
+            <FlatList
+              data={galleries} keyExtractor={g => g.id} horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={{ width: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} activeOpacity={0.9} onPress={() => onGalleryPress(toGalleryData(item))}>
+                  <View style={{ height: 120 }}>
+                    <Image cachePolicy="memory-disk" source={{ uri: item.coverImage }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
+                    <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.overlaySoft }}/>
+                    <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(155,89,182,0.9)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 }}>
+                      <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }}>PHOTOS</Text>
+                    </View>
+                  </View>
+                  <View style={{ padding: 12 }}>
+                    <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
+                    <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.photoCount} photos · {item.date}</Text>
                   </View>
                 </TouchableOpacity>
               )}

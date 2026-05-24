@@ -18,6 +18,30 @@ export type GalleryData = {
   photos: GalleryPhoto[];
 };
 
+// Top-level `galleries` collection doc — the single source of truth for
+// event/venue photo galleries.
+//
+// ARCHITECTURE (for future Dashboard/Lens sessions): `galleries` is a
+// TOP-LEVEL collection (queryable independently of the venue path). Wugi
+// Dashboard is the authoritative management surface (CRUD + config /
+// moderation). Wugi Lens pushes images and settings into this collection,
+// conceptually through the Dashboard as the engine. The consumer app is
+// READ-ONLY against this collection.
+export type GalleryDoc = {
+  id: string;
+  venueId: string;
+  eventId?: string | null;
+  title: string;
+  coverImage: string;        // cover image URL
+  images: string[];          // image URLs
+  photoCount: number;
+  date: string;              // display string, e.g. "SAT MAY 17"
+  photographerName?: string;
+  photographerId?: string | null;
+  createdAt?: unknown;       // Firestore Timestamp
+  source: 'dashboard' | 'lens' | 'seed';
+};
+
 // ── Event ─────────────────────────────────────────────────────────────
 export type EventData = {
   id: string;
