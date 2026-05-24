@@ -14,7 +14,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wugimedia.wugitest",
-      "associatedDomains": ["applinks:wugi.us", "webcredentials:wugi.us"],
+      "associatedDomains": [
+        "applinks:wugi.us",
+        "webcredentials:wugi.us"
+      ],
       "buildNumber": "1",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
@@ -46,10 +49,26 @@
           }
         }
       ],
-      ["@stripe/stripe-react-native", {
-        "merchantIdentifier": "merchant.com.wugimedia.wugitest",
-        "enableGooglePay": false
-      }]
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.wugimedia.wugitest",
+          "enableGooglePay": false
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/ppneuemontreal-thin.otf",
+            "./assets/fonts/ppneuemontreal-book.otf",
+            "./assets/fonts/ppneuemontreal-medium.otf",
+            "./assets/fonts/ppneuemontreal-bold.otf",
+            "./assets/fonts/ppneuemontreal-italic.otf",
+            "./assets/fonts/ppneuemontreal-semibolditalic.otf"
+          ]
+        }
+      ]
     ],
     "extra": {
       "eas": {

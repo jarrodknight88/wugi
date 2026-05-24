@@ -3,7 +3,7 @@
 //
 // Plan-first "Tonight" digest, restyled to the Claude Design handoff
 // (wugi-design-system @ consumer-app). Home owns "for me, right now,
-// tonight": a time-aware hero, vibe-matched picks, where-to-start
+// tonight": a time-aware hero, vibe-matched picks, deals, where-to-start
 // venues, and a weekend look-ahead.
 //
 // Real-data-only build: shelves from the design that need backends we
@@ -11,18 +11,21 @@
 //   • "Your Plan" (passes + saved)  → favorites/passes not wired here
 //   • "Recent Galleries" (Lens)     → only mock galleries exist today
 // Fetches live data from Firestore, falls back to mock if empty/error.
+//
+// Type: PP Neue Montreal via FONTS.* (the design's brand face); eyebrow
+// kickers use system mono (MONO) per the design. See constants/fonts.ts.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, ActivityIndicator, StyleSheet, RefreshControl, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, ActivityIndicator, StyleSheet, RefreshControl } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, GalleryData, FSEvent, FSVenue } from '../types';
-import { EVENTS, VENUES, makeGallery } from '../constants/mockData';
+import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from '../types';
+import { EVENTS, VENUES, DEALS, makeGallery } from '../constants/mockData';
+import { FONTS, MONO } from '../constants/fonts';
 import { CameraIcon, ChevronRightIcon } from '../components/icons';
 
-// Monospace family for the design's "letterpress" eyebrow/kicker labels.
-// System mono only (Menlo on iOS) — no custom font, per build constraints.
-const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) as string;
+// Design content-type tag color for deals — ember terracotta (--tag-deal).
+const DEAL_COLOR = '#a8533f';
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
 // Buckets the current hour into morning / afternoon / evening / late-night.
@@ -85,6 +88,7 @@ function toVenueData(v: FSVenue): VenueData {
 // Mock → FS type helpers for fallback
 const mockToFSEvent = (e: EventData): FSEvent => ({ id:e.id, title:e.title, venue:e.venue, venueId:e.venueId ?? '', date:e.date, time:e.time, age:e.age, about:e.about, vibes:['Boujee'], media:e.media || [], status:'approved', createdAt:null });
 const mockToFSVenue = (v: VenueData): FSVenue => ({ id:v.id, name:v.name, category:v.category, address:v.address, phone:v.phone, website:v.website, instagram:v.instagram, attributes:v.attributes || [], vibes:['Boujee'], about:v.about, media:v.media || [], status:'approved', createdAt:null });
+const mockToFSDeal  = (d: typeof DEALS[0]): FSDeal => ({ id:d.id, title:d.title, venueName:d.venueName, venueId:'', detail:d.detail, image:d.image, vibes:['Boujee'], expiresAt:null });
 
 // ── Shelf header — mono kicker + bold title, optional "All →" ─────────
 function ShelfHeader({ kicker, title, theme, onSeeAll }: {
@@ -96,13 +100,13 @@ function ShelfHeader({ kicker, title, theme, onSeeAll }: {
         <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1}>
           {kicker}
         </Text>
-        <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700', letterSpacing: -0.3 }}>
+        <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
           {title}
         </Text>
       </View>
       {onSeeAll && (
         <TouchableOpacity onPress={onSeeAll} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>All</Text>
+          <Text style={{ color: theme.accent, fontSize: 12, fontFamily: FONTS.medium }}>All</Text>
           <ChevronRightIcon color={theme.accent}/>
         </TouchableOpacity>
       )}
@@ -122,27 +126,31 @@ type Props = {
 export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCameraPress }: Props) {
   const [events,     setEvents]     = useState<FSEvent[]>([]);
   const [venues,     setVenues]     = useState<FSVenue[]>([]);
+  const [deals,      setDeals]      = useState<FSDeal[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = async () => {
     try {
-      const { getApprovedEvents, getApprovedVenues } =
+      const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
         await import('../../firestoreService');
 
       // Larger pool (100) so the picks / weekend / where-to-start shelves
-      // have room to slice from after vibe filtering.
-      const [liveEvents, liveVenues] = await Promise.all([
+      // have room to slice from after vibe filtering. Deals stay capped at 5.
+      const [liveEvents, liveVenues, liveDeals] = await Promise.all([
         getApprovedEvents(userVibes, 100),
         getApprovedVenues(userVibes, 100),
+        getActiveDeals(userVibes, 5),
       ]);
 
       setEvents(liveEvents.length > 0 ? liveEvents : EVENTS.map(mockToFSEvent));
       setVenues(liveVenues.length > 0 ? liveVenues : VENUES.map(mockToFSVenue));
+      setDeals(liveDeals.length   > 0 ? liveDeals  : DEALS.map(mockToFSDeal));
     } catch (e) {
       console.log('HomeScreen: Firestore fetch failed, using mock data', e);
       setEvents(EVENTS.map(mockToFSEvent));
       setVenues(VENUES.map(mockToFSVenue));
+      setDeals(DEALS.map(mockToFSDeal));
     }
   };
 
@@ -185,7 +193,7 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12 }}>Loading your feed...</Text>
+        <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>Loading your feed...</Text>
       </View>
     );
   }
@@ -197,7 +205,7 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
       <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ width: 36 }}/>
-          <Text style={{ color: theme.accent, fontSize: 26, fontWeight: '900', letterSpacing: -1 }}>wugi</Text>
+          <Text style={{ color: theme.accent, fontSize: 26, fontFamily: FONTS.display, letterSpacing: -1 }}>wugi</Text>
           <TouchableOpacity onPress={onCameraPress} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
             <CameraIcon color={theme.subtext}/>
           </TouchableOpacity>
@@ -236,19 +244,19 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
           )}
           <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18 }}>
-            <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '700', letterSpacing: 0.6, fontFamily: MONO, marginBottom: 8 }}>
+            <Text style={{ color: theme.accent, fontSize: 11, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8 }}>
               {hero.kicker}
             </Text>
-            <Text style={{ color: theme.onImage, fontSize: 32, fontWeight: '900', letterSpacing: -1, marginBottom: 6 }}>
+            <Text style={{ color: theme.onImage, fontSize: 32, fontFamily: FONTS.display, letterSpacing: -1, marginBottom: 6 }}>
               {hero.title}
             </Text>
-            <Text style={{ color: theme.onImageSoft, fontSize: 13, marginBottom: 14 }}>
+            <Text style={{ color: theme.onImageSoft, fontSize: 13, fontFamily: FONTS.body, marginBottom: 14 }}>
               {hero.sub}
             </Text>
             <View style={{ flexDirection: 'row' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(244,239,225,0.15)', borderWidth: 1, borderColor: 'rgba(244,239,225,0.25)', borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16 }}>
-                <Text style={{ color: theme.onImage, fontSize: 13, fontWeight: '600' }}>{hero.cta}</Text>
-                <Text style={{ color: theme.onImage, fontSize: 13, fontWeight: '600', marginLeft: 6 }}>→</Text>
+                <Text style={{ color: theme.onImage, fontSize: 13, fontFamily: FONTS.medium }}>{hero.cta}</Text>
+                <Text style={{ color: theme.onImage, fontSize: 13, fontFamily: FONTS.medium, marginLeft: 6 }}>→</Text>
               </View>
             </View>
           </View>
@@ -266,11 +274,36 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
                   <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
                   <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
                   <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={{ color: theme.onImage, fontSize: 9, fontWeight: '700', letterSpacing: 0.5, fontFamily: MONO }} numberOfLines={1}>{picksReason}</Text>
+                    <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>{picksReason}</Text>
                   </View>
                   <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 14 }}>
-                    <Text style={{ color: theme.onImage, fontSize: 15, fontWeight: '700', letterSpacing: -0.2, lineHeight: 18, marginBottom: 3 }} numberOfLines={2}>{item.title}</Text>
-                    <Text style={{ color: theme.onImageMuted, fontSize: 11 }} numberOfLines={1}>{item.venue}{item.time ? ` · ${item.time}` : ''}</Text>
+                    <Text style={{ color: theme.onImage, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, lineHeight: 18, marginBottom: 3 }} numberOfLines={2}>{item.title}</Text>
+                    <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.venue}{item.time ? ` · ${item.time}` : ''}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          </>
+        )}
+
+        {/* Deals & Specials — real getActiveDeals data, design tag styling */}
+        {deals.length > 0 && (
+          <>
+            <ShelfHeader kicker="LIMITED TIME" title="Deals & Specials" theme={theme}/>
+            <FlatList
+              data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={{ width: 260, height: 150, borderRadius: 14, overflow: 'hidden' }} activeOpacity={0.9}>
+                  <Image cachePolicy="memory-disk" source={{ uri: item.image || 'https://picsum.photos/seed/deal/400/300' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+                  <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
+                  <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: DEAL_COLOR, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.8 }}>DEAL</Text>
+                  </View>
+                  <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 14 }}>
+                    <Text style={{ color: theme.onImage, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
+                    <Text style={{ color: theme.onImageSoft, fontSize: 11, fontFamily: FONTS.body, marginBottom: 4 }} numberOfLines={1}>{item.venueName}</Text>
+                    <Text style={{ color: theme.accent, fontSize: 11, fontFamily: FONTS.medium }} numberOfLines={1}>{item.detail}</Text>
                   </View>
                 </TouchableOpacity>
               )}
@@ -290,11 +323,11 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
                   <TouchableOpacity key={item.id} onPress={() => onVenuePress(item)} activeOpacity={0.7}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: index > 0 ? 1 : 0, borderTopColor: theme.divider }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{item.name}</Text>
-                      {sub.length > 0 && <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }} numberOfLines={1}>{sub}</Text>}
+                      <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium }} numberOfLines={1}>{item.name}</Text>
+                      {sub.length > 0 && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body, marginTop: 2 }} numberOfLines={1}>{sub}</Text>}
                     </View>
                     {hours && (
-                      <Text style={{ color: theme.subtext, fontSize: 10, fontWeight: '600', letterSpacing: 0.4, fontFamily: MONO, textTransform: 'uppercase' }} numberOfLines={1}>{hours}</Text>
+                      <Text style={{ color: theme.subtext, fontSize: 10, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.4, textTransform: 'uppercase' }} numberOfLines={1}>{hours}</Text>
                     )}
                   </TouchableOpacity>
                 );
@@ -315,8 +348,8 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
                   <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
                   <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
                   <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 12 }}>
-                    <Text style={{ color: theme.accent, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, fontFamily: MONO, marginBottom: 2 }} numberOfLines={1}>{item.date}</Text>
-                    <Text style={{ color: theme.onImage, fontSize: 12, fontWeight: '700', lineHeight: 15 }} numberOfLines={2}>{item.title}</Text>
+                    <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 }} numberOfLines={1}>{item.date}</Text>
+                    <Text style={{ color: theme.onImage, fontSize: 12, fontFamily: FONTS.display, lineHeight: 15 }} numberOfLines={2}>{item.title}</Text>
                   </View>
                 </TouchableOpacity>
               )}
