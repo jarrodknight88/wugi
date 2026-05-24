@@ -4,12 +4,8 @@
 // - MyPassesScreen: Load from orders collection, show transfer status
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  View, Text, Image, TouchableOpacity, ScrollView, Modal,
-  SafeAreaView, Animated, StyleSheet, Share, Dimensions,
-  ActivityIndicator, TextInput, Alert, Linking, KeyboardAvoidingView, Platform,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Modal, SafeAreaView, Animated, StyleSheet, Share, Dimensions, ActivityIndicator, TextInput, Alert, Linking, KeyboardAvoidingView, Platform, RefreshControl,  } from 'react-native';
+import { Image } from 'expo-image';
 import QRCode from 'react-native-qrcode-svg';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';

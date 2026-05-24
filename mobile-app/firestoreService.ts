@@ -1,6 +1,28 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — firestoreService.ts
 // Modular API for @react-native-firebase/firestore v23
+//
+// CANONICAL STATUS ENUM (locked by INFRA-VENUE-11)
+// ─────────────────────────────────────────────────────────────────────
+// Venue status: 'approved' | 'unclaimed' | 'pending_review' | 'closed' | 'disabled'
+//   approved       — owner-claimed and verified, full profile
+//   unclaimed      — published from scrape, no operator yet, surfaced with claim CTA
+//   pending_review — confidence too low for auto-publish, awaits moderation
+//   closed         — confirmed permanently closed; banner shown on profile
+//   disabled       — admin-hidden (duplicate, bad data, ToS)
+//
+// Event status:  'approved' | 'pending_review' | 'closed' | 'rejected'
+//   approved       — published, surfaced in consumer feed
+//   pending_review — admin must approve before surfacing
+//   closed         — past event, retained for history but hidden
+//   rejected       — admin denied; never surfaces
+//
+// Phase 3 transform writes ONLY canonical values. Any other value is a bug —
+// scripts/normalize-venue-status.js can map legacy values back to canonical.
+//
+// Consumer queries (this file): show 'approved' + 'unclaimed' + 'pending_review'
+// for venues; show 'approved' for events. Closed/disabled/rejected never surface.
+// All consumer queries also filter test venues client-side via notTestVenue().
 // ─────────────────────────────────────────────────────────────────────
 import {
   getFirestore,
@@ -13,9 +35,18 @@ import {
   query,
   where,
   limit,
+  orderBy,
+  startAfter,
   serverTimestamp,
   addDoc,
 } from '@react-native-firebase/firestore';
+import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+
+// Cursor type used by the *Page() variants for cursor-based pagination.
+// Holds the last DocumentSnapshot from the previous page (Firestore's
+// startAfter() shape). Opaque to callers — pass through verbatim.
+export type PageCursor = FirebaseFirestoreTypes.DocumentSnapshot | null;
+export type PageResult<T> = { venues?: T[]; events?: T[]; nextCursor: PageCursor; hasMore: boolean };
 
 const db = getFirestore();
 
@@ -29,6 +60,7 @@ export type UserProfile = {
   role: 'consumer' | 'super_admin' | 'moderator' | 'support';
   vibes: string[];
   affinityScores?: Record<string, number>;
+  emailVerified?: boolean;
   createdAt: any;
 };
 
@@ -45,6 +77,11 @@ export type FSEvent = {
   media: { type: string; uri: string }[];
   status: string;
   hasTickets?: boolean;
+  // VENUE-DATA-08 Deliverable C: recurring-event series fields
+  seriesId?: string | null;
+  isSeriesAnchor?: boolean;
+  seriesOccurrences?: string[] | null;
+  isTestVenue?: boolean;
   createdAt: any;
 };
 
@@ -116,6 +153,7 @@ export type FSVenue = {
 
   isActive?: boolean;
   isFeatured?: boolean;
+  isTestVenue?: boolean;       // true = hide from consumer queries (Wugi Door QA only)
   createdAt: any;
   updatedAt?: any;
 };
@@ -135,7 +173,8 @@ export type FSDeal = {
 export async function upsertUserProfile(
   uid: string,
   email: string,
-  displayName?: string
+  displayName?: string,
+  emailVerified?: boolean
 ): Promise<void> {
   const ref = doc(collection(db, 'users'), uid);
 
@@ -153,12 +192,14 @@ export async function upsertUserProfile(
           role: 'consumer',
           vibes: [],
           affinityScores: {},
+          emailVerified: emailVerified ?? false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
         console.log('upsertUserProfile: created user doc for', uid);
       } else {
-        // Update mutable fields only — never overwrite role or vibes
+        // Update mutable fields only — never overwrite role, vibes, or emailVerified
+        // (emailVerified is flipped to true via markEmailVerified once the user verifies)
         await updateDoc(ref, {
           email,
           displayName: displayName || snap.data()?.displayName || '',
@@ -177,6 +218,11 @@ export async function upsertUserProfile(
     }
   }
   console.log('upsertUserProfile: all retries failed for', uid, lastError);
+}
+
+export async function markEmailVerified(uid: string): Promise<void> {
+  const ref = doc(collection(db, 'users'), uid);
+  await updateDoc(ref, { emailVerified: true, updatedAt: serverTimestamp() });
 }
 
 export async function saveUserVibes(uid: string, vibes: string[]): Promise<void> {
@@ -300,10 +346,29 @@ export async function logActivity(
   }
 }
 
+// ── isTestVenue filter ────────────────────────────────────────────────
+// Test venues (e.g. Wugi Door QA at the Cumberland Teranga) carry
+// `isTestVenue: true`. They must stay queryable for Wugi Door but never
+// surface to consumers. Done client-side because Firestore `!=` excludes
+// docs where the field is missing, and the legacy events collection
+// hasn't been backfilled. Treats undefined as false.
+function notTestVenue<T extends { isTestVenue?: boolean }>(d: T): boolean {
+  return d.isTestVenue !== true;
+}
+
 // ── Events ────────────────────────────────────────────────────────────
+// Default limit 100 (was 20) — catalog has 500+ events post-INFRA-VENUE-01.
+// orderBy(isFeatured desc, createdAt desc) so launch-featured events lead
+// and freshly-scraped data surfaces above hand-seeded test docs whose IDs
+// happen to sort early. Composite index in firebase/firestore.indexes.json.
+//
+// VENUE-DATA-08 Deliverable C: filter on isSeriesAnchor==true so recurring
+// event series (Friday Happy Hour at Teranga × 9 occurrences, etc.) only
+// surface ONE card in consumer feed. Use getEventsForVenue() below to read
+// all occurrences for a venue detail page.
 export async function getApprovedEvents(
   userVibes?: string[],
-  max: number = 20
+  max: number = 100
 ): Promise<FSEvent[]> {
   try {
     let q;
@@ -311,29 +376,54 @@ export async function getApprovedEvents(
       q = query(
         collection(db, 'events'),
         where('status', '==', 'approved'),
+        where('isSeriesAnchor', '==', true),
         where('vibes', 'array-contains-any', userVibes),
+        orderBy('isFeatured', 'desc'),
+        orderBy('createdAt', 'desc'),
         limit(max)
       );
     } else {
       q = query(
         collection(db, 'events'),
         where('status', '==', 'approved'),
+        where('isSeriesAnchor', '==', true),
+        orderBy('isFeatured', 'desc'),
+        orderBy('createdAt', 'desc'),
         limit(max)
       );
     }
     const snap = await getDocs(q);
-    const events = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent));
-    // Sort: featured first (by sortOrder), then rest by createdAt desc
-    return events.sort((a, b) => {
-      const aFeatured = (a as any).isFeatured ? 1 : 0;
-      const bFeatured = (b as any).isFeatured ? 1 : 0;
-      if (aFeatured !== bFeatured) return bFeatured - aFeatured;
-      const aOrder = (a as any).sortOrder ?? 99;
-      const bOrder = (b as any).sortOrder ?? 99;
-      return aOrder - bOrder;
-    });
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as FSEvent))
+      .filter(notTestVenue);
   } catch (e) {
     console.log('getApprovedEvents error:', e);
+    return [];
+  }
+}
+
+// ── Events for a specific venue (no series-anchor filter) ───────────
+// Used by the venue detail page where the user expects to see ALL
+// upcoming occurrences of the recurring series, not just the next one.
+// VENUE-DATA-08 Deliverable C.
+export async function getEventsForVenue(
+  venueId: string,
+  max: number = 50
+): Promise<FSEvent[]> {
+  try {
+    const q = query(
+      collection(db, 'events'),
+      where('venueId', '==', venueId),
+      where('status', '==', 'approved'),
+      orderBy('createdAt', 'desc'),
+      limit(max)
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as FSEvent))
+      .filter(notTestVenue);
+  } catch (e) {
+    console.log('getEventsForVenue error:', e);
     return [];
   }
 }
@@ -351,33 +441,59 @@ export async function getEventById(eventId: string): Promise<FSEvent | null> {
 
 // ── Venues ────────────────────────────────────────────────────────────
 // Shows: approved + unclaimed + pending_review
-// Hidden: closed (shows banner on profile) + disabled (hidden entirely)
+// Hidden: closed (banner on profile) + disabled (hidden entirely)
+//
+// Default limit 100 (was 20) — catalog has 490 venues post-INFRA-VENUE-01.
+// Each status-bucket query orders by isFeatured desc then createdAt desc.
+// Composite indexes in firebase/firestore.indexes.json.
 export async function getApprovedVenues(
   userVibes?: string[],
-  max: number = 20
+  max: number = 100
 ): Promise<FSVenue[]> {
   try {
+    const buildQ = (statusVal: string) =>
+      userVibes && userVibes.length > 0
+        ? query(
+            collection(db, 'venues'),
+            where('status', '==', statusVal),
+            where('vibes', 'array-contains-any', userVibes),
+            orderBy('isFeatured', 'desc'),
+            orderBy('createdAt', 'desc'),
+            limit(max)
+          )
+        : query(
+            collection(db, 'venues'),
+            where('status', '==', statusVal),
+            orderBy('isFeatured', 'desc'),
+            orderBy('createdAt', 'desc'),
+            limit(max)
+          );
+
     const [approvedSnap, unclaimedSnap, pendingSnap] = await Promise.all([
-      getDocs(query(collection(db, 'venues'), where('status', '==', 'approved'),       limit(max))),
-      getDocs(query(collection(db, 'venues'), where('status', '==', 'unclaimed'),      limit(max))),
-      getDocs(query(collection(db, 'venues'), where('status', '==', 'pending_review'), limit(max))),
+      getDocs(buildQ('approved')),
+      getDocs(buildQ('unclaimed')),
+      getDocs(buildQ('pending_review')),
     ]);
 
     const seen    = new Set<string>();
     const results: FSVenue[] = [];
 
     [...approvedSnap.docs, ...unclaimedSnap.docs, ...pendingSnap.docs].forEach(d => {
-      if (!seen.has(d.id)) {
-        seen.add(d.id);
-        const data = { id: d.id, ...d.data() } as FSVenue;
-        if (!userVibes || userVibes.length === 0) {
-          results.push(data);
-        } else if ((data.vibes || []).some(v => userVibes.includes(v))) {
-          results.push(data);
-        }
-      }
+      if (seen.has(d.id)) return;
+      seen.add(d.id);
+      const data = { id: d.id, ...d.data() } as FSVenue;
+      if (!notTestVenue(data)) return;  // hide test venues
+      results.push(data);
     });
 
+    // Re-sort across status buckets so featured leads globally, not per-bucket.
+    results.sort((a, b) => {
+      const af = (a as any).isFeatured ? 1 : 0;
+      const bf = (b as any).isFeatured ? 1 : 0;
+      if (af !== bf) return bf - af;
+      // Both featured (or both not): keep Firestore order (createdAt desc within bucket)
+      return 0;
+    });
     return results.slice(0, max);
   } catch (e) {
     console.log('getApprovedVenues error:', e);
@@ -389,17 +505,99 @@ export async function getVenueById(venueId: string): Promise<FSVenue | null> {
   try {
     const snap = await getDoc(doc(collection(db, 'venues'), venueId));
     if (!snap.exists()) return null;
-    return { id: snap.id, ...snap.data() } as FSVenue;
+    const data = { id: snap.id, ...snap.data() } as FSVenue;
+    if (!notTestVenue(data)) return null;     // never deep-link to a test venue
+    return data;
   } catch (e) {
     console.log('getVenueById error:', e);
     return null;
   }
 }
 
+// ── Paginated venues (cursor-based, for Discover infinite scroll) ────
+// VENUE-DATA-07 Deliverable D.1
+// Single status bucket only ('approved') for clean cursor semantics.
+// (Multi-bucket pagination requires either a status union via in-clause
+// or N parallel cursors — deferred to a future refinement; for now the
+// pending_review pool surfaces via the non-paginated getApprovedVenues.)
+export async function getApprovedVenuesPage(args: {
+  cursor?:    PageCursor;
+  limit?:     number;
+  userVibes?: string[];
+}): Promise<{ venues: FSVenue[]; nextCursor: PageCursor; hasMore: boolean }> {
+  const { cursor = null, limit: pageSize = 30, userVibes } = args;
+  try {
+    const constraints: any[] = [
+      where('status', '==', 'approved'),
+      orderBy('isFeatured', 'desc'),
+      orderBy('createdAt',  'desc'),
+    ];
+    if (userVibes && userVibes.length > 0) {
+      // array-contains-any goes BEFORE the orderBy clauses syntactically
+      // in modern Firebase JS SDK; the where()/orderBy()/limit() composition
+      // is order-independent at runtime so we can append.
+      constraints.unshift(where('vibes', 'array-contains-any', userVibes));
+    }
+    if (cursor) constraints.push(startAfter(cursor));
+    constraints.push(limit(pageSize));
+
+    const snap = await getDocs(query(collection(db, 'venues'), ...constraints));
+    const all  = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSVenue)).filter(notTestVenue);
+    const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+    return {
+      venues:     all,
+      nextCursor: snap.docs.length === pageSize ? lastDoc : null,
+      hasMore:    snap.docs.length === pageSize,
+    };
+  } catch (e) {
+    console.log('getApprovedVenuesPage error:', e);
+    return { venues: [], nextCursor: null, hasMore: false };
+  }
+}
+
+// ── Paginated events (cursor-based) ──────────────────────────────────
+// VENUE-DATA-08 Deliverable C: also filters isSeriesAnchor==true so the
+// infinite-scroll feed shows ONE card per recurring series.
+export async function getApprovedEventsPage(args: {
+  cursor?:    PageCursor;
+  limit?:     number;
+  userVibes?: string[];
+}): Promise<{ events: FSEvent[]; nextCursor: PageCursor; hasMore: boolean }> {
+  const { cursor = null, limit: pageSize = 30, userVibes } = args;
+  try {
+    const constraints: any[] = [
+      where('status', '==', 'approved'),
+      where('isSeriesAnchor', '==', true),
+      orderBy('isFeatured', 'desc'),
+      orderBy('createdAt',  'desc'),
+    ];
+    if (userVibes && userVibes.length > 0) {
+      constraints.unshift(where('vibes', 'array-contains-any', userVibes));
+    }
+    if (cursor) constraints.push(startAfter(cursor));
+    constraints.push(limit(pageSize));
+
+    const snap = await getDocs(query(collection(db, 'events'), ...constraints));
+    const all  = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent)).filter(notTestVenue);
+    const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+    return {
+      events:     all,
+      nextCursor: snap.docs.length === pageSize ? lastDoc : null,
+      hasMore:    snap.docs.length === pageSize,
+    };
+  } catch (e) {
+    console.log('getApprovedEventsPage error:', e);
+    return { events: [], nextCursor: null, hasMore: false };
+  }
+}
+
 // ── Venues by Neighborhood ────────────────────────────────────────────
+// Default limit bumped to 100 to match getApprovedVenues. Same featured-first
+// ordering. Composite index: neighborhoodSlug ASC, status ASC, isFeatured DESC,
+// createdAt DESC.
 export async function getVenuesByNeighborhood(
   neighborhoodSlug: string,
-  max: number = 30
+  max: number = 100
 ): Promise<FSVenue[]> {
   try {
     const statuses = ['approved', 'unclaimed', 'pending_review'];
@@ -409,6 +607,8 @@ export async function getVenuesByNeighborhood(
           collection(db, 'venues'),
           where('neighborhoodSlug', '==', neighborhoodSlug),
           where('status', '==', status),
+          orderBy('isFeatured', 'desc'),
+          orderBy('createdAt', 'desc'),
           limit(max)
         ))
       )
@@ -417,10 +617,15 @@ export async function getVenuesByNeighborhood(
     const seen    = new Set<string>();
     const results: FSVenue[] = [];
     snaps.flatMap(s => s.docs).forEach(d => {
-      if (!seen.has(d.id)) {
-        seen.add(d.id);
-        results.push({ id: d.id, ...d.data() } as FSVenue);
-      }
+      if (seen.has(d.id)) return;
+      seen.add(d.id);
+      const data = { id: d.id, ...d.data() } as FSVenue;
+      if (notTestVenue(data)) results.push(data);
+    });
+    results.sort((a, b) => {
+      const af = (a as any).isFeatured ? 1 : 0;
+      const bf = (b as any).isFeatured ? 1 : 0;
+      return bf - af;
     });
     return results.slice(0, max);
   } catch (e) {

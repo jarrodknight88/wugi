@@ -2,10 +2,8 @@
 // Wugi — GalleryScreen
 // ─────────────────────────────────────────────────────────────────────
 import React from 'react';
-import {
-  View, Text, Image, TouchableOpacity,
-  ScrollView, SafeAreaView, Dimensions,
-} from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Dimensions,  } from 'react-native';
+import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { GalleryData } from '../types';
 import { BackIcon, ShareIcon } from '../components/icons';
@@ -53,14 +51,14 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
           <View style={{ flex: 1 }}>
             {leftCol.map((photo, i) => (
               <TouchableOpacity key={photo.id} style={{ marginBottom: 8 }} onPress={() => onPhotoPress(i * 2)} activeOpacity={0.9}>
-                <Image source={{ uri: photo.uri }} style={{ width: COL_WIDTH, height: photo.height, borderRadius: 10 }} resizeMode="cover"/>
+                <Image cachePolicy="memory-disk" source={{ uri: photo.uri }} style={{ width: COL_WIDTH, height: photo.height, borderRadius: 10 }} contentFit="cover"/>
               </TouchableOpacity>
             ))}
           </View>
           <View style={{ flex: 1 }}>
             {rightCol.map((photo, i) => (
               <TouchableOpacity key={photo.id} style={{ marginBottom: 8 }} onPress={() => onPhotoPress(i * 2 + 1)} activeOpacity={0.9}>
-                <Image source={{ uri: photo.uri }} style={{ width: COL_WIDTH, height: photo.height, borderRadius: 10 }} resizeMode="cover"/>
+                <Image cachePolicy="memory-disk" source={{ uri: photo.uri }} style={{ width: COL_WIDTH, height: photo.height, borderRadius: 10 }} contentFit="cover"/>
               </TouchableOpacity>
             ))}
           </View>

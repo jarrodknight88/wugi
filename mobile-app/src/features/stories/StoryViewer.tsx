@@ -3,10 +3,8 @@
 // Full screen story viewer with progress bars, tap zones, ad CTA
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  View, Text, Image, TouchableOpacity,
-  SafeAreaView, Animated, StyleSheet,
-} from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Animated, StyleSheet,  } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import type { StoryGroup } from '../../types';
 
@@ -70,7 +68,7 @@ export function StoryViewer({ groups, startIndex, onClose }: Props) {
 
   return (
     <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: '#000', zIndex: 999 }}>
-      <Image source={{ uri: story.mediaUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover"/>
+      <Image cachePolicy="memory-disk" source={{ uri: story.mediaUri }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.15)' }}/>
 
       {/* Progress bars */}
@@ -95,7 +93,7 @@ export function StoryViewer({ groups, startIndex, onClose }: Props) {
         {/* Story header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Image source={{ uri: group.venueImage }} style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: '#fff' }}/>
+            <Image cachePolicy="memory-disk" source={{ uri: group.venueImage }} style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: '#fff' }}/>
             <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{group.venueName}</Text>

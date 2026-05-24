@@ -17,27 +17,31 @@ import {
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   updateProfile,
+  sendEmailVerification,
 } from '@react-native-firebase/auth';
 import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import {
   upsertUserProfile,
   saveUserVibes,
   getUserProfile,
+  markEmailVerified,
 } from '../../firestoreService';
 
 const auth = getAuth();
 
 // ── Types ─────────────────────────────────────────────────────────────
 type FirebaseContextValue = {
-  user:           FirebaseAuthTypes.User | null;
-  authLoading:    boolean;
-  userVibes:      string[];
-  saveVibes:      (vibes: string[]) => Promise<void>;
-  signIn:         (email: string, password: string) => Promise<void>;
-  signUp:         (email: string, password: string, displayName: string) => Promise<void>;
-  signOut:        () => Promise<void>;
-  authError:      string | null;
-  clearAuthError: () => void;
+  user:                     FirebaseAuthTypes.User | null;
+  authLoading:              boolean;
+  userVibes:                string[];
+  saveVibes:                (vibes: string[]) => Promise<void>;
+  signIn:                   (email: string, password: string) => Promise<void>;
+  signUp:                   (email: string, password: string, displayName: string) => Promise<void>;
+  signOut:                  () => Promise<void>;
+  authError:                string | null;
+  clearAuthError:           () => void;
+  resendVerificationEmail:  () => Promise<void>;
+  refreshEmailVerified:     () => Promise<boolean>;
 };
 
 const FirebaseContext = createContext<FirebaseContextValue | null>(null);
@@ -64,7 +68,8 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
           await upsertUserProfile(
             firebaseUser.uid,
             firebaseUser.email || '',
-            firebaseUser.displayName || ''
+            firebaseUser.displayName || '',
+            firebaseUser.emailVerified
           );
           const profile = await getUserProfile(firebaseUser.uid);
           if (profile?.vibes && profile.vibes.length > 0) {
@@ -103,12 +108,37 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
       await cred.user.reload();
       // Small delay to let the auth token propagate to Firestore security rules
       await new Promise(resolve => setTimeout(resolve, 300));
-      await upsertUserProfile(cred.user.uid, email, displayName);
+      await upsertUserProfile(cred.user.uid, email, displayName, false);
+      // Fire-and-forget verification email — failure must not block signup
+      try { await sendEmailVerification(cred.user); }
+      catch (e) { console.log('FirebaseContext: sendEmailVerification error', e); }
     } catch (e: any) {
       const msg = friendlyAuthError(e.code);
       setAuthError(msg);
       throw new Error(msg);
     }
+  }, []);
+
+  const resendVerificationEmail = useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current) throw new Error('Not signed in');
+    await sendEmailVerification(current);
+  }, []);
+
+  const refreshEmailVerified = useCallback(async (): Promise<boolean> => {
+    const current = auth.currentUser;
+    if (!current) return false;
+    await current.reload();
+    const refreshed = auth.currentUser;
+    const verified  = !!refreshed?.emailVerified;
+    if (verified && refreshed) {
+      try { await markEmailVerified(refreshed.uid); }
+      catch (e) { console.log('FirebaseContext: markEmailVerified error', e); }
+      // reload() does not re-fire onAuthStateChanged — push the latest user
+      // into local state so consumers (the banner) re-render.
+      setUser(refreshed);
+    }
+    return verified;
   }, []);
 
   const signOut = useCallback(async () => {
@@ -137,6 +167,7 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
       user, authLoading, userVibes, saveVibes,
       signIn, signUp, signOut,
       authError, clearAuthError,
+      resendVerificationEmail, refreshEmailVerified,
     }}>
       {children}
     </FirebaseContext.Provider>
@@ -144,7 +175,7 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
 }
 
 // ── Friendly error messages ───────────────────────────────────────────
-function friendlyAuthError(code: string): string {
+export function friendlyAuthError(code: string): string {
   switch (code) {
     case 'auth/user-not-found':
     case 'auth/wrong-password':

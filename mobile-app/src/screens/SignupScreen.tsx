@@ -4,7 +4,8 @@
 //   - Sign In CTA above Create Account on landing
 //   - Confirm password field on signup
 //   - Password strength indicator + requirements
-//   - Forgot password link on email-already-exists error
+//   - Forgot password link visible by default on Sign In + Sign Up forms
+//     (S1-1d — opens dedicated ForgotPasswordScreen via onForgotPassword)
 //   - Email keyboard type verified (email-address)
 //   - Keyboard up/down toolbar between fields (InputAccessoryView)
 // ─────────────────────────────────────────────────────────────────────
@@ -15,15 +16,15 @@ import {
 } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useFirebase } from '../context/FirebaseContext';
-import { getAuth, sendPasswordResetEmail } from '@react-native-firebase/auth';
 import { KB_ACCESSORY_ID, useKBContext } from '../constants/keyboard';
 
 type Mode = 'landing' | 'signin' | 'signup';
 
 type Props = {
-  onSignupComplete: () => void;
-  onSignInComplete: () => void;
-  onGuest: () => void;
+  onSignupComplete:  () => void;
+  onSignInComplete:  () => void;
+  onGuest:           () => void;
+  onForgotPassword:  (currentEmail: string) => void;
 };
 
 // ── Password strength ─────────────────────────────────────────────────
@@ -43,7 +44,7 @@ function getPasswordStrength(pw: string): { level: StrengthLevel; score: number;
 const STRENGTH_COLOR = { weak: '#e74c3c', fair: '#f39c12', strong: '#2a7a5a' };
 const STRENGTH_LABEL = { weak: 'Weak', fair: 'Fair', strong: 'Strong' };
 
-export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Props) {
+export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest, onForgotPassword }: Props) {
   const { signIn, signUp, authError, clearAuthError } = useFirebase();
 
   const [mode,            setMode]            = useState<Mode>('landing');
@@ -54,7 +55,6 @@ export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Pr
   const [showPassword,    setShowPassword]    = useState(false);
   const [showConfirm,     setShowConfirm]     = useState(false);
   const [submitting,      setSubmitting]      = useState(false);
-  const [resetSent,       setResetSent]       = useState(false);
   const [localError,      setLocalError]      = useState<string | null>(null);
 
   // Field refs for keyboard toolbar navigation
@@ -76,17 +76,9 @@ export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Pr
   }, [mode]);
 
   const switchMode = (next: Mode) => {
-    clearAuthError(); setLocalError(null); setResetSent(false);
+    clearAuthError(); setLocalError(null);
     setEmail(''); setPassword(''); setConfirmPassword(''); setDisplayName('');
     setMode(next);
-  };
-
-  const handleForgotPassword = async () => {
-    if (!email.trim()) { setLocalError('Enter your email above to reset your password.'); return; }
-    try {
-      await sendPasswordResetEmail(getAuth(), email.trim());
-      setResetSent(true); setLocalError(null);
-    } catch { setLocalError('Could not send reset email. Check the address and try again.'); }
   };
 
   const handleSignUp = async () => {
@@ -118,8 +110,6 @@ export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Pr
   };
 
   const displayError = localError || authError;
-  const showForgotLink = !resetSent && mode === 'signin' &&
-    (authError?.toLowerCase().includes('incorrect') || authError?.toLowerCase().includes('password'));
 
   // ── Landing screen ────────────────────────────────────────────────
   if (mode === 'landing') {
@@ -179,22 +169,11 @@ export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Pr
             </Text>
           </View>
 
-          {/* Error / success banner */}
-          {resetSent && (
-            <View style={{ backgroundColor: '#2a7a5a22', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#2a7a5a44' }}>
-              <Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>Reset email sent! Check your inbox.</Text>
-            </View>
-          )}
-          {displayError && !resetSent && (
-            <View style={{ backgroundColor: '#e74c3c22', borderRadius: 10, padding: 12, marginBottom: 4, borderWidth: 1, borderColor: '#e74c3c44' }}>
+          {/* Error banner */}
+          {displayError && (
+            <View style={{ backgroundColor: '#e74c3c22', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e74c3c44' }}>
               <Text style={{ color: '#e74c3c', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>{displayError}</Text>
             </View>
-          )}
-          {/* Forgot password link — shows when sign-in fails */}
-          {showForgotLink && (
-            <TouchableOpacity onPress={handleForgotPassword} style={{ alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '600' }}>Forgot password? Send reset email →</Text>
-            </TouchableOpacity>
           )}
 
           <View style={{ gap: 14 }}>
@@ -212,7 +191,7 @@ export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Pr
             <View>
               <Text style={label}>EMAIL</Text>
               <View style={fieldBox}>
-                <TextInput ref={emailRef} placeholder="you@email.com" placeholderTextColor="rgba(255,255,255,0.25)" value={email} onChangeText={t => { setEmail(t); clearAuthError(); setLocalError(null); setResetSent(false); }} style={inputStyle} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" returnKeyType="next" onSubmitEditing={() => setTimeout(() => passRef.current?.focus(), 50)} inputAccessoryViewID={KB_ACCESSORY_ID}/>
+                <TextInput ref={emailRef} placeholder="you@email.com" placeholderTextColor="rgba(255,255,255,0.25)" value={email} onChangeText={t => { setEmail(t); clearAuthError(); setLocalError(null); }} style={inputStyle} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" returnKeyType="next" onSubmitEditing={() => setTimeout(() => passRef.current?.focus(), 50)} inputAccessoryViewID={KB_ACCESSORY_ID}/>
               </View>
             </View>
 
@@ -284,6 +263,15 @@ export function SignupScreen({ onSignupComplete, onSignInComplete, onGuest }: Pr
               disabled={submitting}
             >
               {submitting ? <ActivityIndicator color="#fff" size="small"/> : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{isSignup ? 'Create Account' : 'Sign In'}</Text>}
+            </TouchableOpacity>
+
+            {/* Forgot password — visible by default on both Sign In and Sign Up forms */}
+            <TouchableOpacity
+              onPress={() => onForgotPassword(email)}
+              style={{ alignItems: 'center', paddingVertical: 6 }}
+              hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+            >
+              <Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '600' }}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
 

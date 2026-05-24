@@ -2,10 +2,8 @@
 // Wugi — ForYouScreen
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, Image, TouchableOpacity, SafeAreaView,
-  Animated, PanResponder, StyleSheet, Dimensions, ActivityIndicator,
-} from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions, ActivityIndicator,  } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
@@ -122,7 +120,7 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
           </TouchableOpacity>
         </View>
       ) : (
-        <Image source={{ uri: card.image }} style={StyleSheet.absoluteFillObject} resizeMode="cover"/>
+        <Image cachePolicy="memory-disk" source={{ uri: card.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
       )}
 
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.2)' }}/>

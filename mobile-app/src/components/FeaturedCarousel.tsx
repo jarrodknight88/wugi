@@ -2,10 +2,8 @@
 // Wugi — FeaturedCarousel Component
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, Image, FlatList, TouchableOpacity,
-  StyleSheet, Dimensions,
-} from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions,  } from 'react-native';
+import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { EventData } from '../types';
 
@@ -82,10 +80,10 @@ export function FeaturedCarousel({ theme, onEventPress, events }: Props) {
             onPress={() => onEventPress(item)}
             activeOpacity={0.92}
           >
-            <Image
+            <Image cachePolicy="memory-disk"
               source={{ uri: item.media[0]?.uri || 'https://picsum.photos/seed/fallback/800/600' }}
               style={StyleSheet.absoluteFillObject}
-              resizeMode="cover"
+              contentFit="cover"
             />
             <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' }}/>
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16 }}>

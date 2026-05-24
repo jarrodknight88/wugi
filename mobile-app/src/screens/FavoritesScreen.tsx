@@ -2,7 +2,8 @@
 // Wugi — FavoritesScreen
 // ─────────────────────────────────────────────────────────────────────
 import React from 'react';
-import { View, Text, Image, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FavoriteItem } from '../types';
 import { HeartIcon } from '../components/icons';
@@ -53,7 +54,7 @@ export function FavoritesScreen({ theme, favorites, onEventPress, onVenuePress, 
               }}
             >
               <View style={{ position: 'relative' }}>
-                <Image source={{ uri: item.image }} style={{ width: 90, height: 90 }} resizeMode="cover"/>
+                <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={{ width: 90, height: 90 }} contentFit="cover"/>
                 {!item.read && (
                   <View style={{ position: 'absolute', top: 6, left: 6, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.accent }}/>
                 )}

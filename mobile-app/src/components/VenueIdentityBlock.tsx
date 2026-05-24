@@ -2,7 +2,8 @@
 // Wugi — VenueIdentityBlock Component
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Linking, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Linking } from 'react-native';
+import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import { ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon } from './icons';
 
@@ -42,15 +43,15 @@ export function VenueIdentityBlock({
           }}
         >
           {showLogo ? (
-            <Image
+            <Image cachePolicy="memory-disk"
               source={{ uri: logoUrl }}
               style={{ width: 64, height: 64, borderRadius: 10 }}
-              resizeMode="cover"
+              contentFit="cover"
               onError={() => setLogoError(true)}
             />
           ) : (
             <Text style={{ fontSize: 10, fontWeight: '600', color: theme.subtext }}>
-              {name.slice(0, 2).toUpperCase()}
+              {(name || '').slice(0, 2).toUpperCase() || '??'}
             </Text>
           )}
         </TouchableOpacity>

@@ -4,10 +4,8 @@
 // Real expo-camera integration is the next step after this placeholder
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, Image, TouchableOpacity,
-  SafeAreaView, Animated, StyleSheet,
-} from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Animated, StyleSheet,  } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path, Circle } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 
@@ -74,7 +72,7 @@ export function CameraScreen({ onClose, theme }: Props) {
   if (captured) {
     return (
       <View style={{ flex: 1, backgroundColor: '#000' }}>
-        <Image source={{ uri: captured }} style={StyleSheet.absoluteFillObject} resizeMode="cover"/>
+        <Image cachePolicy="memory-disk" source={{ uri: captured }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
 
         <SafeAreaView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
           <TouchableOpacity onPress={handleDiscard} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }}>
@@ -119,7 +117,7 @@ export function CameraScreen({ onClose, theme }: Props) {
   // TODO: Replace Image with expo-camera CameraView component
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <Image source={{ uri: 'https://picsum.photos/seed/camera/400/800' }} style={StyleSheet.absoluteFillObject} resizeMode="cover"/>
+      <Image cachePolicy="memory-disk" source={{ uri: 'https://picsum.photos/seed/camera/400/800' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.2)' }}/>
 
       {/* Top controls */}
@@ -167,7 +165,7 @@ export function CameraScreen({ onClose, theme }: Props) {
         {/* Shutter row */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <TouchableOpacity style={{ width: 50, height: 50, borderRadius: 10, overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)' }}>
-            <Image source={{ uri: 'https://picsum.photos/seed/gallery/50/50' }} style={{ width: 50, height: 50 }}/>
+            <Image cachePolicy="memory-disk" source={{ uri: 'https://picsum.photos/seed/gallery/50/50' }} style={{ width: 50, height: 50 }}/>
           </TouchableOpacity>
 
           <TouchableOpacity

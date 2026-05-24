@@ -3,7 +3,8 @@
 // Horizontal venue avatar bar with unseen/seen/ad ring states
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import type { StoryGroup } from '../../types';
@@ -66,10 +67,10 @@ export function StoriesBar({ theme, onAddStory }: Props) {
                 width: 66, height: 66, borderRadius: 33, padding: 2.5,
                 backgroundColor: group.isAd ? '#FFD700' : group.seen ? theme.border : theme.accent,
               }}>
-                <Image
+                <Image cachePolicy="memory-disk"
                   source={{ uri: group.venueImage }}
                   style={{ width: '100%', height: '100%', borderRadius: 30, borderWidth: 2.5, borderColor: theme.bg }}
-                  resizeMode="cover"
+                  contentFit="cover"
                 />
                 {group.isAd && (
                   <View style={{ position: 'absolute', bottom: 0, right: 0, backgroundColor: '#FFD700', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 1 }}>

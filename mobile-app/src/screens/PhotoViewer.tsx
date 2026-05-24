@@ -2,10 +2,8 @@
 // Wugi — PhotoViewer Screen
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, Image, TouchableOpacity, ScrollView,
-  SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions,
-} from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions,  } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -135,10 +133,10 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
             onPress={handleTap}
             style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center' }}
           >
-            <Image
+            <Image cachePolicy="memory-disk"
               source={{ uri: item.uri }}
               style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.85 }}
-              resizeMode="contain"
+              contentFit="contain"
             />
           </TouchableOpacity>
         ))}

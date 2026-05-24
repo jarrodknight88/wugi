@@ -2,10 +2,8 @@
 // Wugi — MapScreen
 // ─────────────────────────────────────────────────────────────────────
 import React from 'react';
-import {
-  View, Text, Image, TouchableOpacity,
-  SafeAreaView, Linking,
-} from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Linking,  } from 'react-native';
+import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import { BackIcon, LocationIcon } from '../components/icons';
 
@@ -32,10 +30,10 @@ export function MapScreen({ address, venueName, onBack, theme }: Props) {
 
       {/* Map placeholder */}
       <View style={{ flex: 1, position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
-        <Image
+        <Image cachePolicy="memory-disk"
           source={{ uri: 'https://picsum.photos/seed/mapview/800/600' }}
           style={{ width: '100%', height: '100%' }}
-          resizeMode="cover"
+          contentFit="cover"
         />
         <View style={{
           position: 'absolute',
