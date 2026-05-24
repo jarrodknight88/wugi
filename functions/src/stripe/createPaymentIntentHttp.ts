@@ -185,6 +185,11 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
       // If paymentMethodId provided (intentConfiguration flow), attach it directly
       payment_method: paymentMethodId || undefined,
       confirm:        paymentMethodId ? true : undefined,
+      // Stripe requires return_url when confirming server-side (live mode strictly
+      // enforces it for cards that may need 3DS/redirect). Must match the client
+      // initPaymentSheet returnURL so the SDK can route back into the app.
+      // See mobile-app/src/features/ticketing/PaymentScreen.tsx.
+      return_url:     paymentMethodId ? 'wugi://payment-complete' : undefined,
       setup_future_usage: (userId && (savePaymentMethod || !paymentMethodId)) ? 'on_session' as const : undefined,
       customer: stripeCustomerId,
       metadata: {
