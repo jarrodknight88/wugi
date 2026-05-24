@@ -4,13 +4,17 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import type { Theme } from '../constants/colors';
+import { FONTS, MONO } from '../constants/fonts';
 import {
   HomeTabIcon,
   DiscoverTabIcon,
-  SparkleIcon,
+  BoltIcon,
   FavoritesTabIcon,
   AccountTabIcon,
 } from './icons';
+
+// Warm notification badge (design --notification-badge).
+const BADGE_COLOR = '#d97a6a';
 
 type Props = {
   activeTab: string;
@@ -22,7 +26,7 @@ type Props = {
 const TABS = [
   { id: 'home',      label: 'Home',    Icon: HomeTabIcon      },
   { id: 'discover',  label: 'Discover', Icon: DiscoverTabIcon },
-  { id: 'forYou',    label: 'For You',  Icon: SparkleIcon     },
+  { id: 'forYou',    label: 'For You',  Icon: BoltIcon        },
   { id: 'favorites', label: 'Saved',    Icon: FavoritesTabIcon },
   { id: 'account',   label: 'Account',  Icon: AccountTabIcon  },
 ];
@@ -34,7 +38,7 @@ export function TabBar({ activeTab, onTabPress, theme, unreadFavCount }: Props) 
       backgroundColor: theme.bg,
       borderTopWidth: 1,
       borderTopColor: theme.divider,
-      paddingBottom: 20,
+      paddingBottom: 28,
       paddingTop: 10,
     }}>
       {TABS.map(({ id, label, Icon }) => {
@@ -52,7 +56,7 @@ export function TabBar({ activeTab, onTabPress, theme, unreadFavCount }: Props) 
                   position: 'absolute',
                   top: -4,
                   right: -6,
-                  backgroundColor: '#e74c3c',
+                  backgroundColor: BADGE_COLOR,
                   borderRadius: 8,
                   minWidth: 16,
                   height: 16,
@@ -60,7 +64,7 @@ export function TabBar({ activeTab, onTabPress, theme, unreadFavCount }: Props) 
                   justifyContent: 'center',
                   paddingHorizontal: 3,
                 }}>
-                  <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>
+                  <Text style={{ color: '#fff', fontSize: 9, fontFamily: MONO, fontWeight: '700' }}>
                     {unreadFavCount}
                   </Text>
                 </View>
@@ -69,7 +73,7 @@ export function TabBar({ activeTab, onTabPress, theme, unreadFavCount }: Props) 
             <Text style={{
               color: isActive ? theme.accent : theme.subtext,
               fontSize: 10,
-              fontWeight: isActive ? '700' : '500',
+              fontFamily: isActive ? FONTS.display : FONTS.medium,
             }}>
               {label}
             </Text>

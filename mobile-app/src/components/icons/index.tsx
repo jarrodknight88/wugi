@@ -171,6 +171,15 @@ export function SparkleIcon({ color }: { color: string }) {
   );
 }
 
+// For You — lightning bolt ("Direction D" from the design handoff)
+export function BoltIcon({ color }: { color: string }) {
+  return (
+    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+      <Path d="M13 2L4 13h7l-1 9 9-11h-7l1-9z" stroke={color} strokeWidth={1.8} strokeLinejoin="round"/>
+    </Svg>
+  );
+}
+
 export function FavoritesTabIcon({ color }: { color: string }) {
   return (
     <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
