@@ -124,7 +124,12 @@ export function TicketSelectionScreen({
   }, [selected?.id, isTableTicket, lockedQty]);
 
   // ── Calculations ────────────────────────────────────────────────────
-  const subtotal   = selected ? safeNum(selected.price) * quantity : 0;
+  // A table is ONE purchasable unit at a flat price; it includes tableCapacity
+  // passes (shown separately as seats/guest passes). Charge the flat price once:
+  // units = 1 for a table, else the chosen quantity. tableCapacity comes from
+  // the ticket-type doc — nothing hardcoded. (Server is authoritative regardless.)
+  const purchaseUnits = isTableTicket ? 1 : quantity;
+  const subtotal   = selected ? safeNum(selected.price) * purchaseUnits : 0;
   const bookingFee = selected ? calcBookingFee(subtotal, selected) : 0;
   const total      = subtotal + bookingFee; // tax calculated by Stripe at payment
 
@@ -144,7 +149,9 @@ export function TicketSelectionScreen({
     if (!selected) return;
     onContinue({
       eventId, eventName, venueName, eventDate, eventTime,
-      ticketType: selected, quantity, subtotal, bookingFee, total,
+      // Send units charged (1 for a table). The display still shows the table's
+      // seats/passes via tableCapacity; passes are issued server-side from it.
+      ticketType: selected, quantity: purchaseUnits, subtotal, bookingFee, total,
     });
   };
 
