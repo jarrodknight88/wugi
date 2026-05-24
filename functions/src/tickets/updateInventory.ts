@@ -34,6 +34,12 @@ export const onTicketTypeSold = functions.firestore
       // to avoid double-decrement
       if (ticketType.isFree || pass.source === 'free') return;
 
+      // A table is ONE inventory unit (the table), not one-per-seat. The webhook
+      // issues tableCapacity passes per table (1 purchaser + guests); only the
+      // purchaser pass decrements inventory so a table sale consumes -1, not
+      // -tableCapacity. tableCapacity is read from the ticket-type doc (dynamic).
+      if ((ticketType.tableCapacity ?? 0) > 1 && pass.role !== 'purchaser') return;
+
       // Use capacity field, fallback to quantity, fallback to current remaining + sold
       const capacity = ticketType.capacity ?? ticketType.quantity ?? ((ticketType.remaining ?? 0) + (ticketType.sold ?? 0));
       const newSold      = (ticketType.sold ?? 0) + 1;

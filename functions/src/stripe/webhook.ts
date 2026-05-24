@@ -142,7 +142,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   const items = JSON.parse(itemsJson) as {
     ticketTypeId:   string;
     ticketTypeName: string;
-    quantity:       number;
+    quantity:       number;   // units charged (1 for a table)
+    passCount?:     number;   // passes to issue (tableCapacity for a table); falls back to quantity
     unitPrice:      number;
     subtotal:       number;
     taxIncluded:    boolean;
@@ -243,7 +244,11 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   const passIds: string[] = [];
 
   for (const item of items) {
-    for (let i = 0; i < item.quantity; i++) {
+    // Issue passCount passes (tableCapacity for a table, else quantity). The
+    // first pass overall is the purchaser; the rest are guests. Purchaser is
+    // INCLUDED in the count (tableCapacity 5 → 5 passes: 1 purchaser + 4 guests).
+    const issueCount = item.passCount ?? item.quantity;
+    for (let i = 0; i < issueCount; i++) {
       const passRef = db.collection('passes').doc();
       passIds.push(passRef.id);
       const isFirst = i === 0 && passIds.length === 1;
@@ -323,20 +328,11 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   // Link payout ID back to order
   writeBatch.update(orderRef, { payoutId: payoutRef.id });
 
-  // Update ticket type sold count
-  for (const item of items) {
-    const ticketTypeRef = db
-      .collection('events')
-      .doc(eventId)
-      .collection('ticketTypes')
-      .doc(item.ticketTypeId);
-
-    writeBatch.update(ticketTypeRef, {
-      sold:      admin.firestore.FieldValue.increment(item.quantity),
-      remaining: admin.firestore.FieldValue.increment(-item.quantity),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  }
+  // NOTE: ticketType sold/remaining is decremented by the onTicketTypeSold
+  // trigger (fires per pass created below) — the single source of inventory
+  // truth across all pass-creation paths (online, door, transfers). The
+  // previous inline decrement here double-counted every online order; removed.
+  // For tables, the trigger counts only the purchaser pass → -1 per table.
 
   await writeBatch.commit();
   await passBatch.commit();

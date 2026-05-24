@@ -39,7 +39,18 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
 
     const ticketType = ticketTypeDoc.data()!;
     if (ticketType.status !== 'on_sale') { res.status(400).json({ error: { message: 'Ticket not on sale' } }); return; }
-    if (ticketType.remaining < quantity) { res.status(400).json({ error: { message: 'Not enough tickets' } }); return; }
+
+    // Table tickets are ONE purchasable unit at a flat price that includes
+    // tableCapacity passes. Decouple "units charged" (drives price + inventory)
+    // from "passes issued" — both sourced from the ticket-type doc, never
+    // hardcoded. Authoritative server-side: ignore any inflated client quantity
+    // for tables (old clients send quantity == tableCapacity).
+    const tableCapacity = Number(ticketType.tableCapacity) || 0;
+    const isTable       = tableCapacity > 1;
+    const purchaseUnits = isTable ? 1 : Number(quantity);   // flat price charged once for a table
+    const passCount     = isTable ? tableCapacity : Number(quantity); // passes to issue
+
+    if (ticketType.remaining < purchaseUnits) { res.status(400).json({ error: { message: 'Not enough tickets' } }); return; }
 
     const [eventDoc, venueDoc] = await Promise.all([
       db.collection('events').doc(eventId).get(),
@@ -48,8 +59,8 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     const event = eventDoc.data();
     const venue = venueDoc?.data();
 
-    const subtotal   = ticketType.price * quantity;
-    const bookingFee = calculateBookingFee(subtotal);
+    const subtotal   = ticketType.price * purchaseUnits;   // flat price × units (1 for a table)
+    const bookingFee = calculateBookingFee(subtotal);       // fee on the flat price, once
     const total      = subtotal + bookingFee;
 
     // ── Free ticket bypass — skip Stripe, create pass directly ──────────
@@ -135,8 +146,8 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
       await db.collection('events').doc(eventId)
         .collection('ticketTypes').doc(ticketTypeId)
         .update({
-          sold:      admin.firestore.FieldValue.increment(quantity),
-          remaining: admin.firestore.FieldValue.increment(-quantity),
+          sold:      admin.firestore.FieldValue.increment(purchaseUnits),
+          remaining: admin.firestore.FieldValue.increment(-purchaseUnits),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
@@ -198,7 +209,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
       setup_future_usage: (userId && (savePaymentMethod || !paymentMethodId)) ? 'on_session' as const : undefined,
       customer: stripeCustomerId,
       metadata: {
-        eventId, ticketTypeId, quantity: String(quantity),
+        eventId, ticketTypeId, quantity: String(purchaseUnits),
         ticketTypeName:  ticketType.name,
         venueId:         ticketType.venueId ?? '',
         subtotal:        String(subtotal),
@@ -217,7 +228,9 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
         eventTime:       event?.time ?? '',
         items: JSON.stringify([{
           ticketTypeId, ticketTypeName: ticketType.name,
-          quantity, unitPrice: ticketType.price,
+          quantity: purchaseUnits,          // units charged (1 for a table)
+          passCount,                         // passes to issue (tableCapacity for a table)
+          unitPrice: ticketType.price,
           subtotal, taxIncluded: ticketType.taxIncluded,
         }]),
       },
