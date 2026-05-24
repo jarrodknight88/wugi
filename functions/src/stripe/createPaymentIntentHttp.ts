@@ -182,6 +182,11 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     const paymentIntent = await stripe.paymentIntents.create({
       amount:   total,
       currency: 'usd',
+      // Card-only, no redirect-based methods. Removes the return-scheme
+      // dependency at confirmation and matches the client's
+      // intentConfiguration.paymentMethodTypes: ['card'], so the SDK can
+      // complete the sheet in-app without the wugi:// redirect.
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       // If paymentMethodId provided (intentConfiguration flow), attach it directly
       payment_method: paymentMethodId || undefined,
       confirm:        paymentMethodId ? true : undefined,
