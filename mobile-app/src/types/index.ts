@@ -42,6 +42,27 @@ export type GalleryDoc = {
   source: 'dashboard' | 'lens' | 'seed';
 };
 
+// Top-level `photos` collection doc — individual photos within a gallery,
+// the source-of-truth for likeable / purchasable shots.
+//
+// ARCHITECTURE (same model as `galleries`): `galleries` + `photos` are
+// TOP-LEVEL source-of-truth collections. Wugi Dashboard is the authoritative
+// manager; Wugi Lens writes through it; the consumer app is READ-ONLY against
+// both. `price` is in CENTS (matches the ticketing money convention).
+export type PhotoDoc = {
+  id: string;
+  galleryId: string;
+  venueId: string;
+  eventId?: string | null;
+  imageUrl: string;          // photo image URL (placeholder until Lens uploads)
+  photographerName?: string;
+  photographerId?: string | null;
+  likes: number;
+  price: number;             // CENTS (e.g. 500 = $5.00)
+  createdAt?: unknown;       // Firestore Timestamp
+  source: 'dashboard' | 'lens' | 'seed';
+};
+
 // ── Event ─────────────────────────────────────────────────────────────
 export type EventData = {
   id: string;
