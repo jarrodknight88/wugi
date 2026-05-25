@@ -250,6 +250,33 @@ service cloud.firestore {
     match /payouts/{id}            { allow read: if isStaff(); allow write: if false; }
     match /chargebacks/{id}        { allow read: if isStaff(); allow write: if false; }
 
+    // ── Favorites ────────────────────────────────────────────────────
+    // Top-level `favorites` collection. Doc id is deterministic
+    // `${userId}_${itemType}_${itemId}`; each doc carries its owner's uid.
+    // A user may only read/write their OWN favorites. The consumer app reads
+    // its own set on login (list by userId) and writes via add/removeFavorite.
+    match /favorites/{favId} {
+      allow read:   if isAuth() && resource.data.userId == request.auth.uid;
+      allow list:   if isAuth();  // where(userId == uid) query; rule needs auth
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuth() && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // ── Reports ──────────────────────────────────────────────────────
+    // Top-level `reports` collection. Users flag photos; the doc is created
+    // with status 'open' and the reporter's uid. Reporters can read their own
+    // reports; staff can read all. Resolution happens via the Dashboard /
+    // admin SDK (no client update/delete).
+    match /reports/{reportId} {
+      allow create: if isAuth()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.status == 'open';
+      allow read:   if isAuth() && (resource.data.userId == request.auth.uid || isStaff());
+      allow update, delete: if false;
+    }
+
     // ── Catch-all ────────────────────────────────────────────────────
     match /{document=**} {
       allow read:  if isAuth();
