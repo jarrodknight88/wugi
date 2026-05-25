@@ -1,10 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — OnboardingScreen
+// 3-slide marketing carousel — big emoji glow well, vibe-colored CTA.
+// Pixel-matched to Claude Design handoff (consumer-app/OnboardingScreen.jsx)
+// Static marketing copy — no Firestore data.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, Dimensions, SafeAreaView,
 } from 'react-native';
+import { FONTS } from '../constants/fonts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -43,6 +47,7 @@ export function OnboardingScreen({ onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const slide = SLIDES[currentIndex];
+  const isLast = currentIndex === SLIDES.length - 1;
 
   const goTo = (index: number) => {
     scrollRef.current?.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
@@ -50,20 +55,22 @@ export function OnboardingScreen({ onFinish }: Props) {
   };
 
   const handleNext = () => {
-    if (currentIndex < SLIDES.length - 1) goTo(currentIndex + 1);
+    if (!isLast) goTo(currentIndex + 1);
     else onFinish();
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+    <View style={{ flex: 1, backgroundColor: '#0e0c08' }}>
+      {/* Skip button */}
       <SafeAreaView style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 20, paddingTop: 8 }}>
-        {currentIndex < SLIDES.length - 1 && (
+        {!isLast && (
           <TouchableOpacity onPress={onFinish} style={{ paddingVertical: 8, paddingHorizontal: 4 }}>
-            <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, fontWeight: '500' }}>Skip</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, fontFamily: FONTS.medium }}>Skip</Text>
           </TouchableOpacity>
         )}
       </SafeAreaView>
 
+      {/* Slides — horizontal pager */}
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -80,43 +87,60 @@ export function OnboardingScreen({ onFinish }: Props) {
             paddingHorizontal: 36,
             paddingBottom: 40,
           }}>
-            <View style={{ position: 'absolute', width: 260, height: 260, borderRadius: 130, backgroundColor: s.accent, opacity: 0.1, top: '12%' }}/>
+            {/* Outer ambient glow disc */}
+            <View style={{
+              position: 'absolute',
+              width: 260, height: 260, borderRadius: 130,
+              backgroundColor: s.accent, opacity: 0.1, top: '12%',
+            }}/>
+
+            {/* Glow well — dark inner disc + border ring + emoji */}
             <View style={{
               width: 140, height: 140, borderRadius: 70,
               backgroundColor: s.glow,
               borderWidth: 1.5, borderColor: s.accent + '40',
               alignItems: 'center', justifyContent: 'center',
               marginBottom: 44,
-              shadowColor: s.accent, shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 0 },
+              shadowColor: s.accent, shadowOpacity: 0.3,
+              shadowRadius: 20, shadowOffset: { width: 0, height: 0 },
             }}>
               <Text style={{ fontSize: 58 }}>{s.emoji}</Text>
             </View>
-            <Text style={{ color: '#fff', fontSize: 34, fontWeight: '900', textAlign: 'center', letterSpacing: -0.8, marginBottom: 18, lineHeight: 40 }}>
+
+            <Text style={{
+              color: '#fff', fontSize: 34, fontFamily: FONTS.display,
+              textAlign: 'center', letterSpacing: -0.8,
+              marginBottom: 18, lineHeight: 40,
+            }}>
               {s.title}
             </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 16, textAlign: 'center', lineHeight: 26 }}>
+
+            <Text style={{
+              color: 'rgba(255,255,255,0.5)', fontSize: 16,
+              fontFamily: FONTS.body,
+              textAlign: 'center', lineHeight: 26,
+            }}>
               {s.subtitle}
             </Text>
           </View>
         ))}
       </ScrollView>
 
+      {/* Footer — dots + CTA */}
       <SafeAreaView style={{ paddingHorizontal: 24, paddingBottom: 8 }}>
         {/* Dot indicators */}
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 28 }}>
           {SLIDES.map((_, i) => (
             <TouchableOpacity key={i} onPress={() => goTo(i)}>
               <View style={{
-                width: i === currentIndex ? 28 : 8,
-                height: 8,
-                borderRadius: 4,
+                width: i === currentIndex ? 28 : 8, height: 8, borderRadius: 4,
                 backgroundColor: i === currentIndex ? slide.accent : 'rgba(255,255,255,0.18)',
               }}/>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* CTA */}
+        {/* Primary CTA — vibe-colored per slide */}
         <TouchableOpacity
           onPress={handleNext}
           style={{
@@ -124,18 +148,20 @@ export function OnboardingScreen({ onFinish }: Props) {
             borderRadius: 14,
             paddingVertical: 17,
             alignItems: 'center',
-            marginBottom: currentIndex === SLIDES.length - 1 ? 0 : 12,
-            shadowColor: slide.accent, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+            marginBottom: isLast ? 0 : 12,
+            shadowColor: slide.accent, shadowOpacity: 0.35,
+            shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
           }}
         >
-          <Text style={{ color: '#fff', fontSize: 17, fontWeight: '800', letterSpacing: 0.2 }}>
-            {currentIndex === SLIDES.length - 1 ? 'Get Started →' : 'Next'}
+          <Text style={{ color: '#fff', fontSize: 17, fontFamily: FONTS.display, letterSpacing: 0.2 }}>
+            {isLast ? 'Get Started →' : 'Next'}
           </Text>
         </TouchableOpacity>
 
-        {currentIndex === SLIDES.length - 1 && (
+        {/* Last-slide sign-in link */}
+        {isLast && (
           <TouchableOpacity onPress={onFinish} style={{ alignItems: 'center', paddingVertical: 14 }}>
-            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontFamily: FONTS.body }}>
               Already have an account? Sign in
             </Text>
           </TouchableOpacity>
