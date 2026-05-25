@@ -14,6 +14,7 @@ import { useFirebase } from '../context/FirebaseContext';
 import { ChevronRightIcon } from '../components/icons';
 import { checkUsernameAvailable, saveUsername, getUserProfile } from '../../firestoreService';
 import { getAuth, sendPasswordResetEmail } from '@react-native-firebase/auth';
+import { FONTS, MONO } from '../constants/fonts';
 
 // ── Password strength (mirrors SignupScreen) ──────────────────────────
 type StrengthLevel = 'weak' | 'fair' | 'strong';
@@ -159,8 +160,8 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   const ToggleRow = ({ label, value, onToggle, subtitle }: { label: string; value: boolean; onToggle: () => void; subtitle?: string }) => (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
       <View style={{ flex: 1, marginRight: 12 }}>
-        <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>{label}</Text>
-        {subtitle && <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>{subtitle}</Text>}
+        <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.medium }}>{label}</Text>
+        {subtitle && <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginTop: 2 }}>{subtitle}</Text>}
       </View>
       <TouchableOpacity onPress={onToggle} style={{ width: 48, height: 28, borderRadius: 14, backgroundColor: value ? theme.accent : theme.border, justifyContent: 'center', paddingHorizontal: 3 }}>
         <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff', alignSelf: value ? 'flex-end' : 'flex-start', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } }}/>
@@ -171,24 +172,24 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
   // ── Logged out — Auth screen ──────────────────────────────────────────
   if (!user) {
     const fBox = { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 14 };
-    const lbl  = { color: theme.subtext, fontSize: 11, fontWeight: '700' as const, marginBottom: 6, letterSpacing: 0.5 };
-    const inp  = { flex: 1, color: theme.text, fontSize: 15, padding: 0 };
+    const lbl  = { color: theme.subtext, fontSize: 11, fontFamily: MONO, marginBottom: 6, letterSpacing: 0.5 };
+    const inp  = { flex: 1, color: theme.text, fontSize: 15, fontFamily: FONTS.body, padding: 0 };
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         <SafeAreaView style={{ flex: 1 }}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
             <View style={{ alignItems: 'center', paddingTop: 60, paddingBottom: 32 }}>
-              <Text style={{ color: theme.accent, fontSize: 48, fontWeight: '900', letterSpacing: -2, marginBottom: 8 }}>wugi</Text>
-              <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', marginBottom: 8 }}>{isSignUp ? 'Create your account' : 'Welcome back'}</Text>
-              <Text style={{ color: theme.subtext, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+              <Text style={{ color: theme.accent, fontSize: 48, fontFamily: FONTS.display, letterSpacing: -2, marginBottom: 8 }}>wugi</Text>
+              <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, marginBottom: 8 }}>{isSignUp ? 'Create your account' : 'Welcome back'}</Text>
+              <Text style={{ color: theme.subtext, fontSize: 14, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 20 }}>
                 {isSignUp ? "Join Atlanta's most vibrant nightlife community" : 'Sign in to access your saved spots and passes'}
               </Text>
             </View>
 
             {/* Banners */}
-            {resetSent && <View style={{ backgroundColor: '#2a7a5a22', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#2a7a5a44' }}><Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>Reset email sent! Check your inbox.</Text></View>}
-            {(localError || authError) && !resetSent && <View style={{ backgroundColor: '#e74c3c22', borderRadius: 10, padding: 12, marginBottom: 4, borderWidth: 1, borderColor: '#e74c3c44' }}><Text style={{ color: '#e74c3c', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>{localError || authError}</Text></View>}
-            {showForgotLink && <TouchableOpacity onPress={handleForgotPassword} style={{ alignItems: 'center', marginBottom: 16 }}><Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>Forgot password? Send reset email →</Text></TouchableOpacity>}
+            {resetSent && <View style={{ backgroundColor: '#2a7a5a22', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#2a7a5a44' }}><Text style={{ color: '#2a7a5a', fontSize: 13, fontFamily: FONTS.medium, textAlign: 'center' }}>Reset email sent! Check your inbox.</Text></View>}
+            {(localError || authError) && !resetSent && <View style={{ backgroundColor: '#e74c3c22', borderRadius: 10, padding: 12, marginBottom: 4, borderWidth: 1, borderColor: '#e74c3c44' }}><Text style={{ color: '#e74c3c', fontSize: 13, fontFamily: FONTS.medium, textAlign: 'center' }}>{localError || authError}</Text></View>}
+            {showForgotLink && <TouchableOpacity onPress={handleForgotPassword} style={{ alignItems: 'center', marginBottom: 16 }}><Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>Forgot password? Send reset email →</Text></TouchableOpacity>}
 
             <View style={{ gap: 14 }}>
               {isSignUp && (
@@ -212,10 +213,10 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
                 {isSignUp && password.length > 0 && (
                   <View style={{ marginTop: 8 }}>
                     <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>{[1,2,3,4,5].map(i => <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: i <= strength.score ? SC[strength.level] : theme.border }}/>)}</View>
-                    <Text style={{ color: SC[strength.level], fontSize: 11, fontWeight: '700', marginBottom: 4 }}>{SL[strength.level]}</Text>
+                    <Text style={{ color: SC[strength.level], fontSize: 11, fontFamily: FONTS.medium, marginBottom: 4 }}>{SL[strength.level]}</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                       {[{ key: 'length', label: '8+ chars' }, { key: 'upper', label: 'Uppercase' }, { key: 'number', label: 'Number' }, { key: 'special', label: 'Symbol' }].map(r => (
-                        <Text key={r.key} style={{ fontSize: 11, color: (strength.checks as any)[r.key] ? '#2a7a5a' : theme.subtext, fontWeight: '600' }}>{(strength.checks as any)[r.key] ? '✓' : '○'} {r.label}</Text>
+                        <Text key={r.key} style={{ fontSize: 11, color: (strength.checks as any)[r.key] ? '#2a7a5a' : theme.subtext, fontFamily: FONTS.body }}>{(strength.checks as any)[r.key] ? '✓' : '○'} {r.label}</Text>
                       ))}
                     </View>
                   </View>
@@ -231,17 +232,17 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
                       </Svg>
                     </TouchableOpacity>
                   </View>
-                  {confirmPassword.length > 0 && confirmPassword !== password && <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: '600', marginTop: 4 }}>Passwords don't match</Text>}
+                  {confirmPassword.length > 0 && confirmPassword !== password && <Text style={{ color: '#e74c3c', fontSize: 11, fontFamily: FONTS.medium, marginTop: 4 }}>Passwords don't match</Text>}
                 </View>
               )}
               <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 8, opacity: submitting ? 0.7 : 1 }} onPress={handleSubmit} disabled={submitting}>
-                {submitting ? <ActivityIndicator color="#fff" size="small"/> : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>}
+                {submitting ? <ActivityIndicator color="#fff" size="small"/> : <Text style={{ color: '#fff', fontSize: 16, fontFamily: FONTS.medium }}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>}
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={{ alignItems: 'center', marginTop: 24 }} onPress={() => { setIsSignUp(p => !p); clearAuthError(); setLocalError(null); setConfirmPassword(''); setResetSent(false); }}>
-              <Text style={{ color: theme.subtext, fontSize: 14 }}>
+              <Text style={{ color: theme.subtext, fontSize: 14, fontFamily: FONTS.body }}>
                 {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-                <Text style={{ color: theme.accent, fontWeight: '700' }}>{isSignUp ? 'Sign In' : 'Sign Up'}</Text>
+                <Text style={{ color: theme.accent, fontFamily: FONTS.medium }}>{isSignUp ? 'Sign In' : 'Sign Up'}</Text>
               </Text>
             </TouchableOpacity>
           </ScrollView>
@@ -256,23 +257,29 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
       <SafeAreaView style={{ paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ width: 36 }}/>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '900', letterSpacing: -0.5 }}>Account</Text>
+          <Text style={{ color: theme.text, fontSize: 20, fontFamily: FONTS.display, letterSpacing: -0.5 }}>Account</Text>
           <View style={{ width: 36 }}/>
         </View>
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Avatar */}
-        <View style={{ alignItems: 'center', paddingVertical: 28, paddingHorizontal: 24 }}>
-          <View style={{ position: 'relative', marginBottom: 14 }}>
-            <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: theme.card, borderWidth: 2, borderColor: theme.accent, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 32 }}>👤</Text>
-            </View>
+        {/* Avatar — initials badge matching design */}
+        <View style={{ alignItems: 'center', paddingTop: 28, paddingBottom: 20, paddingHorizontal: 24 }}>
+          <View style={{
+            width: 84, height: 84, borderRadius: 42,
+            backgroundColor: theme.accent,
+            alignItems: 'center', justifyContent: 'center',
+            marginBottom: 12,
+            shadowColor: theme.accent, shadowOpacity: 0.4, shadowRadius: 18, shadowOffset: { width: 0, height: 6 },
+          }}>
+            <Text style={{ color: '#f4efe1', fontSize: 28, fontFamily: FONTS.display, letterSpacing: -1 }}>
+              {(user.displayName || 'W').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+            </Text>
           </View>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800', marginBottom: 4 }}>
+          <Text style={{ color: theme.text, fontSize: 20, fontFamily: FONTS.display, letterSpacing: -0.4, marginBottom: 3 }}>
             {user.displayName || 'Wugi User'}
           </Text>
-          <Text style={{ color: theme.subtext, fontSize: 13 }}>{user.email}</Text>
+          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body }}>{user.email}</Text>
         </View>
 
         {/* Username section */}
@@ -283,10 +290,10 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
               style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingVertical: 14 }}
             >
               <View>
-                <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 }}>USERNAME</Text>
-                <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>@{savedUsername}</Text>
+                <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 2 }}>USERNAME</Text>
+                <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>@{savedUsername}</Text>
               </View>
-              <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>Change</Text>
+              <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>Change</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -294,75 +301,79 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
               style={{ backgroundColor: theme.accent + '22', borderRadius: 12, borderWidth: 1, borderColor: theme.accent + '44', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
             >
               <View>
-                <Text style={{ color: theme.accent, fontSize: 14, fontWeight: '700', marginBottom: 2 }}>Claim your username</Text>
-                <Text style={{ color: theme.subtext, fontSize: 12 }}>Choose how you appear on Wugi</Text>
+                <Text style={{ color: theme.accent, fontSize: 14, fontFamily: FONTS.display, marginBottom: 2 }}>Claim your username</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body }}>Choose how you appear on Wugi</Text>
               </View>
               <Text style={{ color: theme.accent, fontSize: 18 }}>→</Text>
             </TouchableOpacity>
           )}
           {showUsernamePicker && (
             <View style={{ marginTop: 12, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
-              <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 }}>NEW USERNAME</Text>
+              <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 8 }}>NEW USERNAME</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.bg, borderRadius: 10, borderWidth: 1, borderColor: usernameStatus === 'available' ? '#2a7a5a' : usernameStatus === 'taken' ? '#e74c3c' : theme.border, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 8 }}>
                 <Text style={{ color: theme.subtext, fontSize: 15, marginRight: 2 }}>@</Text>
                 <TextInput placeholder="yourname" placeholderTextColor={theme.subtext} value={usernameInput} onChangeText={t => setUsernameInput(t.toLowerCase().replace(/\s/g, ''))} style={{ flex: 1, color: theme.text, fontSize: 15, padding: 0 }} autoCapitalize="none" autoCorrect={false} maxLength={20}/>
                 {usernameStatus === 'checking' && <ActivityIndicator size="small" color={theme.accent}/>}
               </View>
-              {usernameStatus === 'available' && <Text style={{ color: '#2a7a5a', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>✓ Available</Text>}
-              {usernameStatus === 'taken' && <Text style={{ color: '#e74c3c', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>✗ Already taken</Text>}
+              {usernameStatus === 'available' && <Text style={{ color: '#2a7a5a', fontSize: 12, fontFamily: FONTS.medium, marginBottom: 8 }}>✓ Available</Text>}
+              {usernameStatus === 'taken' && <Text style={{ color: '#e74c3c', fontSize: 12, fontFamily: FONTS.medium, marginBottom: 8 }}>✗ Already taken</Text>}
               <TouchableOpacity
                 onPress={handleSaveUsername}
                 disabled={usernameStatus !== 'available'}
                 style={{ backgroundColor: usernameStatus === 'available' ? theme.accent : theme.border, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
               >
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>{usernameStatus === 'saving' ? 'Saving…' : 'Save Username'}</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontFamily: FONTS.medium }}>{usernameStatus === 'saving' ? 'Saving…' : 'Save Username'}</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
         <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>My Vibes</Text>
-          <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 14 }}>We use these to personalize your For You feed</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {ACCOUNT_VIBES.map(vibe => {
-              const active = selectedVibes.includes(vibe.label);
-              return (
-                <TouchableOpacity
-                  key={vibe.label}
-                  onPress={() => toggleVibe(vibe.label)}
-                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: active ? vibe.accent : theme.card, borderWidth: 1.5, borderColor: active ? vibe.accent : theme.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                >
-                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : vibe.accent }}/>
-                  <Text style={{ color: active ? '#fff' : theme.subtext, fontSize: 13, fontWeight: '600' }}>{vibe.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
+          <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>YOUR VIBES</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+            <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>What you're into</Text>
+          </View>
+          <View style={{ backgroundColor: theme.card, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {ACCOUNT_VIBES.map(vibe => {
+                const active = selectedVibes.includes(vibe.label);
+                return (
+                  <TouchableOpacity
+                    key={vibe.label}
+                    onPress={() => toggleVibe(vibe.label)}
+                    style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: active ? vibe.accent : 'transparent', borderWidth: 1, borderColor: active ? vibe.accent : theme.border + 'aa', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  >
+                    <Text style={{ color: active ? '#f4efe1' : theme.subtext, fontSize: 13, fontFamily: active ? FONTS.medium : FONTS.body }}>{vibe.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
         </View>
 
         {/* Notifications */}
         <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 16 }}>Notifications</Text>
+          <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>SETTINGS</Text>
+          <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 16 }}>Notifications</Text>
 
           {notifPermission === 'denied' ? (
             // Denied — show Go to Settings button
             <View style={{ backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
-              <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600', marginBottom: 4 }}>Notifications are disabled</Text>
-              <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 14, lineHeight: 18 }}>
+              <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.display, marginBottom: 4 }}>Notifications are disabled</Text>
+              <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginBottom: 14, lineHeight: 18 }}>
                 Enable notifications in iOS Settings to get alerts for new events, deals, and galleries.
               </Text>
               <TouchableOpacity
                 onPress={() => Linking.openSettings()}
                 style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
               >
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Open Settings</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontFamily: FONTS.medium }}>Open Settings</Text>
               </TouchableOpacity>
             </View>
           ) : notifPermission === 'unknown' ? (
             // Not yet asked — show Enable button
             <View style={{ backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
-              <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600', marginBottom: 4 }}>Stay in the loop</Text>
-              <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 14, lineHeight: 18 }}>
+              <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.display, marginBottom: 4 }}>Stay in the loop</Text>
+              <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginBottom: 14, lineHeight: 18 }}>
                 Get notified about new events, deals, and photo galleries from your favorite Atlanta venues.
               </Text>
               <TouchableOpacity
@@ -372,7 +383,7 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
                 }}
                 style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
               >
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>Enable Notifications</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontFamily: FONTS.medium }}>Enable Notifications</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -409,7 +420,7 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
                 </View>
               )}
               <TouchableOpacity onPress={() => Linking.openSettings()} style={{ marginTop: 10 }}>
-                <Text style={{ color: theme.subtext, fontSize: 12 }}>Manage in iOS Settings →</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body }}>Manage in iOS Settings →</Text>
               </TouchableOpacity>
             </>
           )}
@@ -417,7 +428,7 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
 
         {/* App Settings */}
         <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 16 }}>App Settings</Text>
+          <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 16 }}>App Settings</Text>
           <ToggleRow label="Location Services" subtitle="Used for Near Me and distance info" value={locationEnabled} onToggle={() => setLocationEnabled(p => !p)}/>
         </View>
 
@@ -434,8 +445,8 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
                 </Svg>
               </View>
               <View>
-                <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>My Passes</Text>
-                <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 1 }}>View your event tickets</Text>
+                <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>My Passes</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginTop: 1 }}>View your event tickets</Text>
               </View>
             </View>
             <ChevronRightIcon color={theme.subtext}/>
@@ -451,7 +462,7 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
             <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
               <Path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="#e74c3c" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
             </Svg>
-            <Text style={{ color: '#e74c3c', fontSize: 15, fontWeight: '700' }}>Sign Out</Text>
+            <Text style={{ color: '#e74c3c', fontSize: 15, fontFamily: FONTS.medium }}>Sign Out</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
