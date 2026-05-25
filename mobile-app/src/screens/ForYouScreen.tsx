@@ -10,6 +10,7 @@ import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, ForYouCard, FavoriteItem } from '../types';
 import { FOR_YOU_CARDS } from '../constants/mockData';
 import { getForYouFeed, type FSEvent, type FSVenue } from '../../firestoreService';
+import { FONTS, MONO } from '../constants/fonts';
 
 function fsEventToCard(e: FSEvent): ForYouCard {
   return {
@@ -124,19 +125,19 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
       )}
 
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.2)' }}/>
-      {isTop && <Animated.View style={{ position: 'absolute', top: 40, left: 20, opacity: likeOpacity, transform: [{ rotate: '-15deg' }] }}><View style={{ borderWidth: 3, borderColor: '#2a7a5a', borderRadius: 8, padding: 8 }}><Text style={{ color: '#2a7a5a', fontSize: 28, fontWeight: '900', letterSpacing: 2 }}>SAVE</Text></View></Animated.View>}
-      {isTop && <Animated.View style={{ position: 'absolute', top: 40, right: 20, opacity: passOpacity, transform: [{ rotate: '15deg' }] }}><View style={{ borderWidth: 3, borderColor: '#e74c3c', borderRadius: 8, padding: 8 }}><Text style={{ color: '#e74c3c', fontSize: 28, fontWeight: '900', letterSpacing: 2 }}>PASS</Text></View></Animated.View>}
+      {isTop && <Animated.View style={{ position: 'absolute', top: 40, left: 20, opacity: likeOpacity, transform: [{ rotate: '-15deg' }] }}><View style={{ borderWidth: 3, borderColor: '#2a7a5a', borderRadius: 8, padding: 8 }}><Text style={{ color: '#2a7a5a', fontSize: 28, fontFamily: FONTS.display, letterSpacing: 2 }}>SAVE</Text></View></Animated.View>}
+      {isTop && <Animated.View style={{ position: 'absolute', top: 40, right: 20, opacity: passOpacity, transform: [{ rotate: '15deg' }] }}><View style={{ borderWidth: 3, borderColor: '#e74c3c', borderRadius: 8, padding: 8 }}><Text style={{ color: '#e74c3c', fontSize: 28, fontFamily: FONTS.display, letterSpacing: 2 }}>PASS</Text></View></Animated.View>}
 
       <View style={{ position: 'absolute', top: 16, right: 16, backgroundColor: card.tagColor, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 }}>
-        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 }}>{card.tag}</Text>
+        <Text style={{ color: '#fff', fontSize: 11, fontFamily: FONTS.medium, letterSpacing: 0.5 }}>{card.tag}</Text>
       </View>
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20 }}>
-        <Text style={{ color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: -0.5, marginBottom: 4 }}>{card.title}</Text>
-        <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14 }}>{card.subtitle}</Text>
+        <Text style={{ color: '#fff', fontSize: 24, fontFamily: FONTS.display, letterSpacing: -0.5, marginBottom: 4 }}>{card.title}</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14, fontFamily: FONTS.body }}>{card.subtitle}</Text>
         {(card.type === 'event' || card.type === 'venue') && card.data && (
           <View style={{ marginTop: 10 }}>
             <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
-              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Tap to view →</Text>
+              <Text style={{ color: '#fff', fontSize: 12, fontFamily: FONTS.medium }}>Tap to view →</Text>
             </View>
           </View>
         )}
@@ -182,7 +183,7 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12 }}>Loading for you...</Text>
+        <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>Loading for you...</Text>
       </View>
     );
   }
@@ -223,10 +224,10 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
         <Text style={{ fontSize: 48, marginBottom: 16 }}>🎉</Text>
-        <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 8 }}>You're all caught up!</Text>
-        <Text style={{ color: theme.subtext, fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>Check back later for more Atlanta nightlife and dining recommendations.</Text>
+        <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, textAlign: 'center', marginBottom: 8 }}>You're all caught up!</Text>
+        <Text style={{ color: theme.subtext, fontSize: 15, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>Check back later for more Atlanta nightlife and dining recommendations.</Text>
         <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={() => { setCurrentIndex(0); setIsDone(false); }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Start Over</Text>
+          <Text style={{ color: '#fff', fontSize: 15, fontFamily: FONTS.medium }}>Start Over</Text>
         </TouchableOpacity>
       </View>
     );
@@ -240,13 +241,13 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
       <SafeAreaView style={{ paddingHorizontal: 20, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ width: 36 }}/>
-          <Text style={{ color: theme.accent, fontSize: 26, fontWeight: '900', letterSpacing: -1 }}>for you</Text>
+          <Text style={{ color: theme.accent, fontSize: 26, fontFamily: FONTS.display, letterSpacing: -1 }}>for you</Text>
           <View style={{ width: 36 }}/>
         </View>
         <View style={{ height: 3, backgroundColor: theme.divider, borderRadius: 2, marginTop: 10 }}>
           <View style={{ height: 3, backgroundColor: theme.accent, borderRadius: 2, width: `${(currentIndex / cards.length) * 100}%` as any }}/>
         </View>
-        <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 4 }}>{currentIndex + 1} of {cards.length}</Text>
+        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, textAlign: 'center', marginTop: 4 }}>{currentIndex + 1} of {cards.length}</Text>
       </SafeAreaView>
 
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 20 }}>
@@ -255,7 +256,7 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
       </View>
 
       <View style={{ alignItems: 'center', marginBottom: 8 }}>
-        <Text style={{ color: theme.subtext, fontSize: 11 }}>↑ Swipe up to see later</Text>
+        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>↑ Swipe up to see later</Text>
       </View>
 
       <SafeAreaView style={{ paddingBottom: 16 }}>
