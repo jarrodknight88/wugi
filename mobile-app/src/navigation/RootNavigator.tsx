@@ -137,10 +137,104 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     })
   }, [onNotificationNavigate])
 
-  const toggleFavorite   = (item: FavoriteItem) => setFavorites(prev => { const exists = prev.find(f => f.id === item.id); if (exists) return prev.filter(f => f.id !== item.id); return [...prev, { ...item, read: false }]; });
-  const removeFavorite   = (id: string) => setFavorites(prev => prev.filter(f => f.id !== id));
+  // ── Favorites (in-memory UI + Firestore persistence) ─────────────────
+  // The in-memory `favorites` array drives the UI immediately (Saved tab,
+  // ForYou swipe). For logged-in users we ALSO persist to the top-level
+  // `favorites` collection (fire-and-forget, guarded by uid) and hydrate
+  // from it on login so saves survive reinstall / cross-device. Guests have
+  // no uid → in-memory only, exactly as before.
+  const uid = user?.uid ?? null;
+
+  const toggleFavorite = (item: FavoriteItem) => {
+    let willAdd = false;
+    setFavorites(prev => {
+      const exists = prev.find(f => f.id === item.id);
+      if (exists) { willAdd = false; return prev.filter(f => f.id !== item.id); }
+      willAdd = true;
+      return [...prev, { ...item, read: false }];
+    });
+    // Persist (fire-and-forget). itemType maps from FavoriteItem.type.
+    if (uid) {
+      import('../../firestoreService').then(svc => {
+        if (willAdd) svc.addFavorite(uid, item.type, item.id);
+        else         svc.removeFavorite(uid, item.type, item.id);
+      }).catch(() => { /* non-blocking */ });
+    }
+  };
+
+  const removeFavorite = (id: string) => {
+    const target = favorites.find(f => f.id === id);
+    setFavorites(prev => prev.filter(f => f.id !== id));
+    if (uid && target) {
+      import('../../firestoreService')
+        .then(svc => svc.removeFavorite(uid, target.type, target.id))
+        .catch(() => { /* non-blocking */ });
+    }
+  };
+
   const markFavoriteRead = (id: string) => setFavorites(prev => prev.map(f => f.id === id ? { ...f, read: true } : f));
   const unreadFavCount   = favorites.filter(f => !f.read).length;
+
+  // ── Hydrate favorites from Firestore on login ────────────────────────
+  // Resolves each persisted {itemType,itemId} to a full FavoriteItem via
+  // getEventById / getVenueById so the Saved tab renders title/image. Photo
+  // favorites are skipped here (no consumer photo-detail screen yet); the
+  // write-path still persists them. On logout (uid null) we clear the array.
+  useEffect(() => {
+    let cancelled = false;
+    if (!uid) { setFavorites([]); return; }
+    (async () => {
+      try {
+        const svc = await import('../../firestoreService');
+        const docs = await svc.listFavorites(uid);
+        const resolved = await Promise.all(docs.map(async (d): Promise<FavoriteItem | null> => {
+          if (d.itemType === 'event') {
+            const e = await svc.getEventById(d.itemId);
+            if (!e) return null;
+            const data = {
+              id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+              date: e.date, time: e.time, age: e.age, about: e.about || '',
+              media: (e.media || []) as any, gallery: undefined as any,
+              hasTickets: (e as any).hasTickets === true,
+            } as unknown as EventData;
+            return {
+              id: e.id, type: 'event', title: e.title,
+              subtitle: e.venue || '', image: (e.media || [])[0]?.uri || '',
+              read: true, data,
+            };
+          }
+          if (d.itemType === 'venue') {
+            const v = await svc.getVenueById(d.itemId);
+            if (!v) return null;
+            const firstMedia = (v.media || [])[0] as any;
+            const image = typeof firstMedia === 'string' ? firstMedia : (firstMedia?.uri || '');
+            const data = {
+              id: v.id, name: v.name, category: v.category || '',
+              address: v.address || '', phone: v.phone || '',
+              website: v.website || '', instagram: v.instagram || '',
+              attributes: v.attributes || [], about: v.about || '',
+              media: (v.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
+              menuDescription: '', menuAttributes: [], bestSellers: [],
+              upcomingEvents: [], galleries: [],
+            } as unknown as VenueData;
+            return {
+              id: v.id, type: 'venue', title: v.name,
+              subtitle: v.category || v.neighborhood || '', image,
+              read: true, data,
+            };
+          }
+          return null; // 'photo' — persisted but not hydrated into the UI yet
+        }));
+        if (!cancelled) {
+          const items = resolved.filter((x): x is FavoriteItem => x !== null);
+          setFavorites(items);
+        }
+      } catch (e) {
+        console.log('RootNavigator: favorites hydration failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [uid]);
 
   // ── App phases ───────────────────────────────────────────────────────
   if (appPhase === 'splash') return (

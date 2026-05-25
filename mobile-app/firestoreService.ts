@@ -32,6 +32,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
   limit,
@@ -655,6 +656,133 @@ export async function getActiveDeals(
   } catch (e) {
     console.log('getActiveDeals error:', e);
     return [];
+  }
+}
+
+// ── Favorites / Likes ─────────────────────────────────────────────────
+// Top-level `favorites` collection. Deterministic doc id
+// `${userId}_${itemType}_${itemId}` makes add/remove idempotent (setDoc /
+// deleteDoc on the same id). itemType is 'event' | 'venue' | 'photo'.
+// Doc shape: { userId, itemType, itemId, createdAt: serverTimestamp() }.
+// Security rules gate every read/write to the owning userId.
+export type FavoriteItemType = 'event' | 'venue' | 'photo';
+
+export type FavoriteDoc = {
+  userId: string;
+  itemType: FavoriteItemType;
+  itemId: string;
+  createdAt: any;
+};
+
+function favoriteDocId(userId: string, itemType: FavoriteItemType, itemId: string): string {
+  return `${userId}_${itemType}_${itemId}`;
+}
+
+export async function addFavorite(
+  userId: string,
+  itemType: FavoriteItemType,
+  itemId: string
+): Promise<void> {
+  try {
+    if (!userId) return;
+    const id = favoriteDocId(userId, itemType, itemId);
+    await setDoc(
+      doc(collection(db, 'favorites'), id),
+      { userId, itemType, itemId, createdAt: serverTimestamp() },
+      { merge: true }
+    );
+  } catch (e) {
+    console.log('addFavorite error:', e);
+  }
+}
+
+export async function removeFavorite(
+  userId: string,
+  itemType: FavoriteItemType,
+  itemId: string
+): Promise<void> {
+  try {
+    if (!userId) return;
+    const id = favoriteDocId(userId, itemType, itemId);
+    await deleteDoc(doc(collection(db, 'favorites'), id));
+  } catch (e) {
+    console.log('removeFavorite error:', e);
+  }
+}
+
+export async function listFavorites(userId: string): Promise<FavoriteDoc[]> {
+  try {
+    if (!userId) return [];
+    const snap = await getDocs(
+      query(collection(db, 'favorites'), where('userId', '==', userId))
+    );
+    return snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => d.data() as FavoriteDoc);
+  } catch (e) {
+    console.log('listFavorites error:', e);
+    return [];
+  }
+}
+
+export async function listFavoritesByType(
+  userId: string,
+  itemType: FavoriteItemType
+): Promise<FavoriteDoc[]> {
+  try {
+    if (!userId) return [];
+    const snap = await getDocs(
+      query(
+        collection(db, 'favorites'),
+        where('userId', '==', userId),
+        where('itemType', '==', itemType)
+      )
+    );
+    return snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => d.data() as FavoriteDoc);
+  } catch (e) {
+    console.log('listFavoritesByType error:', e);
+    return [];
+  }
+}
+
+export async function isFavorite(
+  userId: string,
+  itemType: FavoriteItemType,
+  itemId: string
+): Promise<boolean> {
+  try {
+    if (!userId) return false;
+    const id = favoriteDocId(userId, itemType, itemId);
+    const snap = await getDoc(doc(collection(db, 'favorites'), id));
+    return snap.exists();
+  } catch (e) {
+    console.log('isFavorite error:', e);
+    return false;
+  }
+}
+
+// ── Reports ───────────────────────────────────────────────────────────
+// Top-level `reports` collection. Created when a user flags a photo.
+// Materializes on first write (no seed needed). status starts 'open';
+// staff resolve via the Dashboard. Rules: create only with own userId +
+// status=='open'; read own reports (or staff); no client update/delete.
+export async function createReport(
+  photoId: string,
+  userId: string,
+  reason: string,
+  comment: string
+): Promise<string | null> {
+  try {
+    const ref = await addDoc(collection(db, 'reports'), {
+      photoId,
+      userId,
+      reason,
+      comment,
+      status: 'open',
+      createdAt: serverTimestamp(),
+    });
+    return ref.id;
+  } catch (e) {
+    console.log('createReport error:', e);
+    return null;
   }
 }
 

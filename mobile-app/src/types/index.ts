@@ -172,6 +172,28 @@ export type FavoriteItem = {
   data: EventData | VenueData;
 };
 
+// Persisted favorite doc in the top-level `favorites` collection.
+// Deterministic doc id `${userId}_${itemType}_${itemId}` makes add/remove
+// idempotent. `photo` is supported for the upcoming photo-likes flow even
+// though the in-memory FavoriteItem only models event/venue today.
+export type FavoriteDoc = {
+  userId: string;
+  itemType: 'event' | 'venue' | 'photo';
+  itemId: string;
+  createdAt?: unknown;       // Firestore serverTimestamp
+};
+
+// Persisted report doc in the top-level `reports` collection. Created when a
+// user flags a photo. `status` starts 'open'; staff resolve via the Dashboard.
+export type ReportDoc = {
+  photoId: string;
+  userId: string;
+  reason: string;
+  comment: string;
+  status: 'open' | 'reviewing' | 'resolved' | 'dismissed';
+  createdAt?: unknown;       // Firestore serverTimestamp
+};
+
 // ── Navigation ────────────────────────────────────────────────────────
 export type NavEntry =
   | { screen: 'home' }
