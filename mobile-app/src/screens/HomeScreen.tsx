@@ -36,6 +36,8 @@ import {
   Animated, PanResponder, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from '../types';
 import { EVENTS, VENUES, DEALS, makeGallery } from '../constants/mockData';
@@ -270,8 +272,15 @@ function HomeHeroCarousel({ banners, theme }: { banners: BannerItem[]; theme: Th
             style={StyleSheet.absoluteFillObject}
             contentFit="cover"
           />
-          {/* Bottom gradient scrim */}
-          <View style={styles.carouselGradient}/>
+          {/* Bottom gradient scrim — real LinearGradient (was solid overlay approx) */}
+          <LinearGradient
+            colors={['rgba(0,0,0,0.4)', 'transparent', 'rgba(0,0,0,0.92)']}
+            locations={[0, 0.25, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           {/* Copy + CTA */}
           <View style={styles.carouselCopy}>
             <Text style={[styles.carouselKicker, { color: theme.accent, fontFamily: MONO }]}>
@@ -283,15 +292,22 @@ function HomeHeroCarousel({ banners, theme }: { banners: BannerItem[]; theme: Th
             <Text style={[styles.carouselSub, { color: theme.onImageSoft, fontFamily: FONTS.body }]}>
               {b.sub}
             </Text>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={b.onCtaPress}
-              style={styles.carouselCta}
+            {/* CTA glass pill — real BlurView (was solid rgba approx) */}
+            <BlurView
+              intensity={24}
+              tint="light"
+              style={styles.carouselCtaBlur}
             >
-              <Text style={[styles.carouselCtaText, { color: theme.onImage, fontFamily: FONTS.medium }]}>
-                {b.cta} →
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={b.onCtaPress}
+                style={styles.carouselCta}
+              >
+                <Text style={[styles.carouselCtaText, { color: theme.onImage, fontFamily: FONTS.medium }]}>
+                  {b.cta} →
+                </Text>
+              </TouchableOpacity>
+            </BlurView>
           </View>
         </Animated.View>
       ))}
@@ -737,15 +753,6 @@ const styles = StyleSheet.create({
     shadowRadius: 36,
     elevation: 12,
   },
-  carouselGradient: {
-    ...StyleSheet.absoluteFillObject,
-    // Approximate the linear gradient: dark top-corners + heavy bottom scrim.
-    // RN doesn't support LinearGradient in core; we use a semi-opaque overlay
-    // at the bottom half. The design's full gradient is: rgba(0,0,0,0.4) 0%,
-    // transparent 25%, rgba(0,0,0,0.92) 100%. We use two overlaid views:
-    // a top-left fade and a bottom scrim.
-    backgroundColor: 'transparent',
-  },
   carouselCopy: {
     position: 'absolute',
     left: 0,
@@ -753,8 +760,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     padding: 18,
     paddingBottom: 42, // leave room for pagination dots
-    // Bottom scrim overlay inside copy region
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    // No background — LinearGradient above handles the scrim.
   },
   carouselKicker: {
     fontSize: 11,
@@ -773,12 +779,18 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     lineHeight: 18,
   },
-  carouselCta: {
+  // Outer BlurView wrapper — handles the backdrop blur + border-radius clip.
+  carouselCtaBlur: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(244,239,225,0.15)',
+    borderRadius: 999,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(244,239,225,0.25)',
-    borderRadius: 999,
+  },
+  // Inner tint overlay + padding — keeps the rgba(244,239,225,0.15) tint on
+  // top of the blur, matching the design's glass specification.
+  carouselCta: {
+    backgroundColor: 'rgba(244,239,225,0.15)',
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
