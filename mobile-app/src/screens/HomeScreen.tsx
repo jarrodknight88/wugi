@@ -172,15 +172,34 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   };
 
   const eventList = events.map(toEventData);
-  const venueList = venues.map(toVenueData);
+
+  // ── Featured selection (Home is NEVER empty) ───────────────────────────
+  // Preference chain so an editorial pick leads, but Home always has content:
+  //   1. eventFeatured / venueFeatured  (new hand-promoted editorial flag)
+  //   2. legacy isFeatured              (back-compat with pre-Batch-0 docs)
+  //   3. soonest / first-N              (whatever the feed returned)
   // Hero is backed by the top featured event (real data) — no dedicated
   // editorial hero-image source exists, so we borrow the lead event's media.
-  const featuredEvents = events.filter(e => (e as any).isFeatured);
-  const heroEvent = (featuredEvents.length > 0 ? featuredEvents : events)[0]
-    ? toEventData((featuredEvents.length > 0 ? featuredEvents : events)[0]) : undefined;
+  const editorialEvents = events.filter(e => (e as any).eventFeatured === true);
+  const legacyFeaturedEvents = events.filter(e => (e as any).isFeatured === true);
+  const heroSource =
+    editorialEvents.length > 0 ? editorialEvents
+    : legacyFeaturedEvents.length > 0 ? legacyFeaturedEvents
+    : events;
+  const heroEvent = heroSource[0] ? toEventData(heroSource[0]) : undefined;
+
+  // Featured venues lead the "Where to start" shelf when promoted, else the
+  // legacy isFeatured set, else the first-N the feed already returned.
+  const editorialVenues = venues.filter(v => (v as any).venueFeatured === true);
+  const legacyFeaturedVenues = venues.filter(v => (v as any).isFeatured === true);
+  const starterSource =
+    editorialVenues.length > 0 ? editorialVenues
+    : legacyFeaturedVenues.length > 0 ? legacyFeaturedVenues
+    : venues;
+
   const picks   = eventList.slice(0, 8);
   const weekend = eventList.slice(0, 6);
-  const starters = venueList.slice(0, 5);
+  const starters = starterSource.map(toVenueData).slice(0, 5);
 
   // Time-aware hero copy — computed once per render (cheap).
   const bucket = getDayBucket();

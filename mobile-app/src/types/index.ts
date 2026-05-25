@@ -225,6 +225,11 @@ export type FSEvent = {
   media: { type: string; uri: string }[];
   status: string;
   hasTickets?: boolean;
+  // Editorial featured flag — when true, the event is hand-promoted to the
+  // top of the Home featured slot (preferred over the legacy isFeatured /
+  // soonest fallback). Set by seed-featured.ts / the Dashboard.
+  eventFeatured?: boolean;
+  isFeatured?: boolean;
   createdAt: any;
 };
 
@@ -260,6 +265,12 @@ export type FSVenue = {
   reservationUrlWithDefaults?: string;
   ctaPrimary?: string;
   ctaSecondary?: string;
+
+  // Editorial featured flag — when true, the venue is hand-promoted to the
+  // top of the Home featured slot (preferred over the legacy isFeatured /
+  // first-N fallback). Set by seed-featured.ts / the Dashboard.
+  venueFeatured?: boolean;
+  isFeatured?: boolean;
 };
 
 export type FSDeal = {
