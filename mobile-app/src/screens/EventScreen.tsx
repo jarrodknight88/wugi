@@ -1,24 +1,22 @@
 // ─────────────────────────────────────────────────────────────────────
-// Wugi — EventScreen  (Wave 1 visual pass, 2026-05-25)
+// Wugi — EventScreen  (Wave 2 real gradient/blur + real calendar, 2026-05-25)
 //
-// Wave 1 changes over the previous implementation:
-//   1. Hero → content gap eliminated via marginBottom:-24 + bottom scrim
-//      that fades to theme.bg (not transparent).
-//   2. Translucent status-bar wash — solid 60px dark View at top of hero,
-//      pointerEvents="none", approximates a gradient since expo-linear-gradient
-//      is not installed. rgba(0,0,0,0.50) top strip + lighter mid strip.
-//   3. Top controls: inset to left:20/right:20, top:64 (was paddingHorizontal:16).
-//      Share icon → KebabVerticalIcon; overflow menu opens via ActionSheetIOS
-//      (iOS) / Alert (Android) with Save / Share / Add to Calendar / Report.
-//   4. Venue identity block: onVenuePress wired via new onNavigateToVenue prop
-//      so tapping name/logo navigates to VenueScreen (additive prop — see
-//      RootNavigator change noted in report).
-//   5. Sticky CTA: shows "Get Tickets" only if event.hasTickets, shows
-//      "Book Reservation" only if venue.reservationUrl or
-//      venue.reservationUrlWithDefaults exists. No CTA when neither applies.
-//   6. Add to Calendar + Share moved into kebab overflow menu.
-//   7. "View Menu" entry shown (above sticky CTA) when venue exists and the
-//      caller supplies onMenuPress. Removed if unavailable.
+// Wave 1 changes (retained):
+//   1. Hero → content gap eliminated via marginBottom:-24 + bottom scrim.
+//   2. Translucent status-bar wash at top of hero.
+//   3. Top controls: left:20/right:20/top:64, kebab overflow menu.
+//   4. Venue identity block: onNavigateToVenue prop wired.
+//   5. Sticky CTA: conditional Get Tickets / Book Reservation.
+//   6. Add to Calendar + Share in kebab overflow.
+//   7. "View Menu" entry when venue + onMenuPress present.
+//
+// Wave 2 changes (this commit):
+//   1. Hero bottom scrim → real LinearGradient (transparent→rgba→theme.bg).
+//   2. Status-bar wash → real BlurView (intensity:18) + LinearGradient overlay.
+//   3. Top glass buttons → real BlurView pill (intensity:20) replacing
+//      solid rgba(0,0,0,0.5) backgrounds.
+//   4. "Add to Calendar" → real expo-calendar write with permission handling
+//      and best-effort date parsing from event.date/time string fields.
 //
 // DO NOT touch VenueIdentityBlock or useVenueById — they stay as-is.
 // ─────────────────────────────────────────────────────────────────────
@@ -29,6 +27,9 @@ import {
   ActionSheetIOS, Platform, Alert, Share, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import * as Calendar from 'expo-calendar';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
@@ -132,12 +133,82 @@ function EventScreenInner({
           title: event.title,
         }).catch(() => {});
       } else if (index === 2) {
-        // Add to Calendar — open system calendar intent
-        // On iOS, a real integration would use expo-calendar; for now open a
-        // placeholder URL that the user can act on. Noted in drop-list.
-        Alert.alert('Add to Calendar', `${event.title}\n${event.date} · ${event.time}`, [
-          { text: 'OK' },
-        ]);
+        // Add to Calendar — real expo-calendar write
+        (async () => {
+          try {
+            // 1. Request permission
+            const { status } = await Calendar.requestCalendarPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert(
+                'Calendar access needed',
+                'Enable calendar access in Settings to add this event.',
+              );
+              return;
+            }
+
+            // 2. Get a writable calendar
+            let calendarId: string | undefined;
+            try {
+              const defaultCal = await Calendar.getDefaultCalendarAsync();
+              calendarId = defaultCal?.id;
+            } catch (_) {
+              // getDefaultCalendarAsync can throw on Android or when no default set
+            }
+            if (!calendarId) {
+              const allCals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+              const writable = allCals.find(c => c.allowsModifications);
+              calendarId = writable?.id;
+            }
+            if (!calendarId) {
+              Alert.alert('Couldn\'t add', 'No writable calendar found on this device.');
+              return;
+            }
+
+            // 3. Derive start date from event.date ("TUE JUN 9") + time ("5:00 PM")
+            //    Best-effort: parse month + day, assume current year; roll to next
+            //    year if the result is already in the past.
+            let startDate: Date;
+            try {
+              const dateStr = `${event.date ?? ''} ${event.time ?? ''}`.trim();
+              // Remove weekday prefix (e.g. "TUE ") — Date.parse handles "JUN 9 5:00 PM"
+              const withoutWeekday = dateStr.replace(/^[A-Z]{2,3}\s+/i, '');
+              const currentYear = new Date().getFullYear();
+              const parsed = new Date(`${withoutWeekday} ${currentYear}`);
+              if (isNaN(parsed.getTime())) throw new Error('unparseable');
+              // Roll forward a year if the date is already in the past (> 1 day ago)
+              const oneDayMs = 24 * 60 * 60 * 1000;
+              if (parsed.getTime() < Date.now() - oneDayMs) {
+                parsed.setFullYear(currentYear + 1);
+              }
+              startDate = parsed;
+            } catch (_) {
+              startDate = new Date(); // fallback: now
+            }
+            const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000); // +2h
+
+            // Build notes that survive even if the timestamp is approximate
+            const resolvedVenueName = venue?.name || venueName || '';
+            const notes = [
+              `${event.date ?? ''} · ${event.time ?? ''}`,
+              resolvedVenueName ? `Venue: ${resolvedVenueName}` : '',
+              'Added via Wugi (timestamp may be approximate — verify with venue)',
+            ].filter(Boolean).join('\n');
+
+            // 4. Write the event
+            await Calendar.createEventAsync(calendarId, {
+              title: event.title,
+              startDate,
+              endDate,
+              location: resolvedVenueName || undefined,
+              notes,
+              timeZone: 'America/New_York',
+            });
+
+            Alert.alert('Added', 'This event was added to your calendar.');
+          } catch (_) {
+            Alert.alert('Couldn\'t add', 'Something went wrong adding this event.');
+          }
+        })();
       } else if (index === 3) {
         // Report
         Alert.alert('Report Event', 'Thank you — we\'ll review this event.', [{ text: 'OK' }]);
@@ -222,51 +293,42 @@ function EventScreenInner({
             />
           )}
 
-          {/* ── Bottom scrim — fades to theme.bg (not transparent) so the
-               hero → content seam is completely invisible. ── */}
-          <View
+          {/* ── Bottom scrim — real LinearGradient: transparent@0%→transparent@55%
+               → mild dark tint@75% for title legibility → theme.bg@100% so the
+               marginBottom:-24 seam is completely invisible. ── */}
+          <LinearGradient
+            colors={['transparent', 'transparent', 'rgba(0,0,0,0.25)', theme.bg]}
+            locations={[0, 0.55, 0.75, 1]}
+            style={StyleSheet.absoluteFill}
             pointerEvents="none"
-            style={{
-              position: 'absolute', left: 0, right: 0, bottom: 0,
-              height: Math.round(HERO_HEIGHT * 0.55),
-              // Two stacked views simulate the gradient (no expo-linear-gradient).
-              // Outer: semi-opaque black for the title area.
-              // Inner: fully opaque bg at the very bottom for the seamless seam.
-            }}
-          >
-            {/* Upper portion: strong black tint for title legibility */}
-            <View
-              style={{
-                flex: 1,
-                backgroundColor: 'rgba(0,0,0,0.55)',
-              }}
-            />
-            {/* Lower 24px: matches theme.bg exactly so marginBottom:-24 kisses it */}
-            <View style={{ height: 24, backgroundColor: theme.bg }}/>
-          </View>
+          />
 
-          {/* ── Translucent status-bar wash ── 60px tall, approximates the
-               spec's linear-gradient+blur with stacked solid Views.
-               pointerEvents="none" so it passes all touches through. ── */}
-          <View
+          {/* ── Translucent status-bar wash ── 60px tall, real BlurView +
+               LinearGradient overlay. Approximates the spec's blur(8px)
+               saturate(140%) + dark gradient. pointerEvents="none". ── */}
+          <BlurView
+            intensity={18}
+            tint="dark"
             pointerEvents="none"
             style={{
               position: 'absolute', top: 0, left: 0, right: 0,
               height: 60,
               zIndex: 1,
+              overflow: 'hidden',
             }}
           >
-            {/* Darkest strip at very top (0% → ~40% of 60px = 24px) */}
-            <View style={{ height: 24, backgroundColor: 'rgba(0,0,0,0.50)' }}/>
-            {/* Mid strip (lighter, ~40% → 80% of 60px = 24px) */}
-            <View style={{ height: 24, backgroundColor: 'rgba(0,0,0,0.28)' }}/>
-            {/* Fades out at bottom (80% → 100% = 12px) */}
-            <View style={{ height: 12, backgroundColor: 'rgba(0,0,0,0.08)' }}/>
-          </View>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.30)', 'rgba(0,0,0,0)']}
+              locations={[0, 0.6, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+          </BlurView>
 
           {/* ── Top controls — back + kebab overflow ── */}
           {/* Using absolute positioning with explicit left/right/top instead of
-              SafeAreaView+padding so we can hit the spec's left:20/right:20/top:64. */}
+              SafeAreaView+padding so we can hit the spec's left:20/right:20/top:64.
+              Each button is a real BlurView pill (intensity:20, tint:dark) with a
+              dark-tinted LinearGradient inside + the existing border. ── */}
           <View
             style={{
               position: 'absolute', top: 64, left: 20, right: 20,
@@ -274,19 +336,23 @@ function EventScreenInner({
               zIndex: 2,
             }}
           >
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={onBack}
-              activeOpacity={0.8}
-            >
-              <BackIcon color="#f4efe1"/>
+            <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
+              <BlurView intensity={20} tint="dark" style={styles.controlButton}>
+                <LinearGradient
+                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+                  style={StyleSheet.absoluteFill}
+                />
+                <BackIcon color="#f4efe1"/>
+              </BlurView>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={openOverflowMenu}
-              activeOpacity={0.8}
-            >
-              <KebabVerticalIcon color="#f4efe1"/>
+            <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
+              <BlurView intensity={20} tint="dark" style={styles.controlButton}>
+                <LinearGradient
+                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+                  style={StyleSheet.absoluteFill}
+                />
+                <KebabVerticalIcon color="#f4efe1"/>
+              </BlurView>
             </TouchableOpacity>
           </View>
 
@@ -663,10 +729,12 @@ function EventScreenInner({
 }
 
 // ── Shared button style for the dark-glass top controls ─────────────────
+// BlurView must have overflow:'hidden' to clip to the borderRadius pill shape.
+// backgroundColor removed — BlurView + inner LinearGradient provide the tint.
 const styles = StyleSheet.create({
   controlButton: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    overflow: 'hidden',
     borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
     alignItems: 'center', justifyContent: 'center',
   },
