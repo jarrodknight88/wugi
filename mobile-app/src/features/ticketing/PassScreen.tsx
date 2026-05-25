@@ -1,15 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — PassScreen
 // Digital pass shown after successful payment - real QR code
+// Pixel-matched to Claude Design handoff (consumer-app/PassScreen.jsx)
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  SafeAreaView, ActivityIndicator, Share, Alert,
+  SafeAreaView, ActivityIndicator, Share,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import Svg, { Path, Rect } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
+import { FONTS, MONO } from '../../constants/fonts';
+import { ShareIcon } from '../../components/icons';
+import Svg, { Path } from 'react-native-svg';
 
 type Pass = {
   id: string;
@@ -37,8 +40,8 @@ type Props = {
 };
 
 export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props) {
-  const [passes,    setPasses]    = useState<Pass[]>([]);
-  const [loading,   setLoading]   = useState(true);
+  const [passes,     setPasses]    = useState<Pass[]>([]);
+  const [loading,    setLoading]   = useState(true);
   const [activePass, setActivePass] = useState(0);
 
   useEffect(() => {
@@ -79,7 +82,7 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
           }
         }
 
-        // If still no passes (webhook may be processing), poll once after 2s
+        // If still no passes (webhook may be processing), poll once after 2.5s
         if (snap.empty) {
           await new Promise(r => setTimeout(r, 2500));
           if (orderId.startsWith('pi_')) {
@@ -144,7 +147,9 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12 }}>Loading your pass...</Text>
+        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12, fontFamily: FONTS.body }}>
+          Loading your pass...
+        </Text>
       </View>
     );
   }
@@ -152,61 +157,90 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
   const pass = passes[activePass];
   if (!pass) return null;
 
-  const passColor    = pass.color || theme.accent;
-  const statusColor  = pass.scanStatus === 'valid' ? passColor : pass.scanStatus === 'scanned' ? theme.statusWarning : theme.statusDanger;
-  const statusLabel  = pass.scanStatus === 'valid' ? '✓ Valid' : pass.scanStatus === 'scanned' ? 'Used' : 'Invalid';
-  const hasBalance   = (pass.balanceDue ?? 0) > 0;
-  const isVerified   = pass.idVerification?.verified === true;
+  const passColor   = pass.color || theme.accent;
+  const statusColor = pass.scanStatus === 'valid'
+    ? passColor
+    : pass.scanStatus === 'scanned'
+      ? theme.statusWarning
+      : theme.statusDanger;
+  const statusLabel = pass.scanStatus === 'valid' ? '✓ Valid'
+    : pass.scanStatus === 'scanned' ? 'Used' : 'Invalid';
+  const hasBalance  = (pass.balanceDue ?? 0) > 0;
+  const isVerified  = pass.idVerification?.verified === true;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {/* Nav header */}
       <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 8 }}>
           <View style={{ flex: 1 }}/>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Your Pass</Text>
+          <Text style={{ color: theme.text, fontSize: 16, fontFamily: FONTS.medium }}>Your Pass</Text>
           <TouchableOpacity onPress={onClose} style={{ flex: 1, alignItems: 'flex-end' }}>
-            <Text style={{ color: theme.accent, fontSize: 14, fontWeight: '600' }}>Done</Text>
+            <Text style={{ color: theme.accent, fontSize: 14, fontFamily: FONTS.medium }}>Done</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-        {/* Success */}
+
+        {/* ── Success hero ─────────────────────────────────────────── */}
         <View style={{ alignItems: 'center', marginBottom: 24 }}>
-          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+          <View style={{
+            width: 52, height: 52, borderRadius: 26,
+            backgroundColor: theme.accent,
+            alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+          }}>
             <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
               <Path d="M5 12l5 5L20 7" stroke={theme.onAccent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
             </Svg>
           </View>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>You're in!</Text>
-          <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 4 }}>
+          <Text style={{ color: theme.text, fontSize: 18, fontFamily: FONTS.display }}>You're in!</Text>
+          <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 4, fontFamily: FONTS.body }}>
             {passes.length > 1 ? `${passes.length} passes ready` : 'Your pass is ready'}
           </Text>
         </View>
 
-        {/* Pass card */}
-        <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1.5, borderColor: passColor, marginBottom: 16, shadowColor: passColor, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
-          {/* Header — wugi wordmark + event title on the brand-color band */}
+        {/* ── Pass card ────────────────────────────────────────────── */}
+        <View style={{
+          borderRadius: 20, overflow: 'hidden',
+          borderWidth: 1.5, borderColor: passColor,
+          marginBottom: 16,
+          shadowColor: passColor, shadowOpacity: 0.25, shadowRadius: 12,
+          shadowOffset: { width: 0, height: 8 },
+        }}>
+          {/* Green header — wugi wordmark + event details */}
           <View style={{ backgroundColor: passColor, padding: 18, alignItems: 'center' }}>
-            <Text style={{ color: theme.onAccent, fontSize: 22, fontWeight: '900', letterSpacing: -1 }}>wugi</Text>
-            <Text style={{ color: theme.onAccent, fontSize: 15, fontWeight: '800', marginTop: 4 }} numberOfLines={1}>{pass.eventName}</Text>
-            <Text style={{ color: theme.onImageSoft, fontSize: 12, marginTop: 2 }}>{pass.venueName}{pass.eventDate ? ` · ${pass.eventDate}` : ''}{pass.eventTime ? ` · ${pass.eventTime}` : ''}</Text>
+            <Text style={{ color: theme.onAccent, fontSize: 22, fontFamily: FONTS.display, letterSpacing: -1 }}>
+              wugi
+            </Text>
+            <Text style={{ color: theme.onAccent, fontSize: 15, fontFamily: FONTS.bold, marginTop: 4 }} numberOfLines={1}>
+              {pass.eventName}
+            </Text>
+            <Text style={{ color: theme.onImageSoft, fontSize: 12, fontFamily: FONTS.body, marginTop: 2 }}>
+              {pass.venueName}{pass.eventDate ? ` · ${pass.eventDate}` : ''}{pass.eventTime ? ` · ${pass.eventTime}` : ''}
+            </Text>
           </View>
 
-          {/* Balance due warning — tinted to the warning token so it works in both themes */}
+          {/* Balance-due warning */}
           {hasBalance && (
-            <View style={{ backgroundColor: theme.statusWarning + '15', padding: 12, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: theme.statusWarning }}>
-              <Text style={{ color: theme.statusWarning, fontWeight: '800', fontSize: 14 }}>
-                ⚠️  ${((pass.balanceDue ?? 0) / 100).toFixed(2)} balance due at door
+            <View style={{
+              backgroundColor: theme.statusWarning + '15',
+              padding: 12, alignItems: 'center',
+              borderBottomWidth: 1, borderBottomColor: theme.statusWarning,
+            }}>
+              <Text style={{ color: theme.statusWarning, fontFamily: FONTS.bold, fontSize: 14 }}>
+                {'⚠️  $' + ((pass.balanceDue ?? 0) / 100).toFixed(2) + ' balance due at door'}
               </Text>
-              <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 2 }}>Please have payment ready upon arrival</Text>
+              <Text style={{ color: theme.subtext, fontFamily: FONTS.body, fontSize: 11, marginTop: 2 }}>
+                Please have payment ready upon arrival
+              </Text>
             </View>
           )}
 
           {/* Tear line */}
           <View style={{ height: 1, backgroundColor: theme.divider }}/>
 
-          {/* QR Code */}
+          {/* QR Code — real scannable code, NOT decorative */}
           <View style={{ backgroundColor: theme.card, alignItems: 'center', paddingVertical: 24 }}>
             <View style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12 }}>
               <QRCode
@@ -217,88 +251,119 @@ export function PassScreen({ orderId, isGuest, theme, onClose, onSignUp }: Props
                 logoSize={30}
               />
             </View>
-            <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 10, letterSpacing: 1.5 }}>
+            <Text style={{
+              color: theme.subtext, fontSize: 11, marginTop: 10,
+              letterSpacing: 1.5, fontFamily: MONO,
+            }}>
               {pass.ticketNumber}
             </Text>
-            <View style={{ marginTop: 8, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, backgroundColor: statusColor + '22', borderWidth: 1, borderColor: statusColor }}>
-              <Text style={{ color: statusColor, fontSize: 11, fontWeight: '700' }}>{statusLabel}</Text>
+            <View style={{
+              marginTop: 8, paddingHorizontal: 12, paddingVertical: 4,
+              borderRadius: 20,
+              backgroundColor: statusColor + '22',
+              borderWidth: 1, borderColor: statusColor,
+            }}>
+              <Text style={{ color: statusColor, fontSize: 11, fontFamily: FONTS.medium }}>
+                {statusLabel}
+              </Text>
             </View>
           </View>
 
           {/* Tear line */}
           <View style={{ height: 1, backgroundColor: theme.divider }}/>
 
-          {/* Details */}
+          {/* Details rows */}
           <View style={{ backgroundColor: theme.card }}>
             {[
               { label: 'Name',        value: pass.holderName },
               { label: 'Ticket type', value: pass.ticketTypeName },
               ...(pass.tableAssignment ? [{ label: 'Table', value: pass.tableAssignment }] : []),
             ].map((row, i) => (
-              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
-                <Text style={{ color: theme.subtext, fontSize: 13 }}>{row.label}</Text>
-                <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{row.value}</Text>
+              <View key={i} style={{
+                flexDirection: 'row', justifyContent: 'space-between',
+                paddingHorizontal: 16, paddingVertical: 12,
+                borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider,
+              }}>
+                <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body }}>{row.label}</Text>
+                <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium }}>{row.value}</Text>
               </View>
             ))}
             {isVerified && (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.divider }}>
-                <Text style={{ color: theme.subtext, fontSize: 13 }}>ID Verified</Text>
-                <Text style={{ color: passColor, fontSize: 13, fontWeight: '700' }}>✓ Verified at door</Text>
+              <View style={{
+                flexDirection: 'row', justifyContent: 'space-between',
+                paddingHorizontal: 16, paddingVertical: 12,
+                borderTopWidth: 1, borderTopColor: theme.divider,
+              }}>
+                <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body }}>ID Verified</Text>
+                <Text style={{ color: passColor, fontSize: 13, fontFamily: FONTS.medium }}>✓ Verified at door</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* Pagination */}
+        {/* ── Multi-pass pagination ────────────────────────────────── */}
         {passes.length > 1 && (
           <>
             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
               {passes.map((_, i) => (
                 <TouchableOpacity key={i} onPress={() => setActivePass(i)}>
-                  <View style={{ width: i === activePass ? 20 : 8, height: 8, borderRadius: 4, backgroundColor: i === activePass ? theme.accent : theme.border }}/>
+                  <View style={{
+                    width: i === activePass ? 20 : 8, height: 8, borderRadius: 4,
+                    backgroundColor: i === activePass ? theme.accent : theme.border,
+                  }}/>
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={{ color: theme.subtext, fontSize: 12, textAlign: 'center', marginBottom: 16 }}>
+            <Text style={{ color: theme.subtext, fontSize: 12, textAlign: 'center', marginBottom: 16, fontFamily: FONTS.body }}>
               Pass {activePass + 1} of {passes.length}
             </Text>
           </>
         )}
 
-        {/* Actions */}
+        {/* ── Actions ──────────────────────────────────────────────── */}
+        {/* Share pass */}
         <TouchableOpacity
           onPress={handleShare}
-          style={{ borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+          style={{
+            borderRadius: 12, paddingVertical: 13,
+            alignItems: 'center', borderWidth: 1.5, borderColor: theme.border,
+            flexDirection: 'row', justifyContent: 'center', gap: 8,
+          }}
         >
-          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-            <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" stroke={theme.text} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
-          </Svg>
-          <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Share pass</Text>
+          <ShareIcon color={theme.text}/>
+          <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.medium }}>Share pass</Text>
         </TouchableOpacity>
 
         {/* Guest account creation prompt */}
         {isGuest && onSignUp && (
-          <View style={{ marginTop: 20, backgroundColor: theme.card, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 16 }}>
+          <View style={{
+            marginTop: 20, backgroundColor: theme.card,
+            borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 16,
+          }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <Text style={{ fontSize: 22 }}>🎟️</Text>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>Save your passes</Text>
-                <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2 }}>Create an account to access all your tickets in one place</Text>
+                <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.bold }}>Save your passes</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 2, fontFamily: FONTS.body }}>
+                  Create an account to access all your tickets in one place
+                </Text>
               </View>
             </View>
             <TouchableOpacity
               onPress={onSignUp}
               style={{ backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
             >
-              <Text style={{ color: theme.onAccent, fontSize: 14, fontWeight: '700' }}>Create a free account</Text>
+              <Text style={{ color: theme.onAccent, fontSize: 14, fontFamily: FONTS.medium }}>Create a free account</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center' }}>
-              <Text style={{ color: theme.subtext, fontSize: 12 }}>No thanks, I'll find it in my email</Text>
+              <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body }}>
+                No thanks, I'll find it in my email
+              </Text>
             </TouchableOpacity>
           </View>
         )}
 
-        <Text style={{ color: theme.subtext, fontSize: 10, textAlign: 'center', marginTop: 16 }}>
+        <Text style={{ color: theme.subtext, fontSize: 10, textAlign: 'center', marginTop: 16, fontFamily: FONTS.body }}>
           Present QR code at the door for entry
         </Text>
       </ScrollView>
