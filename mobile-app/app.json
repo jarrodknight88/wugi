@@ -69,6 +69,12 @@
             "./assets/fonts/ppneuemontreal-semibolditalic.otf"
           ]
         }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Wugi adds events you save to your calendar so you don't miss them."
+        }
       ]
     ],
     "extra": {
