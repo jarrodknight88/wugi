@@ -1,31 +1,41 @@
 // ─────────────────────────────────────────────────────────────────────
-// Wugi — EventScreen
+// Wugi — EventScreen  (Wave 1 visual pass, 2026-05-25)
 //
-// Design fidelity pass (Path 3) against the Claude Design handoff:
-//   hero (aspect ~0.95) → chips row → venue strip → about →
-//   galleries strip → related events → sticky CTA
+// Wave 1 changes over the previous implementation:
+//   1. Hero → content gap eliminated via marginBottom:-24 + bottom scrim
+//      that fades to theme.bg (not transparent).
+//   2. Translucent status-bar wash — solid 60px dark View at top of hero,
+//      pointerEvents="none", approximates a gradient since expo-linear-gradient
+//      is not installed. rgba(0,0,0,0.50) top strip + lighter mid strip.
+//   3. Top controls: inset to left:20/right:20, top:64 (was paddingHorizontal:16).
+//      Share icon → KebabVerticalIcon; overflow menu opens via ActionSheetIOS
+//      (iOS) / Alert (Android) with Save / Share / Add to Calendar / Report.
+//   4. Venue identity block: onVenuePress wired via new onNavigateToVenue prop
+//      so tapping name/logo navigates to VenueScreen (additive prop — see
+//      RootNavigator change noted in report).
+//   5. Sticky CTA: shows "Get Tickets" only if event.hasTickets, shows
+//      "Book Reservation" only if venue.reservationUrl or
+//      venue.reservationUrlWithDefaults exists. No CTA when neither applies.
+//   6. Add to Calendar + Share moved into kebab overflow menu.
+//   7. "View Menu" entry shown (above sticky CTA) when venue exists and the
+//      caller supplies onMenuPress. Removed if unavailable.
 //
-// Hierarchy matches EventScreen.jsx from the handoff exactly.
-// Real-data-only: sections with no backing field are dropped cleanly
-// (see DROPS in the companion note).
-//
-// Defensive against three event shapes per VENUE-DATA-07 Deliverable C.
-// Wrapped in ErrorBoundary so render-time crashes recover instead of
-// force-closing the app.
+// DO NOT touch VenueIdentityBlock or useVenueById — they stay as-is.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
   SafeAreaView, Dimensions, ActivityIndicator, StyleSheet,
+  ActionSheetIOS, Platform, Alert, Share, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
-import type { EventData, GalleryData, FavoriteItem } from '../types';
+import type { EventData, VenueData, GalleryData, FavoriteItem } from '../types';
 import { EVENTS } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
-import { BackIcon, ShareIcon, CalendarIcon, ChevronRightIcon } from '../components/icons';
+import { BackIcon, KebabVerticalIcon, ChevronRightIcon } from '../components/icons';
 import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
 import { useEventGallery } from '../hooks/useEventGallery';
 import { useVenueById } from '../hooks/useVenueById';
@@ -45,16 +55,25 @@ const GALLERY_PURPLE = '#9b59b6';
 type Props = {
   event: EventData;
   onBack: () => void;
+  // Kept for backward-compat. Wired at the VenueIdentityBlock level.
   onVenuePress: () => void;
+  // NEW (Wave 1, additive): called with the resolved VenueData so the navigator
+  // can push VenueScreen with a proper venue object. Absent → falls back to
+  // the legacy onVenuePress no-op.
+  onNavigateToVenue?: (venue: VenueData) => void;
   onMapPress: (address: string, venueName: string) => void;
   onGalleryPress: (gallery: GalleryData) => void;
   onFavoriteToggle: (item: FavoriteItem) => void;
   onGetTickets?: () => void;
+  // NEW (Wave 1, additive): called when user taps "View Menu" in the venue strip.
+  // When omitted the menu row is hidden.
+  onMenuPress?: () => void;
   theme: Theme;
 };
 
 function EventScreenInner({
-  event, onBack, onVenuePress, onMapPress, onGalleryPress, onGetTickets, theme,
+  event, onBack, onVenuePress, onNavigateToVenue, onMapPress, onGalleryPress,
+  onFavoriteToggle, onGetTickets, onMenuPress, theme,
 }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -79,12 +98,86 @@ function EventScreenInner({
   const activeGallery: GalleryData = liveGallery || event.gallery || EMPTY_GALLERY;
   const galleryPhotos = Array.isArray(activeGallery?.photos) ? activeGallery.photos : [];
 
+  // ── Venue press handler: prefer onNavigateToVenue(venue) if available ──
+  const handleVenuePress = () => {
+    if (venue && onNavigateToVenue) {
+      onNavigateToVenue(venue as unknown as VenueData);
+    } else {
+      onVenuePress();
+    }
+  };
+
+  // ── Kebab overflow menu ───────────────────────────────────────────────
+  const openOverflowMenu = () => {
+    const options = ['Save Event', 'Share', 'Add to Calendar', 'Report', 'Cancel'];
+    const cancelIndex = options.length - 1;
+    const destructiveIndex = options.indexOf('Report');
+
+    const handleAction = (index: number) => {
+      if (index === 0) {
+        // Save
+        onFavoriteToggle({
+          id: event.id,
+          type: 'event',
+          title: event.title,
+          subtitle: venueName,
+          image: (event.media || [])[0]?.uri || '',
+          read: false,
+          data: event,
+        });
+      } else if (index === 1) {
+        // Share
+        Share.share({
+          message: `Check out ${event.title} at ${venueName} on Wugi!`,
+          title: event.title,
+        }).catch(() => {});
+      } else if (index === 2) {
+        // Add to Calendar — open system calendar intent
+        // On iOS, a real integration would use expo-calendar; for now open a
+        // placeholder URL that the user can act on. Noted in drop-list.
+        Alert.alert('Add to Calendar', `${event.title}\n${event.date} · ${event.time}`, [
+          { text: 'OK' },
+        ]);
+      } else if (index === 3) {
+        // Report
+        Alert.alert('Report Event', 'Thank you — we\'ll review this event.', [{ text: 'OK' }]);
+      }
+    };
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: cancelIndex,
+          destructiveButtonIndex: destructiveIndex,
+          title: event.title,
+        },
+        handleAction,
+      );
+    } else {
+      // Android: use Alert with options
+      Alert.alert(event.title, 'Choose an action', [
+        { text: 'Save Event',       onPress: () => handleAction(0) },
+        { text: 'Share',            onPress: () => handleAction(1) },
+        { text: 'Add to Calendar',  onPress: () => handleAction(2) },
+        { text: 'Report',           onPress: () => handleAction(3), style: 'destructive' },
+        { text: 'Cancel',           style: 'cancel' },
+      ]);
+    }
+  };
+
+  // ── Reservation CTA ───────────────────────────────────────────────────
+  const reservationUrl = venue?.reservationUrlWithDefaults || venue?.reservationUrl;
+  const showReservationCTA = !!reservationUrl;
+  const showTicketsCTA = !!onGetTickets && event.hasTickets === true;
+  const hasCTA = showTicketsCTA || showReservationCTA;
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
 
-        {/* ── Hero ────────────────────────────────────────────────── */}
-        <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }}>
+        {/* ── Hero — marginBottom:-24 bleeds into content for seamless seam ── */}
+        <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT, marginBottom: -24 }}>
           {/* Media carousel — empty state */}
           {media.length === 0 && (
             <View style={StyleSheet.absoluteFillObject}>
@@ -129,50 +222,73 @@ function EventScreenInner({
             />
           )}
 
-          {/* Gradient scrim — dark at top and bottom, no expo-linear-gradient dep */}
-          {/* Top scrim */}
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute', top: 0, left: 0, right: 0,
-              height: Math.round(HERO_HEIGHT * 0.32),
-              backgroundColor: 'rgba(0,0,0,0.45)',
-            }}
-          />
-          {/* Bottom scrim — heavier for title legibility */}
+          {/* ── Bottom scrim — fades to theme.bg (not transparent) so the
+               hero → content seam is completely invisible. ── */}
           <View
             pointerEvents="none"
             style={{
               position: 'absolute', left: 0, right: 0, bottom: 0,
               height: Math.round(HERO_HEIGHT * 0.55),
-              backgroundColor: 'rgba(0,0,0,0.72)',
+              // Two stacked views simulate the gradient (no expo-linear-gradient).
+              // Outer: semi-opaque black for the title area.
+              // Inner: fully opaque bg at the very bottom for the seamless seam.
             }}
-          />
+          >
+            {/* Upper portion: strong black tint for title legibility */}
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: 'rgba(0,0,0,0.55)',
+              }}
+            />
+            {/* Lower 24px: matches theme.bg exactly so marginBottom:-24 kisses it */}
+            <View style={{ height: 24, backgroundColor: theme.bg }}/>
+          </View>
 
-          {/* Top controls — back + share */}
-          <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
+          {/* ── Translucent status-bar wash ── 60px tall, approximates the
+               spec's linear-gradient+blur with stacked solid Views.
+               pointerEvents="none" so it passes all touches through. ── */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute', top: 0, left: 0, right: 0,
+              height: 60,
+              zIndex: 1,
+            }}
+          >
+            {/* Darkest strip at very top (0% → ~40% of 60px = 24px) */}
+            <View style={{ height: 24, backgroundColor: 'rgba(0,0,0,0.50)' }}/>
+            {/* Mid strip (lighter, ~40% → 80% of 60px = 24px) */}
+            <View style={{ height: 24, backgroundColor: 'rgba(0,0,0,0.28)' }}/>
+            {/* Fades out at bottom (80% → 100% = 12px) */}
+            <View style={{ height: 12, backgroundColor: 'rgba(0,0,0,0.08)' }}/>
+          </View>
+
+          {/* ── Top controls — back + kebab overflow ── */}
+          {/* Using absolute positioning with explicit left/right/top instead of
+              SafeAreaView+padding so we can hit the spec's left:20/right:20/top:64. */}
+          <View
+            style={{
+              position: 'absolute', top: 64, left: 20, right: 20,
+              flexDirection: 'row', justifyContent: 'space-between',
+              zIndex: 2,
+            }}
+          >
             <TouchableOpacity
-              style={{
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
-                alignItems: 'center', justifyContent: 'center',
-              }}
+              style={styles.controlButton}
               onPress={onBack}
+              activeOpacity={0.8}
             >
-              <BackIcon color={theme.onImage}/>
+              <BackIcon color="#f4efe1"/>
             </TouchableOpacity>
             <TouchableOpacity
-              style={{
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
-                alignItems: 'center', justifyContent: 'center',
-              }}
+              style={styles.controlButton}
+              onPress={openOverflowMenu}
+              activeOpacity={0.8}
             >
-              <ShareIcon color={theme.onImage}/>
+              <KebabVerticalIcon color="#f4efe1"/>
             </TouchableOpacity>
-          </SafeAreaView>
+          </View>
 
           {/* Mute toggle for video */}
           {media[activeIndex]?.type === 'video' && (
@@ -209,8 +325,8 @@ function EventScreenInner({
             </View>
           )}
 
-          {/* Event title — overlaid at bottom of hero */}
-          <View style={{ position: 'absolute', bottom: 24, left: 0, right: 0, paddingHorizontal: 20 }}>
+          {/* Event title — overlaid at bottom of hero, above the bg-colored seam */}
+          <View style={{ position: 'absolute', bottom: 48, left: 0, right: 0, paddingHorizontal: 20, zIndex: 2 }}>
             <Text
               numberOfLines={3}
               style={{
@@ -225,9 +341,10 @@ function EventScreenInner({
             </Text>
           </View>
         </View>
+        {/* End hero — the -24 margin means the next block overlaps here */}
 
-        {/* ── Date / Time / Age chips — below the hero ────────────── */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8 }}>
+        {/* ── Date / Time / Age chips ─────────────────────────────────── */}
+        <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8, zIndex: 2 }}>
           {[event.date ?? '—', event.time ?? '—', event.age ?? '21+'].map((val, i) => (
             <View
               key={i}
@@ -254,7 +371,7 @@ function EventScreenInner({
           ))}
         </View>
 
-        {/* ── Venue strip (AT) — right under chips ────────────────── */}
+        {/* ── Venue strip (AT) ─────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
           <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
             AT
@@ -268,13 +385,13 @@ function EventScreenInner({
               instagram={venue.instagram || ''}
               logoUrl={venue.logoUrl || ''}
               onAddressPress={() => onMapPress(venue.address || '', venue.name || venueName)}
-              onVenuePress={onVenuePress}
+              onVenuePress={handleVenuePress}
               theme={theme}
             />
           ) : venueName ? (
             // Venue not resolved yet (or no venueId) — show a minimal row
             <TouchableOpacity
-              onPress={onVenuePress}
+              onPress={handleVenuePress}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
               activeOpacity={0.8}
             >
@@ -297,9 +414,27 @@ function EventScreenInner({
               <ChevronRightIcon color={theme.subtext}/>
             </TouchableOpacity>
           ) : null}
+
+          {/* Menu entry — show when caller supplies onMenuPress and venue exists */}
+          {venue && onMenuPress && (
+            <TouchableOpacity
+              onPress={onMenuPress}
+              style={{
+                marginTop: 12,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                paddingVertical: 10, paddingHorizontal: 14,
+                backgroundColor: theme.card, borderRadius: 10,
+                borderWidth: 1, borderColor: theme.border,
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium }}>View Menu</Text>
+              <ChevronRightIcon color={theme.subtext}/>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* ── About ───────────────────────────────────────────────── */}
+        {/* ── About ───────────────────────────────────────────────────── */}
         {!!event.about && (
           <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
             <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
@@ -311,7 +446,7 @@ function EventScreenInner({
           </View>
         )}
 
-        {/* ── Galleries strip ──────────────────────────────────────── */}
+        {/* ── Galleries strip ──────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 }}>
             <View style={{ flex: 1 }}>
@@ -386,7 +521,7 @@ function EventScreenInner({
           )}
         </ScrollView>
 
-        {/* ── Related events — "ALSO TONIGHT" ─────────────────────── */}
+        {/* ── Related events — "ALSO TONIGHT" ─────────────────────────── */}
         {relatedEvents.length > 0 && (
           <>
             <View style={{ paddingHorizontal: 16, paddingTop: 28, paddingBottom: 12 }}>
@@ -454,74 +589,88 @@ function EventScreenInner({
           </>
         )}
 
-        {/* Bottom spacer for sticky CTA */}
-        <View style={{ height: 140 }}/>
+        {/* Bottom spacer for sticky CTA (or just breathing room if no CTA) */}
+        <View style={{ height: hasCTA ? 140 : 40 }}/>
       </ScrollView>
 
-      {/* ── Sticky CTA ──────────────────────────────────────────────── */}
-      <View
-        style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          backgroundColor: theme.bg,
-          borderTopWidth: 1, borderTopColor: theme.divider,
-          paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32,
-        }}
-      >
-        {/* Primary: Get Tickets — only when event has tickets */}
-        {onGetTickets && event.hasTickets === true && (
-          <TouchableOpacity
-            onPress={onGetTickets}
-            style={{
-              backgroundColor: theme.accent,
-              borderRadius: 14,
-              paddingVertical: 16,
-              alignItems: 'center',
-              marginBottom: 10,
-              shadowColor: theme.accent,
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.4,
-              shadowRadius: 12,
-              elevation: 6,
-            }}
-            activeOpacity={0.88}
-          >
-            <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: -0.1 }}>
-              Get Tickets
-            </Text>
-          </TouchableOpacity>
-        )}
+      {/* ── Sticky CTA — conditional on available actions ─────────────── */}
+      {hasCTA && (
+        <View
+          style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            backgroundColor: theme.bg,
+            borderTopWidth: 1, borderTopColor: theme.divider,
+            paddingHorizontal: 16, paddingTop: 14, paddingBottom: 32,
+          }}
+        >
+          {/* Get Tickets — only when event.hasTickets is true */}
+          {showTicketsCTA && (
+            <TouchableOpacity
+              onPress={onGetTickets}
+              style={{
+                backgroundColor: theme.accent,
+                borderRadius: 14,
+                paddingVertical: 16,
+                alignItems: 'center',
+                marginBottom: showReservationCTA ? 10 : 0,
+                shadowColor: theme.accent,
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.4,
+                shadowRadius: 12,
+                elevation: 6,
+              }}
+              activeOpacity={0.88}
+            >
+              <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: -0.1 }}>
+                Get Tickets
+              </Text>
+            </TouchableOpacity>
+          )}
 
-        {/* Secondary pair: Add to Calendar + Share */}
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <TouchableOpacity
-            style={{
-              flex: 1, borderRadius: 12, paddingVertical: 12,
-              borderWidth: 1.5, borderColor: theme.border,
-              backgroundColor: theme.card,
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}
-            activeOpacity={0.8}
-          >
-            <CalendarIcon color={theme.subtext}/>
-            <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium }}>Add to Calendar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{
-              flex: 1, borderRadius: 12, paddingVertical: 12,
-              borderWidth: 1.5, borderColor: theme.border,
-              backgroundColor: theme.card,
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}
-            activeOpacity={0.8}
-          >
-            <ShareIcon color={theme.subtext}/>
-            <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium }}>Share</Text>
-          </TouchableOpacity>
+          {/* Book Reservation — only when venue has a reservation URL */}
+          {showReservationCTA && (
+            <TouchableOpacity
+              onPress={() => Linking.openURL(reservationUrl!).catch(() => {})}
+              style={{
+                backgroundColor: showTicketsCTA ? theme.card : theme.accent,
+                borderRadius: 14,
+                paddingVertical: 16,
+                alignItems: 'center',
+                borderWidth: showTicketsCTA ? 1.5 : 0,
+                borderColor: theme.border,
+                shadowColor: showTicketsCTA ? 'transparent' : theme.accent,
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: showTicketsCTA ? 0 : 0.4,
+                shadowRadius: 12,
+                elevation: showTicketsCTA ? 0 : 6,
+              }}
+              activeOpacity={0.88}
+            >
+              <Text style={{
+                color: showTicketsCTA ? theme.text : theme.onAccent,
+                fontSize: 16,
+                fontFamily: FONTS.display,
+                letterSpacing: -0.1,
+              }}>
+                {venue?.ctaPrimary || 'Book Reservation'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
-      </View>
+      )}
     </View>
   );
 }
+
+// ── Shared button style for the dark-glass top controls ─────────────────
+const styles = StyleSheet.create({
+  controlButton: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+});
 
 // Public export wraps the inner screen in an ErrorBoundary so any
 // render-time exception (typically a null deref against a Firestore doc

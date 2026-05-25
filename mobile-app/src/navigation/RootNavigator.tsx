@@ -346,10 +346,14 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         <EventScreen
           event={current.event}
           onBack={pop}
-          // onVenuePress: no-op until VenueScreen accepts a venueId (Approach 2).
-          // The chevron stays tappable but won't navigate; tonight's hotfix focuses
-          // on rendering the event detail correctly, not cross-navigation.
-          onVenuePress={() => { /* TODO Approach 2: navigate to venue by id */ }}
+          // onVenuePress: kept as a legacy no-op; onNavigateToVenue is the
+          // preferred path (Wave 1 additive). When the resolved VenueData is
+          // available inside EventScreen, it calls onNavigateToVenue(venue)
+          // which pushes VenueScreen with a full venue object.
+          onVenuePress={() => { /* legacy no-op; onNavigateToVenue preferred */ }}
+          // Wave 1 (additive): EventScreen calls this with the resolved VenueData
+          // from useVenueById so the navigator can push VenueScreen correctly.
+          onNavigateToVenue={(resolvedVenue) => navigateToVenue(resolvedVenue)}
           // onMapPress now receives the address resolved by EventScreen's
           // useVenueById lookup — the prior `event.address` read was always
           // empty for Firestore events (events don't carry venue address;
@@ -364,6 +368,13 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             venueName: eventVenueName,
             eventDate: current.event.date,
             eventTime: current.event.time,
+          }) : undefined}
+          // Wave 1 (additive): navigate to MenuScreen for this venue when the
+          // venue has been resolved by EventScreen's useVenueById.
+          onMenuPress={current.event.venueId ? () => push({
+            screen:   'menu',
+            venueId:  current.event.venueId ?? '',
+            venueName: eventVenueName,
           }) : undefined}
           theme={theme}
         />

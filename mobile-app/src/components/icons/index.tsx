@@ -143,6 +143,17 @@ export function InstagramIcon({ color }: { color: string }) {
   );
 }
 
+// ── Kebab / overflow menu icon (3 vertical dots) ─────────────────────
+export function KebabVerticalIcon({ color }: { color: string }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 5a1 1 0 110-2 1 1 0 010 2z" fill={color} stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M12 13a1 1 0 110-2 1 1 0 010 2z" fill={color} stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M12 21a1 1 0 110-2 1 1 0 010 2z" fill={color} stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+    </Svg>
+  );
+}
+
 // ── Tab bar icons ─────────────────────────────────────────────────────
 export function HomeTabIcon({ color }: { color: string }) {
   return (
