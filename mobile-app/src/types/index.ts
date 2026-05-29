@@ -194,6 +194,66 @@ export type ReportDoc = {
   createdAt?: unknown;       // Firestore serverTimestamp
 };
 
+// ── Editorial Discover (top-level source-of-truth collections) ────────
+// The default Discover view is an editorial-shelf experience. Each shelf is
+// one curated doc (a neighborhood guide, itinerary, or photographer feature)
+// whose `cards` embed display fields (so a shelf renders without N joins) and
+// carry the real venueId/eventId/galleryId for tap-through navigation.
+//
+// ARCHITECTURE (for future Dashboard/Lens sessions): `neighborhoodGuides`,
+// `itineraries`, and `photographerFeatures` are TOP-LEVEL collections — the
+// single source of truth. Wugi Dashboard is the authoritative management
+// surface; Wugi Lens writes through it; the consumer app is READ-ONLY.
+export type EditorialCardKind = 'venue' | 'event' | 'gallery' | 'photographer' | 'itinerary' | 'stop';
+
+export type EditorialCard = {
+  kind:      EditorialCardKind;
+  title:     string;
+  sub:       string;
+  image:     string;
+  tag:       string;
+  tagColor:  string;
+  ratio?:    number;      // width multiplier — 1 default, 1.5/2 for hero cards
+  venueId?:  string;      // 'venue' | 'stop'
+  eventId?:  string;      // 'event'
+  galleryId?: string;     // 'gallery'
+};
+
+type EditorialShelfBase = {
+  id:         string;
+  kicker:     string;
+  title:      string;
+  subtitle:   string;
+  coverImage: string;
+  cards:      EditorialCard[];
+  order:      number;
+  status:     'live' | 'draft';
+  source:     string;     // 'seed' for placeholder content
+  createdAt?: unknown;
+};
+
+export type NeighborhoodGuideDoc = EditorialShelfBase & {
+  neighborhood: string;
+  venueIds:     string[];
+};
+
+export type ItineraryDoc = EditorialShelfBase & {
+  neighborhood?: string;
+};
+
+export type PhotographerFeatureDoc = EditorialShelfBase & {
+  photographerHandle: string;
+  photographerName?:  string;
+  galleryIds:         string[];
+};
+
+// Discriminated wrapper so the editorial screen can render a single, merged,
+// Dashboard-ordered list of mixed shelf types.
+export type EditorialShelf =
+  | { type: 'neighborhoodGuide';   doc: NeighborhoodGuideDoc }
+  | { type: 'itinerary';           doc: ItineraryDoc }
+  | { type: 'photographerFeature'; doc: PhotographerFeatureDoc };
+
 // ── Navigation ────────────────────────────────────────────────────────
 export type NavEntry =
   | { screen: 'home' }
@@ -209,7 +269,10 @@ export type NavEntry =
   | { screen: 'pass'; orderId: string; isGuest?: boolean }
   | { screen: 'scan'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'menu'; venueId: string; venueName: string }
-  | { screen: 'menuItem'; venueId: string; venueName: string; item: MenuItem };
+  | { screen: 'menuItem'; venueId: string; venueName: string; item: MenuItem }
+  // Editorial Discover: search-bar tap pushes the existing DiscoverScreen as
+  // the search/filter mode (initialMapOn opens it on the map placeholder).
+  | { screen: 'discoverSearch'; initialMapOn?: boolean };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {
