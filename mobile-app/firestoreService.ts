@@ -42,6 +42,9 @@ import {
   addDoc,
 } from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import type {
+  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc,
+} from './src/types';
 
 // Cursor type used by the *Page() variants for cursor-based pagination.
 // Holds the last DocumentSnapshot from the previous page (Firestore's
@@ -795,4 +798,46 @@ export async function getForYouFeed(
     getApprovedVenues(userVibes, 5),
   ]);
   return { events, venues };
+}
+
+// ── Editorial Discover shelves ────────────────────────────────────────
+// Reads the three top-level editorial collections, wraps each doc in a
+// discriminated EditorialShelf, and returns them merged in Dashboard-defined
+// `order`. status=='live' filter only; sort is client-side so no composite
+// index is required. Consumer app is READ-ONLY against these collections.
+export async function getEditorialShelves(): Promise<EditorialShelf[]> {
+  try {
+    const [guides, itineraries, features] = await Promise.all([
+      getDocs(query(collection(db, 'neighborhoodGuides'),   where('status', '==', 'live'))),
+      getDocs(query(collection(db, 'itineraries'),          where('status', '==', 'live'))),
+      getDocs(query(collection(db, 'photographerFeatures'), where('status', '==', 'live'))),
+    ]);
+
+    const shelves: EditorialShelf[] = [];
+    guides.docs.forEach((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) =>
+      shelves.push({ type: 'neighborhoodGuide',   doc: { ...(d.data() as object), id: d.id } as NeighborhoodGuideDoc }));
+    itineraries.docs.forEach((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) =>
+      shelves.push({ type: 'itinerary',           doc: { ...(d.data() as object), id: d.id } as ItineraryDoc }));
+    features.docs.forEach((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) =>
+      shelves.push({ type: 'photographerFeature', doc: { ...(d.data() as object), id: d.id } as PhotographerFeatureDoc }));
+
+    shelves.sort((a, b) => (a.doc.order ?? 999) - (b.doc.order ?? 999));
+    return shelves;
+  } catch (e) {
+    console.log('getEditorialShelves error:', e);
+    return [];
+  }
+}
+
+// Fetch a single gallery doc (top-level `galleries`) so an editorial gallery
+// card can navigate into the existing GalleryScreen → PhotoViewer flow.
+export async function getGalleryById(galleryId: string): Promise<GalleryDoc | null> {
+  try {
+    const snap = await getDoc(doc(collection(db, 'galleries'), galleryId));
+    if (!snap.exists()) return null;
+    return { ...(snap.data() as object), id: snap.id } as GalleryDoc;
+  } catch (e) {
+    console.log('getGalleryById error:', e);
+    return null;
+  }
 }
