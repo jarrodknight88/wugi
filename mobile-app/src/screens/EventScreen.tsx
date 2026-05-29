@@ -3,7 +3,7 @@
 //
 // Wave 1 changes (retained):
 //   1. Hero → content gap eliminated via marginBottom:-24 + bottom scrim.
-//   2. Translucent status-bar wash at top of hero.
+//   2. Static, darker status-bar wash pinned at the screen top.
 //   3. Top controls: left:20/right:20/top:64, kebab overflow menu.
 //   4. Venue identity block: onNavigateToVenue prop wired.
 //   5. Sticky CTA: conditional Get Tickets / Book Reservation.
@@ -12,7 +12,8 @@
 //
 // Wave 2 changes (this commit):
 //   1. Hero bottom scrim → real LinearGradient (transparent→rgba→theme.bg).
-//   2. Status-bar wash → real BlurView (intensity:18) + LinearGradient overlay.
+//   2. Status-bar wash → darker LinearGradient, pinned outside the ScrollView
+//      (static — was a BlurView inside the hero that scrolled/parallaxed away).
 //   3. Top glass buttons → real BlurView pill (intensity:20) replacing
 //      solid rgba(0,0,0,0.5) backgrounds.
 //   4. "Add to Calendar" → real expo-calendar write with permission handling
@@ -303,26 +304,9 @@ function EventScreenInner({
             pointerEvents="none"
           />
 
-          {/* ── Translucent status-bar wash ── 60px tall, real BlurView +
-               LinearGradient overlay. Approximates the spec's blur(8px)
-               saturate(140%) + dark gradient. pointerEvents="none". ── */}
-          <BlurView
-            intensity={18}
-            tint="dark"
-            pointerEvents="none"
-            style={{
-              position: 'absolute', top: 0, left: 0, right: 0,
-              height: 60,
-              zIndex: 1,
-              overflow: 'hidden',
-            }}
-          >
-            <LinearGradient
-              colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.30)', 'rgba(0,0,0,0)']}
-              locations={[0, 0.6, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-          </BlurView>
+          {/* Status-bar wash moved OUT of the hero (it used to scroll/parallax
+              away). It's now a darker, pinned gradient rendered as a sibling of
+              the ScrollView below — fixed at the screen top, always legible. */}
 
           {/* ── Top controls — back + kebab overflow ── */}
           {/* Using absolute positioning with explicit left/right/top instead of
@@ -658,6 +642,17 @@ function EventScreenInner({
         {/* Bottom spacer for sticky CTA (or just breathing room if no CTA) */}
         <View style={{ height: hasCTA ? 140 : 40 }}/>
       </ScrollView>
+
+      {/* ── Status-bar wash — STATIC + DARK ──────────────────────────────
+           Pinned to the screen top (sibling of the ScrollView, so it never
+           scrolls or parallaxes) and a darker solid gradient (no blur) so the
+           time/battery stay readable over any hero photo or scrolled content. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,0,0,0.78)', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']}
+        locations={[0, 0.6, 1]}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 60, zIndex: 50 }}
+      />
 
       {/* ── Sticky CTA — conditional on available actions ─────────────── */}
       {hasCTA && (
