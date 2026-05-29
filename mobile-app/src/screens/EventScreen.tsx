@@ -8,7 +8,7 @@
 //   4. Venue identity block: onNavigateToVenue prop wired.
 //   5. Sticky CTA: conditional Get Tickets / Book Reservation.
 //   6. Add to Calendar + Share in kebab overflow.
-//   7. "View Menu" entry when venue + onMenuPress present.
+//   7. "MENU" section (engrained like About: eyebrow + "View All" → MenuScreen).
 //
 // Wave 2 changes (this commit):
 //   1. Hero bottom scrim → real LinearGradient (transparent→rgba→theme.bg).
@@ -86,6 +86,13 @@ function EventScreenInner({
   // when venueId is missing or the doc doesn't exist.
   const eventVenueId = (event as any).venueId ?? null;
   const { venue } = useVenueById(eventVenueId);
+
+  // Menu section description — real venue data only (menuDescription, else the
+  // menuAttributes joined). Empty when neither exists → the description line is
+  // dropped (no fabricated "N items" count, per the real-data-only rule).
+  const menuDesc = venue
+    ? (venue.menuDescription?.trim() || (venue.menuAttributes?.length ? venue.menuAttributes.join(' · ') : ''))
+    : '';
 
   // Defensive: media may be missing/empty on incomplete docs
   const media = Array.isArray(event.media) ? event.media : [];
@@ -465,23 +472,8 @@ function EventScreenInner({
             </TouchableOpacity>
           ) : null}
 
-          {/* Menu entry — show when caller supplies onMenuPress and venue exists */}
-          {venue && onMenuPress && (
-            <TouchableOpacity
-              onPress={onMenuPress}
-              style={{
-                marginTop: 12,
-                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                paddingVertical: 10, paddingHorizontal: 14,
-                backgroundColor: theme.card, borderRadius: 10,
-                borderWidth: 1, borderColor: theme.border,
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium }}>View Menu</Text>
-              <ChevronRightIcon color={theme.subtext}/>
-            </TouchableOpacity>
-          )}
+          {/* Menu is no longer a button here — it's an engrained "MENU" section
+              below About (see Menu section), matching About's eyeline. */}
         </View>
 
         {/* ── About ───────────────────────────────────────────────────── */}
@@ -493,6 +485,28 @@ function EventScreenInner({
             <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.body, lineHeight: 23 }}>
               {event.about}
             </Text>
+          </View>
+        )}
+
+        {/* ── Menu ── engrained section matching About's eyeline. Header row:
+             "MENU" eyebrow (left) + "View All →" link (right, → MenuScreen).
+             Description below uses real venue menu data; dropped when absent. ── */}
+        {venue && onMenuPress && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5 }}>
+                MENU
+              </Text>
+              <TouchableOpacity onPress={onMenuPress} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>View All</Text>
+                <ChevronRightIcon color={theme.accent}/>
+              </TouchableOpacity>
+            </View>
+            {!!menuDesc && (
+              <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.body, lineHeight: 23 }}>
+                {menuDesc}
+              </Text>
+            )}
           </View>
         )}
 
