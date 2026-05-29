@@ -243,16 +243,22 @@ type Props = {
   theme: Theme;
   onEventPress: (event: EventData) => void;
   onVenuePress: (venue: VenueData) => void;
+  // Additive (editorial Discover): when this screen is pushed as the search/
+  // filter mode from the editorial default view, onBack returns to it and
+  // initialMapOn opens directly on the map placeholder. Both optional — when
+  // absent the screen behaves exactly as before (e.g. as a standalone tab).
+  onBack?: () => void;
+  initialMapOn?: boolean;
 };
 
 // ── Main screen ───────────────────────────────────────────────────────
-export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
+export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, initialMapOn }: Props) {
   const [search,         setSearch]         = useState('');
   const [searchFocused,  setSearchFocused]  = useState(false);
   const [cat,            setCat]            = useState<Category>('All');
   const [vibe,           setVibe]           = useState<string | null>(null);
   const [view,           setView]           = useState<'list' | 'grid'>('list');
-  const [mapOn,          setMapOn]          = useState(false);
+  const [mapOn,          setMapOn]          = useState(initialMapOn ?? false);
   const [allResults,     setAllResults]     = useState<DiscoverItem[]>([]);
   const [loading,        setLoading]        = useState(true);
   const [refreshing,     setRefreshing]     = useState(false);
@@ -545,7 +551,19 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress }: Props) {
         paddingTop: 60,
         paddingBottom: 14,
       }}>
-        {/* Title — centered */}
+        {/* Title — centered. Back button (left) only when pushed as a
+            stack screen from the editorial default view. */}
+        {onBack && (
+          <TouchableOpacity
+            onPress={onBack}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ position: 'absolute', left: 16, top: 58, zIndex: 10, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+              <Path d="M15 18l-6-6 6-6" stroke={theme.text} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"/>
+            </Svg>
+          </TouchableOpacity>
+        )}
         <Text style={{
           color: theme.text,
           fontSize: 22,
