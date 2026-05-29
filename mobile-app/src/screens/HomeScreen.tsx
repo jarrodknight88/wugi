@@ -7,10 +7,10 @@
 // StartHere shelf (horizontal venue cards), and a weekend look-ahead.
 //
 // Wave 1 changes (2026-05-25):
-//   • Hero → HomeHeroCarousel: 3-banner auto-scroll, cross-fade (450ms),
-//     swipe via PanResponder (>40px), Instagram pagination dots, pause
-//     on touch + resume 2500ms after release. Uses Animated + PanResponder
-//     only — no new deps.
+//   • Hero → HomeHeroCarousel: 3-banner auto-advance (5500ms), finger-following
+//     horizontal swipe + infinite/circular loop (clone-page technique on a
+//     paging ScrollView), Instagram pagination dots, pause on touch + resume
+//     2500ms after release. Core RN ScrollView only — no new deps.
 //   • StartHereShelf: horizontal scroller of compact venue cards (160px)
 //     with hours chip (top-left glass) + price-tier chip (bottom-right
 //     parchment). Replaces the flat list/table.
@@ -29,11 +29,11 @@
 // Type: PP Neue Montreal via FONTS.* (the design's brand face); eyebrow
 // kickers use system mono (MONO) per the design. See constants/fonts.ts.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
   SafeAreaView, ActivityIndicator, StyleSheet, RefreshControl,
-  Animated, PanResponder, Dimensions,
+  Animated, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -140,177 +140,137 @@ function ShelfHeader({ kicker, title, theme, onSeeAll }: {
 }
 
 // ── HomeHeroCarousel ─────────────────────────────────────────────────
-// Auto-advance every 5500ms, cross-fade 450ms, swipe via PanResponder
-// (>40px horizontal), Instagram-style pagination dots (active 22×6,
-// inactive 6×6), tap dot to jump. Pauses on touch, resumes 2500ms after.
-// Uses Animated (opacity cross-fade + animated dot width, useNativeDriver:false
-// for dot width) + PanResponder for swipe. No new deps.
+// Horizontal paging ScrollView with finger-following swipe and an infinite/
+// circular loop via the clone-page technique (prepend last + append first;
+// silently snap back from the clones on momentum-end). Auto-advances every
+// 5500ms, pauses while touched and resumes 2500ms after release. Instagram-
+// style pagination dots (active 22×6, inactive 6×6, animated width via
+// Animated, useNativeDriver:false), tap a dot to jump. Core RN only — no new deps.
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 function HomeHeroCarousel({ banners, theme }: { banners: BannerItem[]; theme: Theme }) {
-  const [idx, setIdx] = useState(0);
-  const pausedRef = useRef(false);
-  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const n    = banners.length;
+  const loop = n > 1;
+  const PAGE_W = SCREEN_WIDTH - 32;   // container has 16px horizontal margins each side
 
-  // One Animated.Value per banner for opacity cross-fade.
-  const opacities = useRef(banners.map((_, i) => new Animated.Value(i === 0 ? 1 : 0))).current;
-  // One Animated.Value per dot for width animation.
+  // Cloned page list for an infinite/circular feel: [last, ...banners, first].
+  // Real banner i lives at page index i+1; pages 0 and n+1 are the wrap clones.
+  const pages = loop ? [banners[n - 1], ...banners, banners[0]] : banners;
+
+  const scrollRef      = useRef<ScrollView>(null);
+  const scrollPageRef  = useRef(loop ? 1 : 0);   // current page index within `pages`
+  const pausedRef      = useRef(false);
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [realIndex, setRealIndex] = useState(0);
+
+  // One Animated.Value per dot for the active-stretch width animation.
   const dotWidths = useRef(banners.map((_, i) => new Animated.Value(i === 0 ? 22 : 6))).current;
 
-  const goTo = useCallback((next: number, fromPan = false) => {
-    const prev = idx;
-    if (next === prev) return;
+  const scrollToPage = (page: number, animated: boolean) =>
+    scrollRef.current?.scrollTo({ x: PAGE_W * page, y: 0, animated });
 
-    // Cross-fade: fade out current, fade in next.
-    Animated.parallel([
-      Animated.timing(opacities[prev], { toValue: 0, duration: 450, useNativeDriver: true }),
-      Animated.timing(opacities[next], { toValue: 1, duration: 450, useNativeDriver: true }),
-    ]).start();
-
-    // Dot width animation.
-    Animated.parallel([
-      Animated.timing(dotWidths[prev], { toValue: 6,  duration: 250, useNativeDriver: false }),
-      Animated.timing(dotWidths[next], { toValue: 22, duration: 250, useNativeDriver: false }),
-    ]).start();
-
-    setIdx(next);
-
-    if (fromPan) {
-      pausedRef.current = true;
-      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-      resumeTimerRef.current = setTimeout(() => { pausedRef.current = false; }, 2500);
-    }
-  }, [idx, opacities, dotWidths]);
-
-  // Auto-advance: restarts whenever idx changes and carousel is not paused.
+  // Animate dots whenever the visible real banner changes.
   useEffect(() => {
-    if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
-    autoTimerRef.current = setTimeout(() => {
-      if (!pausedRef.current) {
-        const next = (idx + 1) % banners.length;
-        goTo(next);
-      }
-    }, 5500);
-    return () => {
-      if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
-    };
+    banners.forEach((_, i) => {
+      Animated.timing(dotWidths[i], {
+        toValue: i === realIndex ? 22 : 6,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx]);
+  }, [realIndex]);
 
-  // Cleanup timers on unmount.
-  useEffect(() => {
-    return () => {
-      if (autoTimerRef.current)  clearTimeout(autoTimerRef.current);
-      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-    };
-  }, []);
-
-  // PanResponder for swipe left/right.
-  const panStartX = useRef(0);
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 8,
-      onPanResponderGrant: (_, g) => {
-        panStartX.current = g.x0;
-        pausedRef.current = true;
-        if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-      },
-      onPanResponderRelease: (_, g) => {
-        // Swipe threshold: 40px horizontal.
-        if (g.dx < -40) {
-          // Swipe left → next
-          const currentIdx = idxRef.current;
-          const next = (currentIdx + 1) % banners.length;
-          goToRef.current(next, true);
-        } else if (g.dx > 40) {
-          // Swipe right → previous
-          const currentIdx = idxRef.current;
-          const next = (currentIdx - 1 + banners.length) % banners.length;
-          goToRef.current(next, true);
-        } else {
-          // Short tap or no significant swipe — resume after delay
-          resumeTimerRef.current = setTimeout(() => { pausedRef.current = false; }, 2500);
-        }
-      },
-    })
-  ).current;
-
-  // Refs to give PanResponder callbacks access to latest idx + goTo
-  // without stale closures (PanResponder is created once in useRef).
-  const idxRef  = useRef(idx);
-  const goToRef = useRef(goTo);
-  useEffect(() => { idxRef.current = idx; }, [idx]);
-  useEffect(() => { goToRef.current = goTo; }, [goTo]);
-
-  const onTouchStart = () => {
-    pausedRef.current = true;
+  const scheduleResume = () => {
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-  };
-  const onTouchEnd = () => {
     resumeTimerRef.current = setTimeout(() => { pausedRef.current = false; }, 2500);
   };
 
+  // Auto-advance every 5500ms (paused while the user is touching the carousel).
+  // Advancing past the last real page lands on the wrap clone; onMomentumScrollEnd
+  // silently snaps it back to the real page so the loop is seamless.
+  useEffect(() => {
+    if (!loop) return;
+    const t = setInterval(() => {
+      if (pausedRef.current) return;
+      scrollToPage(scrollPageRef.current + 1, true);
+    }, 5500);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loop]);
+
+  useEffect(() => () => {
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+  }, []);
+
+  // Normalize the wrap clones back to the real pages after each settle, so the
+  // user can keep swiping infinitely in either direction.
+  const onMomentumScrollEnd = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
+    let page = Math.round(e.nativeEvent.contentOffset.x / PAGE_W);
+    if (loop) {
+      if (page === 0)          { page = n; scrollToPage(n, false); }   // before-first → real last
+      else if (page === n + 1) { page = 1; scrollToPage(1, false); }   // after-last → real first
+      scrollPageRef.current = page;
+      setRealIndex(page - 1);
+    } else {
+      scrollPageRef.current = page;
+      setRealIndex(page);
+    }
+  };
+
+  const renderBanner = (b: BannerItem) => (
+    <>
+      <Image
+        cachePolicy="memory-disk"
+        source={{ uri: b.image }}
+        style={StyleSheet.absoluteFillObject}
+        contentFit="cover"
+      />
+      {/* Bottom gradient scrim */}
+      <LinearGradient
+        colors={['rgba(0,0,0,0.4)', 'transparent', 'rgba(0,0,0,0.92)']}
+        locations={[0, 0.25, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      {/* Copy + CTA */}
+      <View style={styles.carouselCopy}>
+        <Text style={[styles.carouselKicker, { color: theme.accent, fontFamily: MONO }]}>{b.kicker}</Text>
+        <Text style={[styles.carouselHero, { color: theme.onImage, fontFamily: FONTS.display }]}>{b.hero}</Text>
+        <Text style={[styles.carouselSub, { color: theme.onImageSoft, fontFamily: FONTS.body }]}>{b.sub}</Text>
+        {/* CTA glass pill */}
+        <BlurView intensity={24} tint="light" style={styles.carouselCtaBlur}>
+          <TouchableOpacity activeOpacity={0.85} onPress={b.onCtaPress} style={styles.carouselCta}>
+            <Text style={[styles.carouselCtaText, { color: theme.onImage, fontFamily: FONTS.medium }]}>{b.cta} →</Text>
+          </TouchableOpacity>
+        </BlurView>
+      </View>
+    </>
+  );
+
   return (
-    <View
-      style={styles.carouselContainer}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      {...panResponder.panHandlers}
-    >
-      {/* Stacked banners — cross-fade via Animated opacity */}
-      {banners.map((b, i) => (
-        <Animated.View
-          key={b.id}
-          pointerEvents={i === idx ? 'auto' : 'none'}
-          style={[StyleSheet.absoluteFillObject, { opacity: opacities[i] }]}
-        >
-          <Image
-            cachePolicy="memory-disk"
-            source={{ uri: b.image }}
-            style={StyleSheet.absoluteFillObject}
-            contentFit="cover"
-          />
-          {/* Bottom gradient scrim — real LinearGradient (was solid overlay approx) */}
-          <LinearGradient
-            colors={['rgba(0,0,0,0.4)', 'transparent', 'rgba(0,0,0,0.92)']}
-            locations={[0, 0.25, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-          {/* Copy + CTA */}
-          <View style={styles.carouselCopy}>
-            <Text style={[styles.carouselKicker, { color: theme.accent, fontFamily: MONO }]}>
-              {b.kicker}
-            </Text>
-            <Text style={[styles.carouselHero, { color: theme.onImage, fontFamily: FONTS.display }]}>
-              {b.hero}
-            </Text>
-            <Text style={[styles.carouselSub, { color: theme.onImageSoft, fontFamily: FONTS.body }]}>
-              {b.sub}
-            </Text>
-            {/* CTA glass pill — real BlurView (was solid rgba approx) */}
-            <BlurView
-              intensity={24}
-              tint="light"
-              style={styles.carouselCtaBlur}
-            >
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={b.onCtaPress}
-                style={styles.carouselCta}
-              >
-                <Text style={[styles.carouselCtaText, { color: theme.onImage, fontFamily: FONTS.medium }]}>
-                  {b.cta} →
-                </Text>
-              </TouchableOpacity>
-            </BlurView>
+    <View style={styles.carouselContainer}>
+      {/* Horizontal paging ScrollView — finger-following swipe + infinite loop */}
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        // Start on the first real banner (page 1) when looping.
+        contentOffset={{ x: loop ? PAGE_W : 0, y: 0 }}
+        scrollEventThrottle={16}
+        onScrollBeginDrag={() => { pausedRef.current = true; if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current); }}
+        onScrollEndDrag={scheduleResume}
+        onMomentumScrollEnd={onMomentumScrollEnd}
+      >
+        {pages.map((b, i) => (
+          <View key={`page-${i}`} style={{ width: PAGE_W, height: 280 }}>
+            {renderBanner(b)}
           </View>
-        </Animated.View>
-      ))}
+        ))}
+      </ScrollView>
 
       {/* Pagination dots — Instagram style (active stretches to 22×6 bar) */}
       <View style={styles.dotsRow} pointerEvents="box-none">
@@ -319,18 +279,15 @@ function HomeHeroCarousel({ banners, theme }: { banners: BannerItem[]; theme: Th
             key={i}
             activeOpacity={0.8}
             onPress={() => {
-              goTo(i, true);
+              pausedRef.current = true;
+              scrollToPage(loop ? i + 1 : i, true);
+              scheduleResume();
             }}
           >
             <Animated.View
               style={[
                 styles.dot,
-                {
-                  width: dotWidths[i],
-                  backgroundColor: i === idx
-                    ? '#f4efe1'
-                    : 'rgba(244,239,225,0.45)',
-                },
+                { width: dotWidths[i], backgroundColor: i === realIndex ? '#f4efe1' : 'rgba(244,239,225,0.45)' },
               ]}
             />
           </TouchableOpacity>
