@@ -21,6 +21,7 @@ import { OnboardingScreen }     from '../screens/OnboardingScreen';
 import { UsernameScreen }       from '../screens/UsernameScreen';
 import { HomeScreen }       from '../screens/HomeScreen';
 import { DiscoverScreen }   from '../screens/DiscoverScreen';
+import { DiscoverEditorialScreen } from '../screens/DiscoverEditorialScreen';
 import { ForYouScreen }     from '../screens/ForYouScreen';
 import { FavoritesScreen }  from '../screens/FavoritesScreen';
 import { AccountScreen }    from '../screens/AccountScreen';
@@ -284,6 +285,9 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} theme={theme}/>;
     if (current.screen === 'gallery') return <GalleryScreen  gallery={current.gallery} onBack={pop} onPhotoPress={index => navigateToPhoto(current.gallery.photos, index, current.gallery)} theme={theme}/>;
     if (current.screen === 'map')     return <MapScreen      address={current.address} venueName={current.venueName} onBack={pop} theme={theme}/>;
+    // Editorial Discover: the search/filter mode is the existing DiscoverScreen,
+    // pushed on top of the editorial default view. onBack returns to editorial.
+    if (current.screen === 'discoverSearch') return <DiscoverScreen theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onBack={pop} initialMapOn={current.initialMapOn}/>;
 
     if (current.screen === 'ticketSelection') return (
       <TicketSelectionScreen
@@ -434,7 +438,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       {/* Tabs — always mounted, hidden behind stack */}
       <View style={{ flex: 1, display: stackVisible ? 'none' : 'flex' }}>
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
-        {activeTab === 'discover'  && <DiscoverScreen  theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue}/>}
+        {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onSearchTap={() => push({ screen: 'discoverSearch' })} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite}/>}
         {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}
