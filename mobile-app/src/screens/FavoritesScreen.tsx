@@ -12,10 +12,10 @@
 // Typography: FONTS.display titles · FONTS.body body · FONTS.medium
 // buttons/labels · MONO ALLCAPS eyebrows.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator,
-  FlatList, StyleSheet,
+  FlatList, StyleSheet, Animated,
 } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
@@ -63,23 +63,52 @@ function SectionHeader({ kicker, title, count, theme, onViewAll }: { kicker: str
 
 // ── Compact saved card — horizontal-carousel preview ──────────────────
 // Image-led card with uniform overlay (matches Home "Picks/Weekend" pattern).
-// Remove affordance lives on the full-list view, not on the compact preview.
-function SavedCard({ item, theme, onPress }: { item: FavoriteItem; theme: Theme; onPress: () => void }) {
+// Tappable heart in the top-right unsaves the item with a 200ms fade+scale
+// animation; the carousel reflows once the parent's favorites state drops it.
+// The heart's TouchableOpacity stops touch propagation (RN child-responder),
+// so heart-tap removes without firing the parent card's onPress.
+function SavedCard({ item, theme, onPress, onRemove }: { item: FavoriteItem; theme: Theme; onPress: () => void; onRemove: () => void }) {
+  const fade  = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const dismissedRef = useRef(false);
+
+  const handleRemove = () => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    Animated.parallel([
+      Animated.timing(fade,  { toValue: 0,    duration: 200, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 0.92, duration: 200, useNativeDriver: true }),
+    ]).start(() => onRemove());
+  };
+
   return (
-    <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={{ width: 140, height: 180, borderRadius: 12, overflow: 'hidden' }}>
-      <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
-      <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
-      {!item.read && (
-        <View style={{ position: 'absolute', top: 8, left: 8, width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.accent }}/>
-      )}
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
-        <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5, marginBottom: 3 }}>
-          {item.type === 'event' ? 'EVENT' : 'VENUE'}
-        </Text>
-        <Text style={{ color: theme.onImage, fontSize: 13, fontFamily: FONTS.display, lineHeight: 16, marginBottom: 2 }} numberOfLines={2}>{item.title}</Text>
-        <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.subtitle}</Text>
-      </View>
-    </TouchableOpacity>
+    <Animated.View style={{ opacity: fade, transform: [{ scale }] }}>
+      <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={{ width: 140, height: 180, borderRadius: 12, overflow: 'hidden' }}>
+        <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+        <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
+        {!item.read && (
+          <View style={{ position: 'absolute', top: 8, left: 8, width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.accent }}/>
+        )}
+        {/* Heart-unsave — visible 24pt icon at top:8/right:8, hitSlop expands the
+            touch area to ~44×44 (iOS HIG). Nested TouchableOpacity catches the
+            tap so it does NOT propagate to the parent card's onPress. */}
+        <TouchableOpacity
+          onPress={handleRemove}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={{ position: 'absolute', top: 8, right: 8 }}
+        >
+          <HeartIcon color={theme.accent} filled size={24}/>
+        </TouchableOpacity>
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
+          <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5, marginBottom: 3 }}>
+            {item.type === 'event' ? 'EVENT' : 'VENUE'}
+          </Text>
+          <Text style={{ color: theme.onImage, fontSize: 13, fontFamily: FONTS.display, lineHeight: 16, marginBottom: 2 }} numberOfLines={2}>{item.title}</Text>
+          <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.subtitle}</Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
@@ -302,6 +331,7 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
+                onRemove={() => onRemove(item.id)}
               />
             )}
           />
@@ -329,6 +359,7 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
+                onRemove={() => onRemove(item.id)}
               />
             )}
           />
