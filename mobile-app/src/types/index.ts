@@ -275,7 +275,10 @@ export type NavEntry =
   | { screen: 'discoverSearch'; initialMapOn?: boolean }
   // Saved "View All" destination — per-section full-list view (one for events,
   // one for venues). Passes intentionally NOT included (Wave 3 refactor).
-  | { screen: 'savedList'; kind: 'event' | 'venue' };
+  | { screen: 'savedList'; kind: 'event' | 'venue' }
+  // Itinerary detail — multi-stop curated route, reached from an editorial
+  // itinerary card on Discover. The id resolves the itinerary doc on mount.
+  | { screen: 'itinerary'; itineraryId: string };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {

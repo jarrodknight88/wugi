@@ -841,3 +841,16 @@ export async function getGalleryById(galleryId: string): Promise<GalleryDoc | nu
     return null;
   }
 }
+
+// Fetch a single itinerary doc (top-level `itineraries`) so the editorial
+// itinerary hero card can deep-link to ItineraryDetailScreen.
+export async function getItineraryById(itineraryId: string): Promise<ItineraryDoc | null> {
+  try {
+    const snap = await getDoc(doc(collection(db, 'itineraries'), itineraryId));
+    if (!snap.exists()) return null;
+    return { ...(snap.data() as object), id: snap.id } as ItineraryDoc;
+  } catch (e) {
+    console.log('getItineraryById error:', e);
+    return null;
+  }
+}
