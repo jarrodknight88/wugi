@@ -14,9 +14,10 @@
 // Real-data-only: sections with no backing data are omitted, not faked.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, FlatList, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, GalleryDoc } from '../types';
 import { BackIcon, ShareIcon, StarIcon, ChevronRightIcon, LocationIcon } from '../components/icons';
@@ -187,15 +188,56 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
           />
 
-          {/* Top controls — back + share, round blur buttons */}
-          <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
-            <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }} onPress={onBack}>
-              <BackIcon color={theme.onImage}/>
+          {/* Top controls — back + share. Matches EventScreen's Wave 1 pattern:
+              absolute top:64 / left:20 / right:20 edge padding, 40×40 BlurView
+              pills (intensity:20 tint:dark) with an inner LinearGradient tint
+              and a parchment-tinted border. Share stays a direct icon (Venue
+              has no other top-right actions to fold into a kebab menu).
+              VenueIdentityBlock / useVenueById NOT touched. */}
+          <View
+            style={{
+              position: 'absolute', top: 64, left: 20, right: 20,
+              flexDirection: 'row', justifyContent: 'space-between',
+              zIndex: 2,
+            }}
+          >
+            <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
+              <BlurView
+                intensity={20}
+                tint="dark"
+                style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  overflow: 'hidden',
+                  borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <LinearGradient
+                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                />
+                <BackIcon color="#f4efe1"/>
+              </BlurView>
             </TouchableOpacity>
-            <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-              <ShareIcon color={theme.onImage}/>
+            <TouchableOpacity activeOpacity={0.8}>
+              <BlurView
+                intensity={20}
+                tint="dark"
+                style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  overflow: 'hidden',
+                  borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <LinearGradient
+                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                />
+                <ShareIcon color="#f4efe1"/>
+              </BlurView>
             </TouchableOpacity>
-          </SafeAreaView>
+          </View>
 
           {/* Venue name */}
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 30, paddingHorizontal: 20 }}>
