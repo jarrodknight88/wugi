@@ -108,7 +108,9 @@ function MapIcon({ color }: { color: string }) {
 
 function DiscoverHeader({ theme, onSearchTap, onMapTap }: { theme: Theme; onSearchTap: () => void; onMapTap: () => void }) {
   return (
-    <View style={{ paddingTop: 60, paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+    // backgroundColor: theme.bg — the header is sticky (stickyHeaderIndices={[0]});
+    // without an opaque fill, shelves scroll up THROUGH the title/search/map row.
+    <View style={{ backgroundColor: theme.bg, paddingTop: 60, paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, letterSpacing: -0.7 }}>Discover</Text>
         <TouchableOpacity
