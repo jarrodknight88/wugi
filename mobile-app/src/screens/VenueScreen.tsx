@@ -14,13 +14,13 @@
 // Real-data-only: sections with no backing data are omitted, not faked.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, FlatList, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent, ActionSheetIOS, Platform, Alert, Share } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, GalleryData, GalleryDoc } from '../types';
-import { BackIcon, ShareIcon, StarIcon, ChevronRightIcon, LocationIcon } from '../components/icons';
+import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem } from '../types';
+import { BackIcon, StarIcon, ChevronRightIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 import { makeGallery } from '../constants/mockData';
 
@@ -44,10 +44,15 @@ type Props = {
   onGalleryPress: (gallery: GalleryData) => void;
   onMenuPress?: () => void;
   onGetTickets?: (event: ActiveTicketEvent) => void;
+  // UAT-V3 follow-up A (additive): "Save Venue" inside the kebab overflow
+  // menu calls this with a FavoriteItem so the navigator can toggle favorites
+  // using the same store EventScreen / FavoritesScreen use. Absent → Save
+  // option is omitted from the menu (no parallel persistence path).
+  onFavoriteToggle?: (item: FavoriteItem) => void;
   theme: Theme;
 };
 
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, theme }: Props) {
+export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
   const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
@@ -155,6 +160,70 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   };
   const openReserve = () => { if (reservationHref) Linking.openURL(reservationHref).catch(() => {}); };
 
+  // Kebab overflow menu — mirrors EventScreen.openOverflowMenu exactly. Save
+  // Venue is omitted when onFavoriteToggle isn't supplied (no parallel
+  // persistence path); Share/Report are always available. Add-to-Calendar
+  // doesn't apply (venues have no date/time).
+  const openOverflowMenu = () => {
+    const hasSave = !!onFavoriteToggle;
+    const options = (hasSave ? ['Save Venue', 'Share', 'Report', 'Cancel'] : ['Share', 'Report', 'Cancel']);
+    const cancelIndex = options.length - 1;
+    const destructiveIndex = options.indexOf('Report');
+
+    const venueImage = (() => {
+      const first = venue.media?.[0] as any;
+      if (!first) return '';
+      return typeof first === 'string' ? first : (first.uri || '');
+    })();
+
+    const doSave = () => {
+      if (!onFavoriteToggle) return;
+      onFavoriteToggle({
+        id: venue.id,
+        type: 'venue',
+        title: venue.name,
+        subtitle: venue.category || venue.neighborhood || '',
+        image: venueImage,
+        read: false,
+        data: venue,
+      });
+    };
+    const doShare = () => {
+      Share.share({
+        message: `Check out ${venue.name} on Wugi!`,
+        title: venue.name,
+      }).catch(() => {});
+    };
+    const doReport = () => {
+      Alert.alert('Report Venue', 'Thank you — we\'ll review this venue.', [{ text: 'OK' }]);
+    };
+
+    const handleAction = (index: number) => {
+      if (hasSave) {
+        if (index === 0) doSave();
+        else if (index === 1) doShare();
+        else if (index === 2) doReport();
+      } else {
+        if (index === 0) doShare();
+        else if (index === 1) doReport();
+      }
+    };
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: cancelIndex, destructiveButtonIndex: destructiveIndex, title: venue.name },
+        handleAction,
+      );
+    } else {
+      const buttons: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [];
+      if (hasSave) buttons.push({ text: 'Save Venue', onPress: doSave });
+      buttons.push({ text: 'Share',  onPress: doShare });
+      buttons.push({ text: 'Report', onPress: doReport, style: 'destructive' });
+      buttons.push({ text: 'Cancel', style: 'cancel' });
+      Alert.alert(venue.name, 'Choose an action', buttons);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -219,7 +288,9 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
                 <BackIcon color="#f4efe1"/>
               </BlurView>
             </TouchableOpacity>
-            <TouchableOpacity activeOpacity={0.8}>
+            {/* Kebab overflow — matches EventScreen exactly. Share moves into
+                the action sheet alongside Save Venue + Report. */}
+            <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
               <BlurView
                 intensity={20}
                 tint="dark"
@@ -234,7 +305,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
                   colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
                   style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                 />
-                <ShareIcon color="#f4efe1"/>
+                <KebabVerticalIcon color="#f4efe1"/>
               </BlurView>
             </TouchableOpacity>
           </View>

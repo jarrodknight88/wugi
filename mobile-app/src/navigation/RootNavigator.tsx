@@ -408,6 +408,10 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
           eventDate: activeEvent.date,
           eventTime: activeEvent.time,
         })}
+        // UAT-V3 follow-up A (additive): Save Venue inside the kebab overflow
+        // calls this with a FavoriteItem — same toggleFavorite store that
+        // EventScreen + FavoritesScreen use (no parallel persistence path).
+        onFavoriteToggle={toggleFavorite}
         theme={theme}
       />
     );
