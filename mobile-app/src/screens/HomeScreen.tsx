@@ -580,12 +580,12 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* Minimal header — wordmark + vibe summary. Camera icon removed (no
           stories at launch). onCameraPress prop kept for type compat. */}
-      <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
+      <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: theme.accent, fontSize: 26, fontFamily: FONTS.display, letterSpacing: -1 }}>wugi</Text>
+          <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
         </View>
         {userVibes.length > 0 && (
-          <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 4, fontFamily: MONO, letterSpacing: 0.4 }}>
+          <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 6, fontFamily: MONO, letterSpacing: 0.4 }}>
             {userVibes.slice(0, 3).join(' · ').toUpperCase()}
           </Text>
         )}
