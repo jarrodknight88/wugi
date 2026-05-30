@@ -16,6 +16,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, FlatList, SafeAreaView, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, GalleryDoc } from '../types';
 import { BackIcon, ShareIcon, StarIcon, ChevronRightIcon, LocationIcon } from '../components/icons';
@@ -174,8 +175,17 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             )}
           />
 
-          {/* Bottom scrim for name legibility (no gradient dep) */}
-          <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: Math.round(HERO_HEIGHT * 0.55), backgroundColor: theme.overlayMedium }}/>
+          {/* Bottom scrim — real LinearGradient (was a flat 55%-height rectangle
+              with a hard horizontal edge; the venue name read against the edge
+              rather than against a smooth fade). Now: transparent through the
+              upper half → progressively dark to ~85% at the bottom, covering
+              the whole hero so the venue name + carousel dots stay legible. */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['transparent', 'transparent', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.85)']}
+            locations={[0, 0.45, 0.78, 1]}
+            style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
+          />
 
           {/* Top controls — back + share, round blur buttons */}
           <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
