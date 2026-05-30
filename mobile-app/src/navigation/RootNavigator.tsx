@@ -449,7 +449,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       {/* Tabs — always mounted, hidden behind stack */}
       <View style={{ flex: 1, display: stackVisible ? 'none' : 'flex' }}>
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
-        {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onSearchTap={() => push({ screen: 'discoverSearch' })} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery}/>}
+        {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => { console.log('itinerary tap (wiring in item 2):', itineraryId); }}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite}/>}
         {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllSaved={kind => push({ screen: 'savedList', kind })}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}

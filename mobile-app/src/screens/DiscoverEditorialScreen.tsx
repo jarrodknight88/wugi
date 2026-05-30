@@ -1,34 +1,43 @@
 // ─────────────────────────────────────────────────────────────────────
-// Wugi — DiscoverEditorialScreen   (default Discover view)
+// Wugi — DiscoverEditorialScreen   (persistent shell + inline search)
 //
-// Design source: ui_kits/consumer-app/DiscoverScreen.jsx → DiscoverEditorial.
+// Design source: ui_kits/consumer-app/DiscoverScreen.jsx +
+// design_handoff_discover_itinerary/README.md.
 //
-// The editorial-shelf experience: curated horizontal shelves (neighborhood
-// guides, photographer features, multi-stop itineraries) read live from the
-// top-level `neighborhoodGuides` / `itineraries` / `photographerFeatures`
-// collections via getEditorialShelves(). Each shelf card embeds display
-// fields and carries a real venueId/eventId/galleryId for tap-through.
+// The new model: a single persistent header shell never unmounts. Tapping
+// the search bar flips an internal `searchActive` flag and the BODY swaps
+// between editorial shelves and a search view — no screen navigation. The
+// existing src/screens/DiscoverScreen.tsx is no longer routed to via search;
+// it's preserved as the map-mode destination (map button still pushes it
+// with initialMapOn:true).
 //
-// This is a SEPARATE screen from src/screens/DiscoverScreen.tsx — that screen
-// is preserved as the search/filter mode, reached by tapping the search bar
-// here (onSearchTap) or the map button (onMapTap → opens it on the map
-// placeholder). Nothing in DiscoverScreen was replaced.
+// Search-active header:
+//   • Title row collapses; back-arrow appears left of the input.
+//   • Search input gains focus glow (1.5px accent border + soft accent shadow).
+//   • Map button hides — search owns the row.
 //
-// DROPPED vs the kit (real-data-only rule — see seed scripts for rationale):
-//   • "Just opened / New this month" shelf — no reliable venue open-date.
-//   • "Vibe deep-dive · ranked #1/#2/#3" shelf — no ranking signal.
-//   • "9 spots within 12 minutes" subtitles — needs geo/distance.
-//   • Photographer "180+ photos from the past month" + follower counts —
-//     replaced with real computed "{N} galleries · {M} photos".
-//   • Token-dimension search overlay — superseded by the existing DiscoverScreen.
-//   • Stylized clustered map with pins — needs per-venue lat/lng; the map
-//     button opens the existing DiscoverScreen's map placeholder instead.
-//   • Photographer "Profile" card — no photographer-profile screen exists.
+// Search body (grid-first):
+//   • Sticky filter bar with [Filters · N] button, active-filter chip strip,
+//     and grid/list view toggle.
+//   • Result count line ("N RESULTS · QUERY").
+//   • Grid (default) or list cards over real Firestore data
+//     (getApprovedEvents + getApprovedVenues + getActiveDeals).
+//
+// Filter sheet (RN Modal slide-up; no new native deps):
+//   • Three categorized multi-select dimensions — Type / Vibe / Amenities.
+//   • Draft pattern: edits stage to a draft copy; Apply commits, Cancel/scrim
+//     discards. "Clear all" empties the draft.
+//
+// DROPPED vs the kit (real-data-only):
+//   • "Dishes" type filter — no cross-venue menu-items query exists.
+//   • Cross-fade body animation — using a state-driven swap (Modal handles
+//     the slide-up; body change is instant). Acceptable per perceived UX.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView,
-  Dimensions, ActivityIndicator, StyleSheet,
+  View, Text, TouchableOpacity, ScrollView, TextInput,
+  Dimensions, ActivityIndicator, StyleSheet, FlatList, Modal,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -43,13 +52,28 @@ import { SearchIcon } from '../components/icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// ── Filter taxonomy ────────────────────────────────────────────────────
+// Three multi-select dimensions per the handoff. "Dishes" intentionally
+// omitted (no backing data); the rest mirror the kit verbatim.
+const FILTER_DIMS = ['Type', 'Vibe', 'Amenities'] as const;
+type FilterDim = typeof FILTER_DIMS[number];
+const FILTERS: Record<FilterDim, string[]> = {
+  Type:      ['Events', 'Venues', 'Deals'],
+  Vibe:      ['Boujee', 'Divey', 'Speakeasy', 'High Energy', 'Rooftop', 'Late Night'],
+  Amenities: ['Hookah', 'Bottle Service', 'Outdoor Patio', 'Brunch', 'Live Music', 'Happy Hour', 'Pet Friendly', 'Reservations'],
+};
+const DIM_ACCENT: Record<FilterDim, string> = { Type: '#5fa080', Vibe: '#9b59b6', Amenities: '#5ba8c4' };
+const TYPE_COLOR: Record<'event' | 'venue' | 'deal', string> = { event: '#5fa080', venue: '#5ba8c4', deal: '#a8533f' };
+type Picked = Record<FilterDim, string[]>;
+const EMPTY_PICKS: Picked = { Type: [], Vibe: [], Amenities: [] };
+
 type Props = {
   theme: Theme;
-  onSearchTap: () => void;
   onMapTap: () => void;
   onEventPress: (event: EventData) => void;
   onVenuePress: (venue: VenueData) => void;
   onGalleryPress: (gallery: GalleryData) => void;
+  onItineraryPress: (itineraryId: string) => void;
 };
 
 // ── FS → navigation-payload converters (match DiscoverScreen) ──────────
@@ -62,7 +86,6 @@ function toEventData(e: FSEvent): EventData {
     gallery: { id: e.id, title: e.title, venue: e.venue, date: e.date, coverImage: '', photos: [] },
   } as EventData;
 }
-
 function toVenueData(v: FSVenue): VenueData {
   return {
     id: v.id, name: v.name, category: v.category || '',
@@ -82,61 +105,149 @@ function toVenueData(v: FSVenue): VenueData {
     ctaPrimary: v.ctaPrimary, ctaSecondary: v.ctaSecondary,
   } as VenueData;
 }
-
 function galleryDocToData(g: GalleryDoc): GalleryData {
   const images = (g.images || []).filter(Boolean);
   return {
-    id: g.id,
-    title: g.title,
-    venue: g.photographerName || '',
-    date: g.date || '',
-    coverImage: g.coverImage || images[0] || '',
+    id: g.id, title: g.title, venue: g.photographerName || '',
+    date: g.date || '', coverImage: g.coverImage || images[0] || '',
     photos: (images.length > 0 ? images : [g.coverImage].filter(Boolean))
       .map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 300 })),
   };
 }
 
-// ── Header — "Discover" + Map button + search tap-target ───────────────
+// ── Header inline icons ────────────────────────────────────────────────
 function MapIcon({ color }: { color: string }) {
   return (
-    <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
       <Path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15"
         stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
     </Svg>
   );
 }
-
-function DiscoverHeader({ theme, onSearchTap, onMapTap }: { theme: Theme; onSearchTap: () => void; onMapTap: () => void }) {
+function BackArrow({ color }: { color: string }) {
   return (
-    // backgroundColor: theme.bg — the header is sticky (stickyHeaderIndices={[0]});
-    // without an opaque fill, shelves scroll up THROUGH the title/search/map row.
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path d="M15 18l-6-6 6-6" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"/>
+    </Svg>
+  );
+}
+function CloseX({ color, size = 14 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M18 6L6 18M6 6l12 12" stroke={color} strokeWidth={2.2} strokeLinecap="round"/>
+    </Svg>
+  );
+}
+function FilterIcon({ color }: { color: string }) {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 5h18M6 12h12M10 19h4" stroke={color} strokeWidth={2} strokeLinecap="round"/>
+    </Svg>
+  );
+}
+function GridIcon({ color }: { color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+    </Svg>
+  );
+}
+function ListIcon({ color }: { color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 6h18M3 12h18M3 18h18" stroke={color} strokeWidth={1.8} strokeLinecap="round"/>
+    </Svg>
+  );
+}
+
+// ── Persistent header shell ────────────────────────────────────────────
+function DiscoverHeader({
+  theme, searchActive, searchValue, onSearchValueChange, onActivate, onCancel, onMapTap,
+}: {
+  theme: Theme;
+  searchActive: boolean;
+  searchValue: string;
+  onSearchValueChange: (s: string) => void;
+  onActivate: () => void;
+  onCancel: () => void;
+  onMapTap: () => void;
+}) {
+  return (
     <View style={{ backgroundColor: theme.bg, paddingTop: 60, paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, letterSpacing: -0.7 }}>Discover</Text>
-        <TouchableOpacity
-          onPress={onMapTap} activeOpacity={0.8}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}
-        >
-          <MapIcon color={theme.subtext}/>
-          <Text style={{ color: theme.text, fontSize: 11, fontFamily: FONTS.medium }}>Map</Text>
-        </TouchableOpacity>
+      {!searchActive && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+          <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, letterSpacing: -0.7 }}>Discover</Text>
+        </View>
+      )}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        {searchActive && (
+          <TouchableOpacity onPress={onCancel} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ width: 28, alignItems: 'flex-start' }}>
+            <BackArrow color={theme.text}/>
+          </TouchableOpacity>
+        )}
+        {/* The input — pressable shell when inactive, real TextInput when active. */}
+        {searchActive ? (
+          <View style={{
+            flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+            backgroundColor: theme.card, borderRadius: 12,
+            borderWidth: 1.5, borderColor: theme.accent,
+            paddingHorizontal: 14, paddingVertical: 9,
+            shadowColor: theme.accent, shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.08, shadowRadius: 4,
+          }}>
+            <SearchIcon color={theme.accent}/>
+            <TextInput
+              value={searchValue}
+              onChangeText={onSearchValueChange}
+              placeholder="Search venues, events, vibes…"
+              placeholderTextColor={theme.subtext}
+              autoFocus
+              returnKeyType="search"
+              style={{ flex: 1, color: theme.text, fontSize: 14, fontFamily: FONTS.body, padding: 0 }}
+            />
+            {searchValue.length > 0 && (
+              <TouchableOpacity onPress={() => onSearchValueChange('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <CloseX color={theme.subtext} size={14}/>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={onActivate} activeOpacity={0.85}
+            style={{
+              flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+              backgroundColor: theme.card, borderRadius: 12,
+              borderWidth: 1, borderColor: theme.border,
+              paddingHorizontal: 14, paddingVertical: 11,
+            }}
+          >
+            <SearchIcon color={theme.subtext}/>
+            <Text style={{ flex: 1, color: theme.subtext, fontSize: 14, fontFamily: FONTS.body }}>Search venues, events, vibes…</Text>
+          </TouchableOpacity>
+        )}
+        {/* Map button — editorial state only (search owns the row). */}
+        {!searchActive && (
+          <TouchableOpacity
+            onPress={onMapTap} activeOpacity={0.85}
+            style={{
+              width: 44, height: 44, borderRadius: 12,
+              backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <MapIcon color={theme.subtext}/>
+          </TouchableOpacity>
+        )}
       </View>
-      {/* Search bar is a TAP-TARGET (not a live filter) — opens DiscoverScreen */}
-      <TouchableOpacity
-        onPress={onSearchTap} activeOpacity={0.8}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 }}
-      >
-        <SearchIcon color={theme.subtext}/>
-        <Text style={{ color: theme.subtext, fontSize: 14, fontFamily: FONTS.body }}>Search venues, events, vibes…</Text>
-      </TouchableOpacity>
     </View>
   );
 }
 
-// ── Shelf card — full-bleed image + gradient scrim + tag + title/sub ───
+// ── Shelf card (editorial mode — unchanged) ─────────────────────────────
 function ShelfCard({ card, theme, onPress }: { card: EditorialCard; theme: Theme; onPress: () => void }) {
   const width = Math.round(200 * (card.ratio ?? 1));
-  const navigates = card.kind === 'venue' || card.kind === 'stop' || card.kind === 'event' || card.kind === 'gallery';
+  // 'photographer' is the only kind with no navigation target.
+  const navigates = card.kind !== 'photographer';
   return (
     <TouchableOpacity
       activeOpacity={navigates ? 0.9 : 1}
@@ -162,7 +273,6 @@ function ShelfCard({ card, theme, onPress }: { card: EditorialCard; theme: Theme
   );
 }
 
-// ── Shelf — kicker + title + subtitle + horizontal card scroller ───────
 function Shelf({ kicker, title, subtitle, cards, theme, onCardPress }: {
   kicker: string; title: string; subtitle?: string; cards: EditorialCard[];
   theme: Theme; onCardPress: (c: EditorialCard) => void;
@@ -181,14 +291,420 @@ function Shelf({ kicker, title, subtitle, cards, theme, onCardPress }: {
   );
 }
 
-// ── Screen ─────────────────────────────────────────────────────────────
-export function DiscoverEditorialScreen({ theme, onSearchTap, onMapTap, onEventPress, onVenuePress, onGalleryPress }: Props) {
-  const [shelves, setShelves] = useState<EditorialShelf[]>([]);
+// ── Editorial body (existing shelf experience) ─────────────────────────
+function EditorialBody({ shelves, loading, theme, onCard }: {
+  shelves: EditorialShelf[]; loading: boolean; theme: Theme;
+  onCard: (shelf: EditorialShelf, c: EditorialCard) => void;
+}) {
+  return (
+    <ScrollView showsVerticalScrollIndicator={false}>
+      {loading ? (
+        <View style={{ paddingTop: 80, alignItems: 'center' }}>
+          <ActivityIndicator color={theme.accent} size="large"/>
+        </View>
+      ) : shelves.length === 0 ? (
+        <View style={{ paddingTop: 80, paddingHorizontal: 32, alignItems: 'center' }}>
+          <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>
+            No guides yet
+          </Text>
+          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>
+            Tap the search bar to explore venues, events, and vibes.
+          </Text>
+        </View>
+      ) : (
+        <>
+          {shelves.map(shelf => (
+            <Shelf
+              key={`${shelf.type}-${shelf.doc.id}`}
+              kicker={shelf.doc.kicker}
+              title={shelf.doc.title}
+              subtitle={shelf.doc.subtitle}
+              cards={shelf.doc.cards || []}
+              theme={theme}
+              onCardPress={(c) => onCard(shelf, c)}
+            />
+          ))}
+          <View style={{ height: 40 }}/>
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+// ── Filter sheet (RN Modal slide-up; draft pattern) ─────────────────────
+function FilterSheet({
+  visible, theme, picked, onApply, onClose,
+}: {
+  visible: boolean; theme: Theme; picked: Picked;
+  onApply: (next: Picked) => void; onClose: () => void;
+}) {
+  // Draft state — discarded on close, committed on Apply.
+  const [draft, setDraft] = useState<Picked>(picked);
+  useEffect(() => { if (visible) setDraft(picked); }, [visible, picked]);
+
+  const total = draft.Type.length + draft.Vibe.length + draft.Amenities.length;
+
+  const toggle = (dim: FilterDim, opt: string) => {
+    setDraft(d => {
+      const cur = d[dim];
+      const next = cur.includes(opt) ? cur.filter(o => o !== opt) : [...cur, opt];
+      return { ...d, [dim]: next };
+    });
+  };
+  const clearAll = () => setDraft(EMPTY_PICKS);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <TouchableWithoutFeedback onPress={() => { /* swallow inside the sheet */ }}>
+            <View style={{
+              marginTop: 'auto', maxHeight: '82%',
+              backgroundColor: theme.bg,
+              borderTopLeftRadius: 24, borderTopRightRadius: 24,
+              borderTopWidth: 1, borderTopColor: theme.border,
+            }}>
+              {/* Grabber */}
+              <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 4 }}>
+                <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border }}/>
+              </View>
+              {/* Header: title + Clear all */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+                <Text style={{ color: theme.text, fontSize: 18, fontFamily: FONTS.display, letterSpacing: -0.4 }}>Filters</Text>
+                <TouchableOpacity onPress={clearAll} disabled={total === 0}>
+                  <Text style={{ color: total > 0 ? theme.accent : theme.subtext, fontSize: 13, fontFamily: FONTS.medium }}>Clear all</Text>
+                </TouchableOpacity>
+              </View>
+              {/* Body — categorized multi-select */}
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                {FILTER_DIMS.map(dim => (
+                  <View key={dim} style={{ paddingTop: 18 }}>
+                    <Text style={{ color: DIM_ACCENT[dim], fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 10 }}>
+                      {dim.toUpperCase()}
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {FILTERS[dim].map(opt => {
+                        const on = draft[dim].includes(opt);
+                        return (
+                          <TouchableOpacity
+                            key={opt}
+                            onPress={() => toggle(dim, opt)}
+                            activeOpacity={0.8}
+                            style={{
+                              paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+                              backgroundColor: on ? `${DIM_ACCENT[dim]}22` : theme.card,
+                              borderWidth: 1.5, borderColor: on ? DIM_ACCENT[dim] : theme.border,
+                              flexDirection: 'row', alignItems: 'center', gap: 6,
+                            }}
+                          >
+                            {on && <Text style={{ color: DIM_ACCENT[dim], fontSize: 12, lineHeight: 14 }}>✓</Text>}
+                            <Text style={{ color: on ? DIM_ACCENT[dim] : theme.text, fontSize: 13, fontFamily: on ? FONTS.medium : FONTS.body, letterSpacing: -0.1 }}>
+                              {opt}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+                <View style={{ height: 12 }}/>
+              </ScrollView>
+              {/* Apply CTA */}
+              <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, borderTopWidth: 1, borderTopColor: theme.divider }}>
+                <TouchableOpacity
+                  onPress={() => onApply(draft)}
+                  activeOpacity={0.9}
+                  style={{
+                    backgroundColor: theme.accent, borderRadius: 14,
+                    paddingVertical: 16, alignItems: 'center',
+                    shadowColor: theme.accent, shadowOpacity: 0.4,
+                    shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 6,
+                  }}
+                >
+                  <Text style={{ color: theme.onAccent, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.1 }}>
+                    {total > 0 ? `Show results · ${total} filter${total !== 1 ? 's' : ''}` : 'Show all results'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+// ── Search body (filter bar + results) ─────────────────────────────────
+type SearchItem =
+  | { kind: 'event';  data: FSEvent;  image: string }
+  | { kind: 'venue';  data: FSVenue;  image: string }
+  | { kind: 'deal';   id: string; title: string; venueName: string; detail: string; image: string };
+
+function venueFirstImage(v: FSVenue): string {
+  const m = (v.media || []) as any[];
+  for (const x of m) {
+    if (!x) continue;
+    if (typeof x === 'string') return x;
+    if (typeof x.uri === 'string') return x.uri;
+  }
+  return '';
+}
+
+function SearchBody({
+  theme, query, picked, onOpenFilters, onChipRemove, onEvent, onVenue,
+}: {
+  theme: Theme;
+  query: string;
+  picked: Picked;
+  onOpenFilters: () => void;
+  onChipRemove: (dim: FilterDim, opt: string) => void;
+  onEvent: (e: FSEvent) => void;
+  onVenue: (v: FSVenue) => void;
+}) {
+  const [view,    setView]    = useState<'grid' | 'list'>('grid');   // grid-first
   const [loading, setLoading] = useState(true);
+  const [events,  setEvents]  = useState<FSEvent[]>([]);
+  const [venues,  setVenues]  = useState<FSVenue[]>([]);
+  const [deals,   setDeals]   = useState<{ id: string; title: string; venueName: string; detail: string; image: string }[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    const timeout = setTimeout(() => { if (!cancelled) setLoading(false); }, 8000);
+    (async () => {
+      try {
+        const svc = await import('../../firestoreService');
+        const [evs, vns, ds] = await Promise.all([
+          svc.getApprovedEvents([], 200),
+          svc.getApprovedVenues([], 200),
+          svc.getActiveDeals([], 50),
+        ]);
+        if (cancelled) return;
+        setEvents(evs);
+        setVenues(vns);
+        setDeals((ds as any[]).map(d => ({
+          id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image || '',
+        })));
+      } catch (e) {
+        console.log('Discover search load failed', e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Active filter chips flattened for the bar.
+  const activeChips = useMemo(() => {
+    const out: { dim: FilterDim; opt: string }[] = [];
+    FILTER_DIMS.forEach(dim => picked[dim].forEach(opt => out.push({ dim, opt })));
+    return out;
+  }, [picked]);
+  const totalFilters = activeChips.length;
+
+  // Build the filtered, unified result list.
+  const results: SearchItem[] = useMemo(() => {
+    const wantType = picked.Type;
+    const wantVibe = picked.Vibe.map(v => v.toLowerCase());
+    const wantAmen = picked.Amenities.map(a => a.toLowerCase());
+    const q = query.trim().toLowerCase();
+
+    const matchVibe = (vs: string[] | undefined) =>
+      wantVibe.length === 0 || (vs || []).some(v => wantVibe.includes(v.toLowerCase()));
+    const matchAmen = (as: string[] | undefined) =>
+      wantAmen.length === 0 || (as || []).some(a => wantAmen.includes(a.toLowerCase()));
+    const matchSearch = (name: string, sub: string) =>
+      q === '' || name.toLowerCase().includes(q) || sub.toLowerCase().includes(q);
+
+    const out: SearchItem[] = [];
+    const includeKind = (k: 'Events' | 'Venues' | 'Deals') => wantType.length === 0 || wantType.includes(k);
+
+    if (includeKind('Events')) {
+      events.forEach(e => {
+        if (!matchVibe(e.vibes)) return;
+        // Events have no amenities — if amenities are required, exclude them.
+        if (wantAmen.length > 0) return;
+        if (!matchSearch(e.title, `${e.venue} · ${e.date}`)) return;
+        out.push({ kind: 'event', data: e, image: (e.media || [])[0]?.uri || '' });
+      });
+    }
+    if (includeKind('Venues')) {
+      venues.forEach(v => {
+        if (!matchVibe(v.vibes)) return;
+        if (!matchAmen(v.amenities)) return;
+        if (!matchSearch(v.name, v.category || v.neighborhood || '')) return;
+        out.push({ kind: 'venue', data: v, image: venueFirstImage(v) });
+      });
+    }
+    if (includeKind('Deals')) {
+      // Deals have no vibes/amenities — if either is required, exclude them.
+      if (wantVibe.length === 0 && wantAmen.length === 0) {
+        deals.forEach(d => {
+          if (!matchSearch(d.title, d.venueName)) return;
+          out.push({ kind: 'deal', id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image });
+        });
+      }
+    }
+    return out;
+  }, [query, picked, events, venues, deals]);
+
+  const onItemTap = (item: SearchItem) => {
+    if (item.kind === 'event') onEvent(item.data);
+    else if (item.kind === 'venue') onVenue(item.data);
+    // deal cards non-navigating in v1 (no deal-detail screen).
+  };
+
+  const renderGridCard = ({ item }: { item: SearchItem }) => {
+    const name = item.kind === 'deal' ? item.title : (item.kind === 'event' ? item.data.title : item.data.name);
+    const sub  = item.kind === 'deal' ? item.venueName
+              : item.kind === 'event' ? `${item.data.venue} · ${item.data.date}`
+              : (item.data.category || item.data.neighborhood || '');
+    const img  = item.image;
+    const cardW = (SCREEN_WIDTH - 32 - 10) / 2;  // 16 gutter each side, 10 inter-column gap
+    return (
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => onItemTap(item)}
+        style={{ width: cardW, backgroundColor: theme.card, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: theme.border }}
+      >
+        <View style={{ width: cardW, height: cardW }}>
+          {!!img && <Image source={{ uri: img }} style={{ width: cardW, height: cardW }} contentFit="cover" cachePolicy="memory-disk"/>}
+          <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: TYPE_COLOR[item.kind], borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
+            <Text style={{ color: '#f4efe1', fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6 }}>{item.kind.toUpperCase()}</Text>
+          </View>
+        </View>
+        <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 }}>
+          <Text numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium, letterSpacing: -0.1, marginBottom: 2 }}>{name}</Text>
+          <Text numberOfLines={1} style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>{sub}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderListCard = ({ item }: { item: SearchItem }) => {
+    const name = item.kind === 'deal' ? item.title : (item.kind === 'event' ? item.data.title : item.data.name);
+    const sub  = item.kind === 'deal' ? item.venueName
+              : item.kind === 'event' ? `${item.data.venue} · ${item.data.date}`
+              : (item.data.category || item.data.neighborhood || '');
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => onItemTap(item)}
+        style={{ flexDirection: 'row', backgroundColor: theme.card, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, marginBottom: 10 }}
+      >
+        <Image source={{ uri: item.image }} style={{ width: 88, height: 88 }} contentFit="cover" cachePolicy="memory-disk"/>
+        <View style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 12, gap: 4 }}>
+          <View style={{ alignSelf: 'flex-start', backgroundColor: `${TYPE_COLOR[item.kind]}22`, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ color: TYPE_COLOR[item.kind], fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6 }}>{item.kind.toUpperCase()}</Text>
+          </View>
+          <Text numberOfLines={1} style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.medium, letterSpacing: -0.1 }}>{name}</Text>
+          <Text numberOfLines={1} style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body }}>{sub}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const FilterBar = () => (
+    <View style={{ backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.divider, paddingVertical: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 }}>
+        <TouchableOpacity
+          onPress={onOpenFilters} activeOpacity={0.85}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 7,
+            paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999,
+            backgroundColor: totalFilters > 0 ? theme.accent : theme.card,
+            borderWidth: 1, borderColor: totalFilters > 0 ? theme.accent : theme.border,
+          }}
+        >
+          <FilterIcon color={totalFilters > 0 ? theme.onAccent : theme.text}/>
+          <Text style={{ color: totalFilters > 0 ? theme.onAccent : theme.text, fontSize: 13, fontFamily: FONTS.medium, letterSpacing: -0.1 }}>
+            Filters{totalFilters > 0 ? ` · ${totalFilters}` : ''}
+          </Text>
+        </TouchableOpacity>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+          {activeChips.length === 0 ? (
+            <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body }}>All venues & events</Text>
+          ) : (
+            activeChips.map(({ dim, opt }) => (
+              <View key={`${dim}:${opt}`} style={{
+                flexDirection: 'row', alignItems: 'center', gap: 5,
+                paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
+                backgroundColor: `${DIM_ACCENT[dim]}22`, borderWidth: 1, borderColor: `${DIM_ACCENT[dim]}66`,
+              }}>
+                <Text style={{ color: DIM_ACCENT[dim], fontSize: 12, fontFamily: FONTS.medium }}>{opt}</Text>
+                <TouchableOpacity onPress={() => onChipRemove(dim, opt)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                  <CloseX color={DIM_ACCENT[dim]} size={12}/>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </ScrollView>
+        <TouchableOpacity
+          onPress={() => setView(v => v === 'grid' ? 'list' : 'grid')}
+          activeOpacity={0.85}
+          style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+        >
+          {view === 'grid' ? <ListIcon color={theme.subtext}/> : <GridIcon color={theme.subtext}/>}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const ResultCount = () => (
+    <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 }}>
+      <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: MONO, letterSpacing: 0.4 }}>
+        {results.length} RESULT{results.length === 1 ? '' : 'S'}{query ? ` · "${query.toUpperCase()}"` : ''}
+      </Text>
+    </View>
+  );
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1 }}>
+        <FilterBar/>
+        <View style={{ paddingTop: 60, alignItems: 'center' }}>
+          <ActivityIndicator color={theme.accent} size="large"/>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      key={view}   // re-mount to apply numColumns change
+      data={results}
+      keyExtractor={(item, i) => `${item.kind}-${i}-${item.kind === 'deal' ? item.id : (item.kind === 'event' ? item.data.id : item.data.id)}`}
+      renderItem={view === 'grid' ? renderGridCard : renderListCard}
+      numColumns={view === 'grid' ? 2 : 1}
+      columnWrapperStyle={view === 'grid' ? { paddingHorizontal: 16, gap: 10, marginBottom: 10 } : undefined}
+      contentContainerStyle={view === 'list' ? { paddingHorizontal: 16, paddingBottom: 24 } : { paddingBottom: 24 }}
+      ListHeaderComponent={<><FilterBar/><ResultCount/></>}
+      stickyHeaderIndices={[0]}
+      ListEmptyComponent={
+        <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
+          <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Nothing matches that</Text>
+          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>Try a different search or fewer filters.</Text>
+        </View>
+      }
+      showsVerticalScrollIndicator={false}
+    />
+  );
+}
+
+// ── Top-level screen ────────────────────────────────────────────────────
+export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenuePress, onGalleryPress, onItineraryPress }: Props) {
+  // Editorial-state data (always loaded, even when searching, so cancel is instant).
+  const [shelves, setShelves] = useState<EditorialShelf[]>([]);
+  const [editorialLoading, setEditorialLoading] = useState(true);
+
+  // Inline-search state.
+  const [searchActive, setSearchActive] = useState(false);
+  const [searchValue, setSearchValue]   = useState('');
+  const [picked,      setPicked]        = useState<Picked>(EMPTY_PICKS);
+  const [sheetOpen,   setSheetOpen]     = useState(false);
+  const navigatingRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => { if (!cancelled) setEditorialLoading(false); }, 8000);
     (async () => {
       try {
         const svc = await import('../../firestoreService');
@@ -197,14 +713,22 @@ export function DiscoverEditorialScreen({ theme, onSearchTap, onMapTap, onEventP
       } catch (e) {
         console.log('DiscoverEditorialScreen: load failed', e);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setEditorialLoading(false);
       }
     })();
     return () => { cancelled = true; clearTimeout(timeout); };
   }, []);
 
-  const handleCard = async (card: EditorialCard) => {
+  // Editorial card tap — resolve doc + navigate.
+  const handleEditorialCard = async (shelf: EditorialShelf, card: EditorialCard) => {
+    if (navigatingRef.current) return;
+    navigatingRef.current = true;
     try {
+      // Itinerary hero card → ItineraryDetailScreen, keyed by the shelf's doc id.
+      if (card.kind === 'itinerary' && shelf.type === 'itinerary') {
+        onItineraryPress(shelf.doc.id);
+        return;
+      }
       const svc = await import('../../firestoreService');
       if ((card.kind === 'venue' || card.kind === 'stop') && card.venueId) {
         const v = await svc.getVenueById(card.venueId);
@@ -216,47 +740,58 @@ export function DiscoverEditorialScreen({ theme, onSearchTap, onMapTap, onEventP
         const g = await svc.getGalleryById(card.galleryId);
         if (g) onGalleryPress(galleryDocToData(g));
       }
-      // 'itinerary' / 'photographer' hero cards are non-navigating.
+      // 'photographer' is non-navigating.
     } catch (e) {
       console.log('DiscoverEditorialScreen: card nav failed', e);
+    } finally {
+      // Re-enable taps quickly so users aren't locked out if nav doesn't fire.
+      setTimeout(() => { navigatingRef.current = false; }, 350);
     }
+  };
+
+  const handleSearchEvent = (e: FSEvent) => onEventPress(toEventData(e));
+  const handleSearchVenue = (v: FSVenue) => onVenuePress(toVenueData(v));
+
+  const removeChip = (dim: FilterDim, opt: string) => {
+    setPicked(p => ({ ...p, [dim]: p[dim].filter(o => o !== opt) }));
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[0]}>
-        <DiscoverHeader theme={theme} onSearchTap={onSearchTap} onMapTap={onMapTap}/>
-
-        {loading ? (
-          <View style={{ paddingTop: 80, alignItems: 'center' }}>
-            <ActivityIndicator color={theme.accent} size="large"/>
-          </View>
-        ) : shelves.length === 0 ? (
-          <View style={{ paddingTop: 80, paddingHorizontal: 32, alignItems: 'center' }}>
-            <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>
-              No guides yet
-            </Text>
-            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>
-              Tap the search bar to explore venues, events, and vibes.
-            </Text>
-          </View>
-        ) : (
-          <>
-            {shelves.map(shelf => (
-              <Shelf
-                key={`${shelf.type}-${shelf.doc.id}`}
-                kicker={shelf.doc.kicker}
-                title={shelf.doc.title}
-                subtitle={shelf.doc.subtitle}
-                cards={shelf.doc.cards || []}
-                theme={theme}
-                onCardPress={handleCard}
-              />
-            ))}
-            <View style={{ height: 40 }}/>
-          </>
-        )}
-      </ScrollView>
+      <DiscoverHeader
+        theme={theme}
+        searchActive={searchActive}
+        searchValue={searchValue}
+        onSearchValueChange={setSearchValue}
+        onActivate={() => setSearchActive(true)}
+        onCancel={() => { setSearchActive(false); setSearchValue(''); /* picked stays so toggle is round-trippable */ }}
+        onMapTap={onMapTap}
+      />
+      {searchActive ? (
+        <SearchBody
+          theme={theme}
+          query={searchValue}
+          picked={picked}
+          onOpenFilters={() => setSheetOpen(true)}
+          onChipRemove={removeChip}
+          onEvent={handleSearchEvent}
+          onVenue={handleSearchVenue}
+        />
+      ) : (
+        <EditorialBody
+          shelves={shelves}
+          loading={editorialLoading}
+          theme={theme}
+          onCard={handleEditorialCard}
+        />
+      )}
+      <FilterSheet
+        visible={sheetOpen}
+        theme={theme}
+        picked={picked}
+        onApply={(next) => { setPicked(next); setSheetOpen(false); }}
+        onClose={() => setSheetOpen(false)}
+      />
     </View>
   );
 }
