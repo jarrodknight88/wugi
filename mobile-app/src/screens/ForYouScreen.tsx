@@ -238,10 +238,10 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <SafeAreaView style={{ paddingHorizontal: 20, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+      <SafeAreaView style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ width: 36 }}/>
-          <Text style={{ color: theme.accent, fontSize: 26, fontFamily: FONTS.display, letterSpacing: -1 }}>wugi</Text>
+          <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
           <View style={{ width: 36 }}/>
         </View>
         <View style={{ height: 3, backgroundColor: theme.divider, borderRadius: 2, marginTop: 10 }}>
