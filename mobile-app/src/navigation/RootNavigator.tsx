@@ -380,6 +380,10 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             venueId:  current.event.venueId ?? '',
             venueName: eventVenueName,
           }) : undefined}
+          // UAT-V3 (additive): tapping an "Also tonight" related event card
+          // pushes that event onto the stack. The navigator already exposes
+          // navigateToEvent for the same shape, so we just forward it.
+          onEventPress={navigateToEvent}
           theme={theme}
         />
       );

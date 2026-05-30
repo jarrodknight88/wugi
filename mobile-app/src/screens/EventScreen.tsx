@@ -70,12 +70,15 @@ type Props = {
   // NEW (Wave 1, additive): called when user taps "View Menu" in the venue strip.
   // When omitted the menu row is hidden.
   onMenuPress?: () => void;
+  // NEW (UAT-V3, additive): tapping a related "Also tonight" card pushes that
+  // event onto the stack. Absent → the related cards render but don't navigate.
+  onEventPress?: (event: EventData) => void;
   theme: Theme;
 };
 
 function EventScreenInner({
   event, onBack, onVenuePress, onNavigateToVenue, onMapPress, onGalleryPress,
-  onFavoriteToggle, onGetTickets, onMenuPress, theme,
+  onFavoriteToggle, onGetTickets, onMenuPress, onEventPress, theme,
 }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -603,22 +606,24 @@ function EventScreenInner({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <View style={{ width: 150, height: 200, borderRadius: 12, overflow: 'hidden' }}>
+                // Tappable card → push the related event onto the stack.
+                // Overlay matches the Home "Picks for you" pattern: a single
+                // uniform `overlayMedium` fill across the full card (no hard
+                // half-height edge). Title legibility comes from the uniform
+                // dimming, not a partial scrim.
+                <TouchableOpacity
+                  style={{ width: 150, height: 200, borderRadius: 12, overflow: 'hidden' }}
+                  activeOpacity={onEventPress ? 0.9 : 1}
+                  onPress={onEventPress ? () => onEventPress(item) : undefined}
+                  disabled={!onEventPress}
+                >
                   <Image
                     cachePolicy="memory-disk"
                     source={{ uri: (item.media || [])[0]?.uri || '' }}
-                    style={{ width: 150, height: 200 }}
+                    style={StyleSheet.absoluteFillObject}
                     contentFit="cover"
                   />
-                  {/* Gradient overlay — bottom fade */}
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute', left: 0, right: 0, bottom: 0,
-                      height: 100,
-                      backgroundColor: 'rgba(0,0,0,0.75)',
-                    }}
-                  />
+                  <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
                   <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 12 }}>
                     {!!item.date && (
                       <Text
@@ -647,7 +652,7 @@ function EventScreenInner({
                       {item.title}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               )}
             />
           </>
