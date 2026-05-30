@@ -32,6 +32,7 @@ import { MenuItemScreen }   from '../screens/MenuItemScreen';
 import { GalleryScreen }    from '../screens/GalleryScreen';
 import { PhotoViewer }      from '../screens/PhotoViewer';
 import { MapScreen }        from '../screens/MapScreen';
+import { SavedListScreen }  from '../screens/SavedListScreen';
 
 // Features
 import { CameraScreen }          from '../features/stories/CameraScreen';
@@ -288,6 +289,8 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     // Editorial Discover: the search/filter mode is the existing DiscoverScreen,
     // pushed on top of the editorial default view. onBack returns to editorial.
     if (current.screen === 'discoverSearch') return <DiscoverScreen theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onBack={pop} initialMapOn={current.initialMapOn}/>;
+    // Saved "View All" — full-list view of saved events OR saved venues.
+    if (current.screen === 'savedList') return <SavedListScreen kind={current.kind} items={favorites.filter(f => f.type === current.kind)} theme={theme} onBack={pop} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead}/>;
 
     if (current.screen === 'ticketSelection') return (
       <TicketSelectionScreen
@@ -444,7 +447,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
         {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onSearchTap={() => push({ screen: 'discoverSearch' })} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite}/>}
-        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead}/>}
+        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllSaved={kind => push({ screen: 'savedList', kind })}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}
         <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
       </View>

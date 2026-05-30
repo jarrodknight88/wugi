@@ -15,12 +15,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator,
+  FlatList, StyleSheet,
 } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FavoriteItem, PassData } from '../types';
 import { HeartIcon, ChevronRightIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
+
+// Number of items previewed in each section's horizontal carousel before the
+// "View All" link takes the user to the full list.
+const PREVIEW_LIMIT = 5;
 
 type Props = {
   theme: Theme;
@@ -30,18 +35,51 @@ type Props = {
   onRemove: (id: string) => void;
   onMarkRead: (id: string) => void;
   onPassPress?: (pass: PassData) => void;
+  // UAT-V3 (additive): tap "View All" on a Saved section to open the
+  // corresponding full-list view. When omitted the link doesn't render.
+  onViewAllSaved?: (kind: 'event' | 'venue') => void;
 };
 
-// ── Section header ────────────────────────────────────────────────────
-function SectionHeader({ kicker, title, count, theme }: { kicker: string; title: string; count?: number; theme: Theme }) {
+// ── Section header (Passes still uses the no-link variant) ────────────
+function SectionHeader({ kicker, title, count, theme, onViewAll }: { kicker: string; title: string; count?: number; theme: Theme; onViewAll?: () => void }) {
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
         <Text style={{ color: theme.accent, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5 }}>{kicker}</Text>
         {count != null && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO }}>{count}</Text>}
       </View>
-      <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>{title}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>{title}</Text>
+        {onViewAll && (
+          <TouchableOpacity onPress={onViewAll} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>View All</Text>
+            <ChevronRightIcon color={theme.accent}/>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
+  );
+}
+
+// ── Compact saved card — horizontal-carousel preview ──────────────────
+// Image-led card with uniform overlay (matches Home "Picks/Weekend" pattern).
+// Remove affordance lives on the full-list view, not on the compact preview.
+function SavedCard({ item, theme, onPress }: { item: FavoriteItem; theme: Theme; onPress: () => void }) {
+  return (
+    <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={{ width: 140, height: 180, borderRadius: 12, overflow: 'hidden' }}>
+      <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+      <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
+      {!item.read && (
+        <View style={{ position: 'absolute', top: 8, left: 8, width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.accent }}/>
+      )}
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
+        <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5, marginBottom: 3 }}>
+          {item.type === 'event' ? 'EVENT' : 'VENUE'}
+        </Text>
+        <Text style={{ color: theme.onImage, fontSize: 13, fontFamily: FONTS.display, lineHeight: 16, marginBottom: 2 }} numberOfLines={2}>{item.title}</Text>
+        <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.subtitle}</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -81,7 +119,8 @@ function PassRow({ pass, theme, onPress }: { pass: PassData; theme: Theme; onPre
 }
 
 // ── Saved item row (event or venue) ───────────────────────────────────
-function SavedItemRow({ item, theme, onPress, onRemove }: { item: FavoriteItem; theme: Theme; onPress: () => void; onRemove: () => void }) {
+// Exported for the SavedListScreen full-list view, which renders the same row.
+export function SavedItemRow({ item, theme, onPress, onRemove }: { item: FavoriteItem; theme: Theme; onPress: () => void; onRemove: () => void }) {
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -122,7 +161,8 @@ function SavedItemRow({ item, theme, onPress, onRemove }: { item: FavoriteItem; 
 }
 
 // ── Empty state ───────────────────────────────────────────────────────
-function EmptySection({ label, theme }: { label: string; theme: Theme }) {
+// Exported for reuse by SavedListScreen.
+export function EmptySection({ label, theme }: { label: string; theme: Theme }) {
   return (
     <View style={{ marginHorizontal: 16, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 20, alignItems: 'center' }}>
       <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 20 }}>
@@ -134,7 +174,7 @@ function EmptySection({ label, theme }: { label: string; theme: Theme }) {
 
 // ── FavoritesScreen ───────────────────────────────────────────────────
 export function FavoritesScreen({
-  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onPassPress,
+  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onPassPress, onViewAllSaved,
 }: Props) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [passesLoading, setPassesLoading] = useState(true);
@@ -240,50 +280,58 @@ export function FavoritesScreen({
           </View>
         )}
 
-        {/* ── Saved Events ── */}
+        {/* ── Saved Events — preview carousel, "View All" → SavedListScreen ── */}
         <SectionHeader
           kicker="SAVED EVENTS"
           title="Events you liked"
           count={savedEvents.length > 0 ? savedEvents.length : undefined}
           theme={theme}
+          onViewAll={savedEvents.length > 0 && onViewAllSaved ? () => onViewAllSaved('event') : undefined}
         />
         {savedEvents.length === 0 ? (
           <EmptySection label="Swipe right on events in the For You tab to save them here." theme={theme}/>
         ) : (
-          <View style={{ paddingHorizontal: 16, gap: 8 }}>
-            {savedEvents.map(item => (
-              <SavedItemRow
-                key={item.id}
+          <FlatList
+            data={savedEvents.slice(0, PREVIEW_LIMIT)}
+            keyExtractor={f => f.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+            renderItem={({ item }) => (
+              <SavedCard
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
-                onRemove={() => onRemove(item.id)}
               />
-            ))}
-          </View>
+            )}
+          />
         )}
 
-        {/* ── Saved Venues ── */}
+        {/* ── Saved Venues — preview carousel, "View All" → SavedListScreen ── */}
         <SectionHeader
           kicker="SAVED VENUES"
           title="Places you like"
           count={savedVenues.length > 0 ? savedVenues.length : undefined}
           theme={theme}
+          onViewAll={savedVenues.length > 0 && onViewAllSaved ? () => onViewAllSaved('venue') : undefined}
         />
         {savedVenues.length === 0 ? (
           <EmptySection label="Swipe right on venues in the For You tab to save them here." theme={theme}/>
         ) : (
-          <View style={{ paddingHorizontal: 16, gap: 8 }}>
-            {savedVenues.map(item => (
-              <SavedItemRow
-                key={item.id}
+          <FlatList
+            data={savedVenues.slice(0, PREVIEW_LIMIT)}
+            keyExtractor={f => f.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+            renderItem={({ item }) => (
+              <SavedCard
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
-                onRemove={() => onRemove(item.id)}
               />
-            ))}
-          </View>
+            )}
+          />
         )}
       </ScrollView>
     </View>

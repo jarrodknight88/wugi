@@ -272,7 +272,10 @@ export type NavEntry =
   | { screen: 'menuItem'; venueId: string; venueName: string; item: MenuItem }
   // Editorial Discover: search-bar tap pushes the existing DiscoverScreen as
   // the search/filter mode (initialMapOn opens it on the map placeholder).
-  | { screen: 'discoverSearch'; initialMapOn?: boolean };
+  | { screen: 'discoverSearch'; initialMapOn?: boolean }
+  // Saved "View All" destination — per-section full-list view (one for events,
+  // one for venues). Passes intentionally NOT included (Wave 3 refactor).
+  | { screen: 'savedList'; kind: 'event' | 'venue' };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {
