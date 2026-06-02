@@ -278,7 +278,10 @@ export type NavEntry =
   | { screen: 'savedList'; kind: 'event' | 'venue' }
   // Itinerary detail — multi-stop curated route, reached from an editorial
   // itinerary card on Discover. The id resolves the itinerary doc on mount.
-  | { screen: 'itinerary'; itineraryId: string };
+  | { screen: 'itinerary'; itineraryId: string }
+  // Venue galleries list — full-list "All →" destination from VenueScreen's
+  // GALLERIES section when a venue has more than the 4 inline tiles.
+  | { screen: 'venueGalleries'; venueId: string };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {

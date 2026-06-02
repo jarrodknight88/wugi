@@ -34,6 +34,7 @@ import { PhotoViewer }      from '../screens/PhotoViewer';
 import { MapScreen }        from '../screens/MapScreen';
 import { SavedListScreen }  from '../screens/SavedListScreen';
 import { ItineraryDetailScreen } from '../screens/ItineraryDetailScreen';
+import { VenueGalleriesListScreen } from '../screens/VenueGalleriesListScreen';
 
 // Features
 import { CameraScreen }          from '../features/stories/CameraScreen';
@@ -295,6 +296,8 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     // Itinerary detail — curated multi-stop route, reached from an editorial
     // Discover itinerary card.
     if (current.screen === 'itinerary') return <ItineraryDetailScreen itineraryId={current.itineraryId} theme={theme} onBack={pop} onVenuePress={navigateToVenue}/>;
+    // Venue v2: full "All →" galleries destination from the GALLERIES section.
+    if (current.screen === 'venueGalleries') return <VenueGalleriesListScreen venueId={current.venueId} theme={theme} onBack={pop} onGalleryPress={navigateToGallery}/>;
 
     if (current.screen === 'ticketSelection') return (
       <TicketSelectionScreen
@@ -416,6 +419,9 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         // calls this with a FavoriteItem — same toggleFavorite store that
         // EventScreen + FavoritesScreen use (no parallel persistence path).
         onFavoriteToggle={toggleFavorite}
+        // Venue v2 (additive): "All →" galleries link pushes the new
+        // VenueGalleriesListScreen scoped to this venue.
+        onAllGalleries={(venueId) => push({ screen: 'venueGalleries', venueId })}
         theme={theme}
       />
     );

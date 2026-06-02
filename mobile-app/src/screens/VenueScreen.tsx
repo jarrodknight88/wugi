@@ -1,23 +1,46 @@
 // ─────────────────────────────────────────────────────────────────────
-// Wugi — VenueScreen
+// Wugi — VenueScreen   (v2 — sectional rebuild against the kit JSX)
 //
-// Venue detail, brought to full fidelity against the Claude Design handoff
-// (wugi-design-system @ consumer-app VenueScreen). A place, not a moment:
-//   • Photo carousel hero with the venue name overlaid
-//   • Stats trio (open status · rating · price) + category
-//   • Attribute pills (amenities)
-//   • About + info card (address / phone / website / instagram / hours)
-//   • Upcoming events AT this venue (wired to real Firestore events)
-//   • Sticky Directions + Reserve CTAs
+// Ported from ui_kits/consumer-app/VenueScreen.jsx in wugi-design-system.
+// The diagnostic established this screen had its Path 3 baseline + UAT-V3
+// polish but never received the structural visual pass EventScreen got;
+// this commit closes that gap.
 //
-// Type via FONTS.* (PP Neue Montreal); mono eyebrows/stats via MONO.
-// Real-data-only: sections with no backing data are omitted, not faked.
+// Sectional structure (top → bottom):
+//   1. Hero — paged carousel + parchment venue name overlay
+//   2. Stats trio (open status · rating · price) + category line
+//      • Kept per answer #E — the kit drops these but they read real
+//        data we already have, so we coexist them with the kit's
+//        category line below.
+//   3. VenueContactBlock — "FIND US" · 64×64 logo/initials · underlined
+//      accent address + phone · chevron
+//   4. VenueHoursInfoBlock — "HOURS & INFO" secondary block carrying
+//      hours / website / instagram (added per answer #2 so this useful
+//      data isn't dropped from the page).
+//   5. VenueAboutBlock — "ABOUT THE PLACE" · paragraph only
+//   6. VenueMenuBlock — "MENU" eyebrow + "View All" link + real-data
+//      teaser (engrained section, matches Event's 803d69a pattern).
+//   7. VenueAttributesIcons — "WHAT TO EXPECT" · 2-col icon-grid card
+//      built from venue.amenities (or attributes fallback).
+//   8. VenueUpcomingEventsBlock — "HAPPENING HERE · N UPCOMING"
+//      horizontal scroller of 200-wide cards with date-badge top-left.
+//   9. VenueGalleriesGrid — "GALLERIES · N NIGHTS" · 2-col aspect-1
+//      grid; "All →" link when >4 galleries pushes the new
+//      VenueGalleriesListScreen via onAllGalleries.
+//  10. Sticky CTAs — Get Tickets (when active event) over Directions +
+//      Reserve (when reservation URL present).
+//
+// Type via FONTS.* (PP Neue Montreal); MONO for eyebrows / stats.
+// Real-data-only: any section with no backing data is omitted.
+//
+// VenueIdentityBlock and useVenueById are intentionally NOT touched here.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, FlatList, Dimensions, Linking, NativeSyntheticEvent, NativeScrollEvent, ActionSheetIOS, Platform, Alert, Share } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem } from '../types';
 import { BackIcon, StarIcon, ChevronRightIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
@@ -25,9 +48,42 @@ import { FONTS, MONO } from '../constants/fonts';
 import { makeGallery } from '../constants/mockData';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2); // design hero aspect ratio
-const STATUS_GREEN = '#5c9a7e';   // design --status-valid / live-dot (warm sage)
-const GALLERY_PURPLE = '#9b59b6'; // design --tag-photos / Lens accent
+const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2);
+const STATUS_GREEN  = '#5c9a7e';
+const GALLERY_PURPLE = '#9b59b6';
+const GALLERIES_INLINE_MAX = 4;
+const GALLERY_GRID_GUTTER  = 16;
+const GALLERY_GRID_GAP     = 8;
+const GALLERY_CARD_W = (SCREEN_WIDTH - GALLERY_GRID_GUTTER * 2 - GALLERY_GRID_GAP) / 2;
+
+// ── Amenity icons ─────────────────────────────────────────────────────
+// Ported verbatim from the kit's AMENITY_ICON map. Keys are Title-Case
+// with spaces — matches the Firestore venue.amenities[] convention
+// (Teranga: "Hookah", "Bottle Service", "Reservations" all exact). Misses
+// fall through to a generic circle. The normalizeAmenity helper is
+// defensive insurance against future case/punctuation drift; today's
+// data needs no normalization to hit the exact keys.
+const AMENITY_ICON: Record<string, string> = {
+  'Rooftop':        'M3 21h18M5 21V10l7-5 7 5v11M9 21v-5h6v5',
+  'Bottle Service': 'M10 3h4v3l1.5 3v12h-7V9L10 6V3z',
+  'Dress Code':     'M8 3l4 3 4-3 4 5-3 2v10H7V10L4 8z',
+  'Open Late':      'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z',
+  'Reservations':   'M8 2v3M16 2v3M3 9h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z',
+  'Patio':          'M3 21h18M6 21v-7M18 21v-7M3 14h18l-2-6H5l-2 6z',
+  'Live Music':     'M9 18V5l10-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zm10-2a3 3 0 11-6 0 3 3 0 016 0z',
+  'Hookah':         'M12 4v8m0 0c-3 0-5 2-5 5h10c0-3-2-5-5-5zM10 4h4',
+};
+const CIRCLE_FALLBACK = 'M12 2a10 10 0 100 20 10 10 0 000-20z';
+function normalizeAmenity(label: string): string {
+  return String(label || '').trim().toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ');
+}
+const AMENITY_ICON_NORMALIZED: Record<string, string> = Object.entries(AMENITY_ICON)
+  .reduce((acc, [k, v]) => { acc[normalizeAmenity(k)] = v; return acc; }, {} as Record<string, string>);
+function amenityPath(label: string): string {
+  if (AMENITY_ICON[label]) return AMENITY_ICON[label];
+  const norm = normalizeAmenity(label);
+  return AMENITY_ICON_NORMALIZED[norm] || CIRCLE_FALLBACK;
+}
 
 type ActiveTicketEvent = {
   id: string;
@@ -49,10 +105,257 @@ type Props = {
   // using the same store EventScreen / FavoritesScreen use. Absent → Save
   // option is omitted from the menu (no parallel persistence path).
   onFavoriteToggle?: (item: FavoriteItem) => void;
+  // Venue v2 (additive): "All →" link on the Galleries section pushes the
+  // VenueGalleriesListScreen. Hidden if the prop is absent or there are
+  // ≤ GALLERIES_INLINE_MAX galleries (no overflow to link to).
+  onAllGalleries?: (venueId: string) => void;
   theme: Theme;
 };
 
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, theme }: Props) {
+// ── Section sub-components ────────────────────────────────────────────
+
+// "FIND US" — 64×64 logo (or initials fallback) + name + underlined accent
+// address (tap → maps) + phone (tap → tel:) + chevron. Matches the kit's
+// "Event page venue-strip aesthetic" pattern.
+function VenueContactBlock({ venue, theme, onMapPress }: { venue: VenueData; theme: Theme; onMapPress: () => void }) {
+  if (!venue.address && !venue.phone) return null;
+  const initials = (venue.name || '').slice(0, 2).toUpperCase();
+  const onPhonePress = () => {
+    if (venue.phone) Linking.openURL(`tel:${venue.phone}`).catch(() => {});
+  };
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
+        FIND US
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+        <View style={{
+          width: 64, height: 64, borderRadius: 12,
+          backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+          alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden',
+        }}>
+          {venue.logoUrl ? (
+            <Image cachePolicy="memory-disk" source={{ uri: venue.logoUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
+          ) : (
+            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }}>{initials}</Text>
+          )}
+        </View>
+        <View style={{ flex: 1, paddingTop: 2 }}>
+          <Text style={{ color: theme.text, fontSize: 16, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 4 }} numberOfLines={2}>{venue.name}</Text>
+          {!!venue.address && (
+            <TouchableOpacity onPress={onMapPress} activeOpacity={0.7}>
+              <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.body, lineHeight: 19, textDecorationLine: 'underline' }} numberOfLines={2}>{venue.address}</Text>
+            </TouchableOpacity>
+          )}
+          {!!venue.phone && (
+            <TouchableOpacity onPress={onPhonePress} activeOpacity={0.7}>
+              <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.body, lineHeight: 19, textDecorationLine: 'underline', marginTop: 2 }}>{venue.phone}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={{ paddingTop: 4 }}>
+          <ChevronRightIcon color={theme.subtext}/>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// "HOURS & INFO" — secondary block carrying hours / website / instagram so
+// they aren't dropped from the page (per answer #2). Same row pattern the
+// old combined info card used.
+function VenueHoursInfoBlock({ venue, theme }: { venue: VenueData; theme: Theme }) {
+  const rows: { label: string; value: string; onPress?: () => void }[] = [];
+  if (venue.hoursText) rows.push({ label: 'HOURS', value: venue.hoursText });
+  if (venue.website) rows.push({
+    label: 'WEBSITE',
+    value: venue.website.replace(/^https?:\/\//, ''),
+    onPress: () => Linking.openURL(venue.website.startsWith('http') ? venue.website : `https://${venue.website}`).catch(() => {}),
+  });
+  if (venue.instagram) rows.push({
+    label: 'INSTAGRAM',
+    value: venue.instagram,
+    onPress: () => Linking.openURL(`https://instagram.com/${venue.instagram.replace('@', '')}`).catch(() => {}),
+  });
+  if (rows.length === 0) return null;
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 18 }}>
+      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
+        HOURS &amp; INFO
+      </Text>
+      <View style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: 'hidden' }}>
+        {rows.map((r, i) => (
+          <TouchableOpacity key={r.label} disabled={!r.onPress} activeOpacity={r.onPress ? 0.7 : 1} onPress={r.onPress}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
+            <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.4 }}>{r.label}</Text>
+            <Text style={{ color: r.onPress ? theme.accent : theme.text, fontSize: 12, fontFamily: FONTS.medium, flexShrink: 1, textAlign: 'right' }} numberOfLines={2}>{r.value}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// "ABOUT THE PLACE" — paragraph only, separated from the contact strip.
+function VenueAboutBlock({ venue, theme }: { venue: VenueData; theme: Theme }) {
+  if (!venue.about) return null;
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
+        ABOUT THE PLACE
+      </Text>
+      <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.body, lineHeight: 22 }}>
+        {venue.about}
+      </Text>
+    </View>
+  );
+}
+
+// "MENU" — engrained section like Event's 803d69a: eyebrow + "View All →"
+// link + a real-data teaser (menuDescription, else menuAttributes joined,
+// else a neutral prompt — never fabricated content).
+function VenueMenuBlock({ venue, theme, onMenuPress }: { venue: VenueData; theme: Theme; onMenuPress: () => void }) {
+  const desc = (venue.menuDescription && venue.menuDescription.trim()) || '';
+  const attrs = (venue.menuAttributes && venue.menuAttributes.length > 0) ? venue.menuAttributes.join(' · ') : '';
+  const teaser = desc || attrs || 'Browse the full menu — bar, kitchen, and signature items.';
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5 }}>MENU</Text>
+        <TouchableOpacity onPress={onMenuPress} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+          <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>View All</Text>
+          <ChevronRightIcon color={theme.accent}/>
+        </TouchableOpacity>
+      </View>
+      <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.body, lineHeight: 23 }}>
+        {teaser}
+      </Text>
+    </View>
+  );
+}
+
+// "WHAT TO EXPECT" — 2-col icon+label grid inside a single card. Reads
+// venue.amenities[] (or attributes[] as legacy fallback).
+function VenueAttributesIcons({ items, theme }: { items: string[]; theme: Theme }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 10 }}>
+        WHAT TO EXPECT
+      </Text>
+      <View style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: 'hidden', flexDirection: 'row', flexWrap: 'wrap' }}>
+        {items.map((label, i) => (
+          <View key={`${label}-${i}`} style={{
+            width: '50%', flexDirection: 'row', alignItems: 'center', gap: 10,
+            paddingHorizontal: 14, paddingVertical: 12,
+            borderTopWidth: i >= 2 ? 1 : 0, borderTopColor: theme.divider,
+            borderLeftWidth: i % 2 === 1 ? 1 : 0, borderLeftColor: theme.divider,
+          }}>
+            <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
+              <Path d={amenityPath(label)} stroke={theme.accent} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
+            </Svg>
+            <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium, letterSpacing: -0.1, flex: 1 }} numberOfLines={1}>{label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// "HAPPENING HERE" — refit per kit: 200-wide cards with date-badge top-left,
+// soft scrim, title + time below.
+function VenueUpcomingEventsBlock({ events, theme, onEventPress }: { events: EventData[]; theme: Theme; onEventPress: (e: EventData) => void }) {
+  if (events.length === 0) return null;
+  return (
+    <>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
+        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
+          HAPPENING HERE · {events.length} UPCOMING
+        </Text>
+        <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>What's on the calendar</Text>
+      </View>
+      <FlatList
+        data={events} keyExtractor={e => e.id} horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+        renderItem={({ item }) => (
+          <TouchableOpacity activeOpacity={0.9} onPress={() => onEventPress(item)}
+            style={{ width: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}>
+            <View style={{ width: '100%', height: 110 }}>
+              <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || '' }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
+              <LinearGradient
+                pointerEvents="none"
+                colors={['transparent', 'transparent', 'rgba(0,0,0,0.85)']}
+                locations={[0, 0.4, 1]}
+                style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
+              />
+              {!!item.date && (
+                <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 }}>
+                  <Text style={{ color: theme.onImage, fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.4 }}>{item.date}</Text>
+                </View>
+              )}
+            </View>
+            <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 }}>
+              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
+              {!!item.time && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.time}</Text>}
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+    </>
+  );
+}
+
+// "GALLERIES · N NIGHTS" — 2-col aspect-1 grid (first 4 inline). "All →"
+// only renders when there are >4 galleries AND onAllGalleries is wired.
+function VenueGalleriesGrid({ galleries, venueId, theme, onGalleryPress, onAllGalleries, toGalleryData }: {
+  galleries: GalleryDoc[]; venueId: string; theme: Theme;
+  onGalleryPress: (g: GalleryData) => void;
+  onAllGalleries?: (venueId: string) => void;
+  toGalleryData: (g: GalleryDoc) => GalleryData;
+}) {
+  if (galleries.length === 0) return null;
+  const showAllLink = !!onAllGalleries && galleries.length > GALLERIES_INLINE_MAX;
+  const visible = galleries.slice(0, GALLERIES_INLINE_MAX);
+  return (
+    <>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <View>
+          <Text style={{ color: GALLERY_PURPLE, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
+            GALLERIES · {galleries.length} {galleries.length === 1 ? 'NIGHT' : 'NIGHTS'}
+          </Text>
+          <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>Nights here, captured</Text>
+        </View>
+        {showAllLink && (
+          <TouchableOpacity onPress={() => onAllGalleries!(venueId)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>All</Text>
+            <ChevronRightIcon color={theme.accent}/>
+          </TouchableOpacity>
+        )}
+      </View>
+      <View style={{ paddingHorizontal: GALLERY_GRID_GUTTER, flexDirection: 'row', flexWrap: 'wrap', gap: GALLERY_GRID_GAP }}>
+        {visible.map(g => (
+          <TouchableOpacity key={g.id} activeOpacity={0.9} onPress={() => onGalleryPress(toGalleryData(g))}
+            style={{ width: GALLERY_CARD_W, height: GALLERY_CARD_W, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card }}>
+            <Image cachePolicy="memory-disk" source={{ uri: g.coverImage }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover"/>
+            <LinearGradient
+              pointerEvents="none"
+              colors={['transparent', 'transparent', 'rgba(0,0,0,0.85)']}
+              locations={[0, 0.5, 1]}
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            />
+            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 12, paddingVertical: 10 }}>
+              <Text style={{ color: theme.onImage, fontSize: 14, fontFamily: FONTS.display, letterSpacing: -0.1 }} numberOfLines={1}>{g.photoCount} photos</Text>
+              <Text style={{ color: 'rgba(244,239,225,0.6)', fontSize: 10, fontFamily: MONO, letterSpacing: 0.4 }} numberOfLines={1}>{g.date}</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </>
+  );
+}
+
+// ── Main screen ────────────────────────────────────────────────────────
+export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, onAllGalleries, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
   const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
@@ -129,16 +432,9 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   if (typeof venue.rating === 'number') stats.push({ kind: 'rating', value: venue.rating.toFixed(1) });
   if (venue.priceTier) stats.push({ kind: 'price', value: venue.priceTier });
 
-  // Attribute pills — prefer Phase-2 amenities[], fall back to legacy attributes[].
-  const pillList = (venue.amenities && venue.amenities.length > 0) ? venue.amenities : venue.attributes;
-
-  // Info-card rows — only render rows with data.
-  const infoRows: { label: string; value: string; accent?: boolean; onPress?: () => void }[] = [];
-  if (venue.address)  infoRows.push({ label: 'ADDRESS', value: venue.address, accent: true, onPress: onMapPress });
-  if (venue.phone)    infoRows.push({ label: 'PHONE', value: venue.phone, onPress: () => Linking.openURL(`tel:${venue.phone}`).catch(() => {}) });
-  if (venue.website)  infoRows.push({ label: 'WEBSITE', value: venue.website.replace(/^https?:\/\//, ''), onPress: () => Linking.openURL(venue.website.startsWith('http') ? venue.website : `https://${venue.website}`).catch(() => {}) });
-  if (venue.instagram) infoRows.push({ label: 'INSTAGRAM', value: venue.instagram, onPress: () => Linking.openURL(`https://instagram.com/${venue.instagram.replace('@', '')}`).catch(() => {}) });
-  if (venue.hoursText) infoRows.push({ label: 'HOURS', value: venue.hoursText });
+  // Amenities for the icon grid — prefer phase-2 amenities[], fall back to
+  // legacy attributes[] (same precedence the old pill list used).
+  const amenityList = (venue.amenities && venue.amenities.length > 0) ? venue.amenities : (venue.attributes || []);
 
   // Sticky CTA wiring
   const reservationHref = venue.reservationProvider === 'opentable'
@@ -161,9 +457,8 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   const openReserve = () => { if (reservationHref) Linking.openURL(reservationHref).catch(() => {}); };
 
   // Kebab overflow menu — mirrors EventScreen.openOverflowMenu exactly. Save
-  // Venue is omitted when onFavoriteToggle isn't supplied (no parallel
-  // persistence path); Share/Report are always available. Add-to-Calendar
-  // doesn't apply (venues have no date/time).
+  // Venue is omitted when onFavoriteToggle isn't supplied; Share/Report are
+  // always available.
   const openOverflowMenu = () => {
     const hasSave = !!onFavoriteToggle;
     const options = (hasSave ? ['Save Venue', 'Share', 'Report', 'Cancel'] : ['Share', 'Report', 'Cancel']);
@@ -189,10 +484,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
       });
     };
     const doShare = () => {
-      Share.share({
-        message: `Check out ${venue.name} on Wugi!`,
-        title: venue.name,
-      }).catch(() => {});
+      Share.share({ message: `Check out ${venue.name} on Wugi!`, title: venue.name }).catch(() => {});
     };
     const doReport = () => {
       Alert.alert('Report Venue', 'Thank you — we\'ll review this venue.', [{ text: 'OK' }]);
@@ -228,7 +520,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
 
-        {/* Hero — paged carousel with the venue name overlaid */}
+        {/* 1. Hero — paged carousel with venue name overlaid */}
         <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT, position: 'relative' }}>
           <FlatList
             ref={heroRef}
@@ -244,25 +536,13 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
               <Image cachePolicy="memory-disk" source={{ uri: item.uri }} style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }} contentFit="cover"/>
             )}
           />
-
-          {/* Bottom scrim — real LinearGradient (was a flat 55%-height rectangle
-              with a hard horizontal edge; the venue name read against the edge
-              rather than against a smooth fade). Now: transparent through the
-              upper half → progressively dark to ~85% at the bottom, covering
-              the whole hero so the venue name + carousel dots stay legible. */}
           <LinearGradient
             pointerEvents="none"
             colors={['transparent', 'transparent', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.85)']}
             locations={[0, 0.45, 0.78, 1]}
             style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
           />
-
-          {/* Top controls — back + share. Matches EventScreen's Wave 1 pattern:
-              absolute top:64 / left:20 / right:20 edge padding, 40×40 BlurView
-              pills (intensity:20 tint:dark) with an inner LinearGradient tint
-              and a parchment-tinted border. Share stays a direct icon (Venue
-              has no other top-right actions to fold into a kebab menu).
-              VenueIdentityBlock / useVenueById NOT touched. */}
+          {/* Top controls — back + kebab, same glass-blur pattern as Event */}
           <View
             style={{
               position: 'absolute', top: 64, left: 20, right: 20,
@@ -271,52 +551,24 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             }}
           >
             <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
-              <BlurView
-                intensity={20}
-                tint="dark"
-                style={{
-                  width: 40, height: 40, borderRadius: 20,
-                  overflow: 'hidden',
-                  borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                />
+              <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}/>
                 <BackIcon color="#f4efe1"/>
               </BlurView>
             </TouchableOpacity>
-            {/* Kebab overflow — matches EventScreen exactly. Share moves into
-                the action sheet alongside Save Venue + Report. */}
             <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
-              <BlurView
-                intensity={20}
-                tint="dark"
-                style={{
-                  width: 40, height: 40, borderRadius: 20,
-                  overflow: 'hidden',
-                  borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                />
+              <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}/>
                 <KebabVerticalIcon color="#f4efe1"/>
               </BlurView>
             </TouchableOpacity>
           </View>
-
-          {/* Venue name */}
+          {/* Venue name overlay */}
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 30, paddingHorizontal: 20 }}>
             <Text style={{ color: theme.onImage, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.2, lineHeight: 36 }} numberOfLines={3}>
               {venue.name}
             </Text>
           </View>
-
           {/* Carousel dots */}
           {hasMultiHero && (
             <View style={{ position: 'absolute', bottom: 14, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 }}>
@@ -327,141 +579,62 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           )}
         </View>
 
-        {/* Stats trio + category */}
-        {stats.length > 0 && (
+        {/* 2. Stats trio + category line (kept per answer #E) */}
+        {(stats.length > 0 || !!venue.category) && (
           <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {stats.map((s, i) => (
-                <View key={i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 5 }}>
-                  {s.kind === 'open' && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: STATUS_GREEN }}/>}
-                  {s.kind === 'rating' && <StarIcon color={theme.iconAccent}/>}
-                  <Text style={{ color: s.kind === 'open' ? STATUS_GREEN : theme.text, fontSize: 12, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.3 }} numberOfLines={1}>
-                    {s.value}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            {!!venue.category && (
-              <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>{venue.category}</Text>
-            )}
-          </View>
-        )}
-
-        {/* Attribute pills — wrap */}
-        {pillList && pillList.length > 0 && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, paddingTop: 14 }}>
-            {pillList.map(a => (
-              <View key={a} style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
-                <Text style={{ color: theme.text, fontSize: 12, fontFamily: FONTS.medium }}>{a}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* About + info card */}
-        {(!!venue.about || infoRows.length > 0) && (
-          <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-            <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 10 }}>ABOUT THE PLACE</Text>
-            {!!venue.about && (
-              <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.body, lineHeight: 22, marginBottom: 16 }}>{venue.about}</Text>
-            )}
-            {infoRows.length > 0 && (
-              <View style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: 'hidden' }}>
-                {infoRows.map((r, i) => (
-                  <TouchableOpacity key={r.label} disabled={!r.onPress} activeOpacity={r.onPress ? 0.7 : 1}
-                    onPress={r.onPress}
-                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
-                    <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.4 }}>{r.label}</Text>
-                    <Text style={{ color: r.accent ? theme.accent : theme.text, fontSize: 12, fontFamily: FONTS.medium, flexShrink: 1, textAlign: 'right' }} numberOfLines={2}>{r.value}</Text>
-                  </TouchableOpacity>
+            {stats.length > 0 && (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {stats.map((s, i) => (
+                  <View key={i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 5 }}>
+                    {s.kind === 'open' && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: STATUS_GREEN }}/>}
+                    {s.kind === 'rating' && <StarIcon color={theme.iconAccent}/>}
+                    <Text style={{ color: s.kind === 'open' ? STATUS_GREEN : theme.text, fontSize: 12, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.3 }} numberOfLines={1}>
+                      {s.value}
+                    </Text>
+                  </View>
                 ))}
               </View>
             )}
+            {!!venue.category && (
+              <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: stats.length > 0 ? 12 : 0 }}>{venue.category}</Text>
+            )}
           </View>
         )}
 
-        {/* Menu — entry point to MenuScreen (kept for functional access) */}
+        {/* 3. FIND US */}
+        <VenueContactBlock venue={venue} theme={theme} onMapPress={onMapPress}/>
+
+        {/* 4. HOURS & INFO (secondary; answer #2) */}
+        <VenueHoursInfoBlock venue={venue} theme={theme}/>
+
+        {/* 5. ABOUT THE PLACE */}
+        <VenueAboutBlock venue={venue} theme={theme}/>
+
+        {/* 6. MENU — engrained */}
         {onMenuPress && (
-          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
-            <TouchableOpacity onPress={onMenuPress} activeOpacity={0.7}
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14 }}>
-              <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>Menu</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={{ color: theme.accent, fontSize: 12, fontFamily: FONTS.medium }}>View full menu</Text>
-                <ChevronRightIcon color={theme.accent}/>
-              </View>
-            </TouchableOpacity>
-          </View>
+          <VenueMenuBlock venue={venue} theme={theme} onMenuPress={onMenuPress}/>
         )}
 
-        {/* Upcoming events at this venue */}
-        {upcoming.length > 0 && (
-          <>
-            <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
-              <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>
-                HAPPENING HERE · {upcoming.length} UPCOMING
-              </Text>
-              <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>What's on the calendar</Text>
-            </View>
-            <FlatList
-              data={upcoming} keyExtractor={e => e.id} horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
-                  <View style={{ height: 110 }}>
-                    <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/300' }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
-                    <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.overlaySoft }}/>
-                    {!!item.date && (
-                      <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 }}>
-                        <Text style={{ color: theme.onImage, fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.4 }}>{item.date}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={{ padding: 12 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
-                    {!!item.time && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>{item.time}</Text>}
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          </>
-        )}
+        {/* 7. WHAT TO EXPECT — amenity icon grid */}
+        <VenueAttributesIcons items={amenityList} theme={theme}/>
 
-        {/* Galleries — real top-level `galleries` collection (Lens styling) */}
-        {galleries.length > 0 && (
-          <>
-            <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
-              <Text style={{ color: GALLERY_PURPLE, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>
-                GALLERIES · {galleries.length} {galleries.length === 1 ? 'NIGHT' : 'NIGHTS'}
-              </Text>
-              <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>Nights here, captured</Text>
-            </View>
-            <FlatList
-              data={galleries} keyExtractor={g => g.id} horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }} activeOpacity={0.9} onPress={() => onGalleryPress(toGalleryData(item))}>
-                  <View style={{ height: 120 }}>
-                    <Image cachePolicy="memory-disk" source={{ uri: item.coverImage }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
-                    <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.overlaySoft }}/>
-                    <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(155,89,182,0.9)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 }}>
-                      <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }}>PHOTOS</Text>
-                    </View>
-                  </View>
-                  <View style={{ padding: 12 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
-                    <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.photoCount} photos · {item.date}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
-          </>
-        )}
+        {/* 8. HAPPENING HERE — upcoming events */}
+        <VenueUpcomingEventsBlock events={upcoming} theme={theme} onEventPress={onEventPress}/>
+
+        {/* 9. GALLERIES — 2-col grid + "All →" */}
+        <VenueGalleriesGrid
+          galleries={galleries}
+          venueId={venue.id}
+          theme={theme}
+          onGalleryPress={onGalleryPress}
+          onAllGalleries={onAllGalleries}
+          toGalleryData={toGalleryData}
+        />
 
         <View style={{ height: stickyHeight + 16 }}/>
       </ScrollView>
 
-      {/* Sticky bottom: Get Tickets (if active event) over Directions + Reserve */}
+      {/* 10. Sticky CTAs: Get Tickets (if active) over Directions + Reserve */}
       {(showTicketCTA || showReserve) && (
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, gap: 10 }}>
           {showTicketCTA && (
