@@ -450,8 +450,11 @@ function venueFirstImage(v: FSVenue): string {
   return '';
 }
 
+type SearchDeal = { id: string; title: string; venueName: string; detail: string; image: string };
+
 function SearchBody({
   theme, query, picked, onOpenFilters, onChipRemove, onEvent, onVenue,
+  events, venues, deals, loading,
 }: {
   theme: Theme;
   query: string;
@@ -460,37 +463,12 @@ function SearchBody({
   onChipRemove: (dim: FilterDim, opt: string) => void;
   onEvent: (e: FSEvent) => void;
   onVenue: (v: FSVenue) => void;
+  events: FSEvent[];
+  venues: FSVenue[];
+  deals: SearchDeal[];
+  loading: boolean;
 }) {
   const [view,    setView]    = useState<'grid' | 'list'>('grid');   // grid-first
-  const [loading, setLoading] = useState(true);
-  const [events,  setEvents]  = useState<FSEvent[]>([]);
-  const [venues,  setVenues]  = useState<FSVenue[]>([]);
-  const [deals,   setDeals]   = useState<{ id: string; title: string; venueName: string; detail: string; image: string }[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const svc = await import('../../firestoreService');
-        const [evs, vns, ds] = await Promise.all([
-          svc.getApprovedEvents([], 200),
-          svc.getApprovedVenues([], 200),
-          svc.getActiveDeals([], 50),
-        ]);
-        if (cancelled) return;
-        setEvents(evs);
-        setVenues(vns);
-        setDeals((ds as any[]).map(d => ({
-          id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image || '',
-        })));
-      } catch (e) {
-        console.log('Discover search load failed', e);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   // Active filter chips flattened for the bar.
   const activeChips = useMemo(() => {
@@ -702,6 +680,46 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
   const [sheetOpen,   setSheetOpen]     = useState(false);
   const navigatingRef = useRef(false);
 
+  // Lifted search dataset — fetched lazily on first search-bar tap and kept
+  // alive across SearchBody mount/unmount so re-opening the overlay paints
+  // instantly instead of re-firing three Firestore queries every time.
+  const [searchEvents, setSearchEvents] = useState<FSEvent[]>([]);
+  const [searchVenues, setSearchVenues] = useState<FSVenue[]>([]);
+  const [searchDeals,  setSearchDeals]  = useState<SearchDeal[]>([]);
+  const [searchDataLoaded, setSearchDataLoaded] = useState(false);
+  const searchLoadStartedRef = useRef(false);
+  const searchUnmountedRef = useRef(false);
+
+  const ensureSearchData = () => {
+    if (searchLoadStartedRef.current) return;
+    searchLoadStartedRef.current = true;
+    (async () => {
+      try {
+        const svc = await import('../../firestoreService');
+        const [evs, vns, ds] = await Promise.all([
+          svc.getApprovedEvents([], 200),
+          svc.getApprovedVenues([], 200),
+          svc.getActiveDeals([], 50),
+        ]);
+        if (searchUnmountedRef.current) return;
+        setSearchEvents(evs);
+        setSearchVenues(vns);
+        setSearchDeals((ds as any[]).map(d => ({
+          id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image || '',
+        })));
+        setSearchDataLoaded(true);
+      } catch (e) {
+        console.log('Discover search load failed', e);
+        // Allow a retry on next tap if the first attempt failed.
+        searchLoadStartedRef.current = false;
+      }
+    })();
+  };
+
+  useEffect(() => {
+    return () => { searchUnmountedRef.current = true; };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const timeout = setTimeout(() => { if (!cancelled) setEditorialLoading(false); }, 8000);
@@ -763,7 +781,7 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         searchActive={searchActive}
         searchValue={searchValue}
         onSearchValueChange={setSearchValue}
-        onActivate={() => setSearchActive(true)}
+        onActivate={() => { ensureSearchData(); setSearchActive(true); }}
         onCancel={() => { setSearchActive(false); setSearchValue(''); /* picked stays so toggle is round-trippable */ }}
         onMapTap={onMapTap}
       />
@@ -776,6 +794,10 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
           onChipRemove={removeChip}
           onEvent={handleSearchEvent}
           onVenue={handleSearchVenue}
+          events={searchEvents}
+          venues={searchVenues}
+          deals={searchDeals}
+          loading={!searchDataLoaded}
         />
       ) : (
         <EditorialBody

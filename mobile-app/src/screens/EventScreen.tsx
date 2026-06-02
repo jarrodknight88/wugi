@@ -404,32 +404,34 @@ function EventScreenInner({
         {/* End hero — the -24 margin means the next block overlaps here */}
 
         {/* ── Date / Time / Age chips ─────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8, zIndex: 2 }}>
-          {[event.date ?? '—', event.time ?? '—', event.age ?? '21+'].map((val, i) => (
-            <View
-              key={i}
-              style={{
-                flex: 1, paddingVertical: 9, borderRadius: 10,
-                backgroundColor: theme.card,
-                borderWidth: 1, borderColor: theme.border,
-                alignItems: 'center',
-              }}
-            >
-              <Text
+        {(event.date || event.time || event.age) && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8, zIndex: 2 }}>
+            {[event.date ?? '—', event.time ?? '—', event.age ?? '21+'].map((val, i) => (
+              <View
+                key={i}
                 style={{
-                  color: theme.text,
-                  fontSize: 12,
-                  fontFamily: MONO,
-                  fontWeight: '600',
-                  letterSpacing: 0.2,
+                  flex: 1, paddingVertical: 9, borderRadius: 10,
+                  backgroundColor: theme.card,
+                  borderWidth: 1, borderColor: theme.border,
+                  alignItems: 'center',
                 }}
-                numberOfLines={1}
               >
-                {val}
-              </Text>
-            </View>
-          ))}
-        </View>
+                <Text
+                  style={{
+                    color: theme.text,
+                    fontSize: 12,
+                    fontFamily: MONO,
+                    fontWeight: '600',
+                    letterSpacing: 0.2,
+                  }}
+                  numberOfLines={1}
+                >
+                  {val}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* ── Venue strip (AT) ─────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
@@ -514,79 +516,83 @@ function EventScreenInner({
         )}
 
         {/* ── Galleries strip ──────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: GALLERY_PURPLE, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
-                GALLERIES
-              </Text>
-              {galleryLoading ? (
-                <ActivityIndicator size="small" color={theme.accent} style={{ alignSelf: 'flex-start', marginTop: 2 }}/>
-              ) : (
-                <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
-                  {galleryPhotos.length > 0
-                    ? `${galleryPhotos.length} photos from past nights`
-                    : liveGallery
-                      ? 'Photos loading…'
-                      : 'No photos yet'}
-                </Text>
-              )}
+        {(galleryLoading || galleryPhotos.length > 0 || liveGallery) && (
+          <>
+            <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: GALLERY_PURPLE, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
+                    GALLERIES
+                  </Text>
+                  {galleryLoading ? (
+                    <ActivityIndicator size="small" color={theme.accent} style={{ alignSelf: 'flex-start', marginTop: 2 }}/>
+                  ) : (
+                    <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
+                      {galleryPhotos.length > 0
+                        ? `${galleryPhotos.length} photos from past nights`
+                        : liveGallery
+                          ? 'Photos loading…'
+                          : 'No photos yet'}
+                    </Text>
+                  )}
+                </View>
+                {(galleryPhotos.length > 0 || liveGallery) && (
+                  <TouchableOpacity
+                    onPress={() => onGalleryPress(activeGallery)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={{ color: theme.accent, fontSize: 12, fontFamily: FONTS.medium }}>All</Text>
+                    <ChevronRightIcon color={theme.accent}/>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-            {(galleryPhotos.length > 0 || liveGallery) && (
-              <TouchableOpacity
-                onPress={() => onGalleryPress(activeGallery)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
-                activeOpacity={0.8}
-              >
-                <Text style={{ color: theme.accent, fontSize: 12, fontFamily: FONTS.medium }}>All</Text>
-                <ChevronRightIcon color={theme.accent}/>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
 
-        {/* Gallery thumbnails row */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
-        >
-          {galleryPhotos.slice(0, 5).map(photo => (
-            <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(activeGallery)} activeOpacity={0.9}>
-              <Image
-                cachePolicy="memory-disk"
-                source={{ uri: photo.uri }}
-                style={{ width: 100, height: 100, borderRadius: 10 }}
-                contentFit="cover"
-              />
-            </TouchableOpacity>
-          ))}
-          {galleryPhotos.length > 5 && (
-            <TouchableOpacity
-              onPress={() => onGalleryPress(activeGallery)}
-              style={{
-                width: 100, height: 100, borderRadius: 10,
-                backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
-                alignItems: 'center', justifyContent: 'center',
-              }}
-              activeOpacity={0.8}
+            {/* Gallery thumbnails row */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
             >
-              <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>+{galleryPhotos.length - 5}</Text>
-              <Text style={{ color: theme.subtext, fontSize: 10, fontFamily: FONTS.body, marginTop: 2 }}>more</Text>
-            </TouchableOpacity>
-          )}
-          {galleryPhotos.length === 0 && !galleryLoading && (
-            <View
-              style={{
-                width: 200, height: 100, borderRadius: 10,
-                backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
-                alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>Photos coming soon</Text>
-            </View>
-          )}
-        </ScrollView>
+              {galleryPhotos.slice(0, 5).map(photo => (
+                <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(activeGallery)} activeOpacity={0.9}>
+                  <Image
+                    cachePolicy="memory-disk"
+                    source={{ uri: photo.uri }}
+                    style={{ width: 100, height: 100, borderRadius: 10 }}
+                    contentFit="cover"
+                  />
+                </TouchableOpacity>
+              ))}
+              {galleryPhotos.length > 5 && (
+                <TouchableOpacity
+                  onPress={() => onGalleryPress(activeGallery)}
+                  style={{
+                    width: 100, height: 100, borderRadius: 10,
+                    backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>+{galleryPhotos.length - 5}</Text>
+                  <Text style={{ color: theme.subtext, fontSize: 10, fontFamily: FONTS.body, marginTop: 2 }}>more</Text>
+                </TouchableOpacity>
+              )}
+              {galleryPhotos.length === 0 && !galleryLoading && (
+                <View
+                  style={{
+                    width: 200, height: 100, borderRadius: 10,
+                    backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>Photos coming soon</Text>
+                </View>
+              )}
+            </ScrollView>
+          </>
+        )}
 
         {/* ── Related events — "ALSO TONIGHT" ─────────────────────────── */}
         {relatedEvents.length > 0 && (
