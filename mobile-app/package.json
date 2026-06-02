@@ -43,6 +43,7 @@
     "onesignal-expo-plugin": "^2.4.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-masonry-list": "^2.16.2",
     "react-native-onesignal": "^5.4.3",
     "react-native-qrcode-svg": "^6.3.21",
     "react-native-svg": "15.12.1",
