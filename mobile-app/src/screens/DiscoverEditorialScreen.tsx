@@ -21,17 +21,23 @@
 //     and grid/list view toggle.
 //   • Result count line ("N RESULTS · QUERY").
 //   • Grid (default) or list cards over real Firestore data
-//     (getApprovedEvents + getApprovedVenues + getActiveDeals).
+//     (getApprovedEvents + getApprovedVenues + getActiveDeals
+//      + getApprovedGalleries; Menus deferred — see TYPE_MENUS_TODO below).
 //
 // Filter sheet (RN Modal slide-up; no new native deps):
 //   • Three categorized multi-select dimensions — Type / Vibe / Amenities.
 //   • Draft pattern: edits stage to a draft copy; Apply commits, Cancel/scrim
 //     discards. "Clear all" empties the draft.
 //
-// DROPPED vs the kit (real-data-only):
-//   • "Dishes" type filter — no cross-venue menu-items query exists.
-//   • Cross-fade body animation — using a state-driven swap (Modal handles
-//     the slide-up; body change is instant). Acceptable per perceived UX.
+// BATCH 6 — Type filter expansion + Vibe/Amenities taxonomy moved to Firestore.
+//   • Type filter now includes Events / Venues / Deals / Galleries / Menus.
+//     Menus is a no-op placeholder pending a collectionGroup('menu') index
+//     and an `approved` flag on menu-item docs (see TYPE_MENUS_TODO).
+//   • Vibe + Amenities pulled from filters/{vibes,amenities} Firestore docs
+//     on first search-bar tap; the hardcoded FALLBACK_VIBES / FALLBACK_AMENITIES
+//     arrays below stay in sync with scripts/scrape/03-transform-and-write.js
+//     VIBES and VenueScreen AMENITY_ICON, and are used if the Firestore read
+//     fails so the filter sheet remains usable offline.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -53,17 +59,53 @@ import { SearchIcon } from '../components/icons';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ── Filter taxonomy ────────────────────────────────────────────────────
-// Three multi-select dimensions per the handoff. "Dishes" intentionally
-// omitted (no backing data); the rest mirror the kit verbatim.
+// Three multi-select dimensions per the handoff. Type is hardcoded (app
+// structure — Events / Venues / Deals / Galleries / Menus); Vibe + Amenities
+// are pulled from filters/{vibes,amenities} Firestore docs at runtime with
+// the fallback arrays below standing in if the read fails.
+//
+// TYPE_MENUS_TODO — "Menus" is shown in the filter UI but emits no results
+// today. Cross-venue menu search would require a `collectionGroup('menu')`
+// query against the `venues/{venueId}/menu` subcollection. That needs an
+// `approved` flag on menu-item docs + a composite index in
+// firebase/firestore.indexes.json: { approved ASC, name ASC, queryScope:
+// COLLECTION_GROUP } + an explicit `match /{path=**}/menu/{id}` rule in
+// firestore.rules. None of those exist today, and the workflow directive
+// flags such index additions as out-of-scope. When that infra lands, wire
+// `getMenuItemsByName(q)` into ensureSearchData and emit kind:'menu' rows.
 const FILTER_DIMS = ['Type', 'Vibe', 'Amenities'] as const;
 type FilterDim = typeof FILTER_DIMS[number];
-const FILTERS: Record<FilterDim, string[]> = {
-  Type:      ['Events', 'Venues', 'Deals'],
-  Vibe:      ['Boujee', 'Divey', 'Speakeasy', 'High Energy', 'Rooftop', 'Late Night'],
-  Amenities: ['Hookah', 'Bottle Service', 'Outdoor Patio', 'Brunch', 'Live Music', 'Happy Hour', 'Pet Friendly', 'Reservations'],
+const TYPE_OPTIONS = ['Events', 'Venues', 'Deals', 'Galleries', 'Menus'] as const;
+type TypeOption = typeof TYPE_OPTIONS[number];
+
+// Fallback values kept in lockstep with the canonical sources:
+//   • FALLBACK_VIBES     — scripts/scrape/03-transform-and-write.js VIBES (16 values).
+//   • FALLBACK_AMENITIES — union of VenueScreen AMENITY_ICON keys + Discover
+//                          search filters, deduped. "Patio" canonicalized
+//                          (was "Outdoor Patio" — never matched the icon map).
+const FALLBACK_VIBES: string[] = [
+  'Boujee', 'Divey', 'Speakeasy', 'High Energy', 'Rooftop', 'Late Night',
+  'Chill', 'Dance', 'Live Music', 'Date Night', 'Sports', 'Brunch',
+  'Cultural', 'Hookah', 'Lounge', 'Adult',
+];
+const FALLBACK_AMENITIES: string[] = [
+  'Rooftop', 'Bottle Service', 'Dress Code', 'Open Late', 'Reservations',
+  'Patio', 'Live Music', 'Hookah', 'Brunch', 'Happy Hour', 'Pet Friendly',
+];
+const FALLBACK_FILTERS: Record<FilterDim, string[]> = {
+  Type:      [...TYPE_OPTIONS],
+  Vibe:      FALLBACK_VIBES,
+  Amenities: FALLBACK_AMENITIES,
 };
 const DIM_ACCENT: Record<FilterDim, string> = { Type: '#5fa080', Vibe: '#9b59b6', Amenities: '#5ba8c4' };
-const TYPE_COLOR: Record<'event' | 'venue' | 'deal', string> = { event: '#5fa080', venue: '#5ba8c4', deal: '#a8533f' };
+type SearchKind = 'event' | 'venue' | 'deal' | 'gallery' | 'menu';
+const TYPE_COLOR: Record<SearchKind, string> = {
+  event:   '#5fa080',
+  venue:   '#5ba8c4',
+  deal:    '#a8533f',
+  gallery: '#9b59b6',
+  menu:    '#c4a35b',
+};
 type Picked = Record<FilterDim, string[]>;
 const EMPTY_PICKS: Picked = { Type: [], Vibe: [], Amenities: [] };
 
@@ -243,11 +285,30 @@ function DiscoverHeader({
   );
 }
 
-// ── Shelf card (editorial mode — unchanged) ─────────────────────────────
-function ShelfCard({ card, theme, onPress }: { card: EditorialCard; theme: Theme; onPress: () => void }) {
+// ── Shelf card (editorial mode) ────────────────────────────────────────
+// Gallery-kind cards render a 3-line footer (venue / date / title) matching
+// the PhotoViewer info-overlay typography hierarchy. Venue + date are read
+// from the embedded card payload when present (seed-photographer-features.ts
+// now denormalizes them); for older docs we fall back to a hydrated
+// venueId → name map populated by the parent screen. Other kinds keep the
+// legacy 2-line title + sub footer. Item 4.1.
+function ShelfCard({ card, theme, onPress, venueNameFallback, dateFallback }: {
+  card: EditorialCard;
+  theme: Theme;
+  onPress: () => void;
+  venueNameFallback?: string;
+  dateFallback?: string;
+}) {
   const width = Math.round(200 * (card.ratio ?? 1));
   // 'photographer' is the only kind with no navigation target.
   const navigates = card.kind !== 'photographer';
+  // Denormalized fields the seed writes onto gallery-kind cards but which
+  // aren't on the EditorialCard type today (src/types/index.ts is frozen
+  // for this batch). Cast through `any` rather than widening the type.
+  const cardAny = card as EditorialCard & { venueName?: string; date?: string };
+  const isGallery = card.kind === 'gallery';
+  const venueLine = isGallery ? (cardAny.venueName || venueNameFallback || '') : '';
+  const dateLine  = isGallery ? (cardAny.date || dateFallback || '') : '';
   return (
     <TouchableOpacity
       activeOpacity={navigates ? 0.9 : 1}
@@ -266,16 +327,38 @@ function ShelfCard({ card, theme, onPress }: { card: EditorialCard; theme: Theme
         <Text style={{ color: '#f4efe1', fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }}>{card.tag}</Text>
       </View>
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 14 }}>
-        <Text numberOfLines={2} style={{ color: '#f4efe1', fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 2, lineHeight: 18 }}>{card.title}</Text>
-        <Text numberOfLines={1} style={{ color: 'rgba(244,239,225,0.65)', fontSize: 11, fontFamily: FONTS.body }}>{card.sub}</Text>
+        {isGallery ? (
+          <>
+            {!!venueLine && (
+              <Text numberOfLines={1} style={{ color: 'rgba(244,239,225,0.7)', fontSize: 11, fontFamily: FONTS.body, marginBottom: 2 }}>
+                {venueLine}
+              </Text>
+            )}
+            {!!dateLine && (
+              <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 11, fontFamily: FONTS.body, marginBottom: 2 }}>
+                {dateLine}
+              </Text>
+            )}
+            <Text numberOfLines={2} style={{ color: '#f4efe1', fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.3, lineHeight: 18 }}>
+              {card.title}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text numberOfLines={2} style={{ color: '#f4efe1', fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 2, lineHeight: 18 }}>{card.title}</Text>
+            <Text numberOfLines={1} style={{ color: 'rgba(244,239,225,0.65)', fontSize: 11, fontFamily: FONTS.body }}>{card.sub}</Text>
+          </>
+        )}
       </View>
     </TouchableOpacity>
   );
 }
 
-function Shelf({ kicker, title, subtitle, cards, theme, onCardPress }: {
+function Shelf({ kicker, title, subtitle, cards, theme, onCardPress, venueNameById, galleryFallback }: {
   kicker: string; title: string; subtitle?: string; cards: EditorialCard[];
   theme: Theme; onCardPress: (c: EditorialCard) => void;
+  venueNameById: Record<string, string>;
+  galleryFallback: Record<string, { venueName: string; date: string }>;
 }) {
   return (
     <View>
@@ -285,16 +368,39 @@ function Shelf({ kicker, title, subtitle, cards, theme, onCardPress }: {
         {!!subtitle && <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body }}>{subtitle}</Text>}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 18 }}>
-        {cards.map((c, i) => <ShelfCard key={`${c.kind}-${i}`} card={c} theme={theme} onPress={() => onCardPress(c)}/>)}
+        {cards.map((c, i) => {
+          // Venue-name fallback resolves in this order:
+          //   1) venueId on the card (modern seed) → venueNameById lookup
+          //   2) galleryId on the card (legacy seed, no venueId) →
+          //      galleryFallback lookup populated from gallery→venue join
+          const galleryEntry = c.kind === 'gallery' && c.galleryId ? galleryFallback[c.galleryId] : undefined;
+          const venueFallback =
+            (c.venueId && venueNameById[c.venueId]) ||
+            galleryEntry?.venueName ||
+            undefined;
+          const dateFallback = galleryEntry?.date || undefined;
+          return (
+            <ShelfCard
+              key={`${c.kind}-${i}`}
+              card={c}
+              theme={theme}
+              onPress={() => onCardPress(c)}
+              venueNameFallback={venueFallback || undefined}
+              dateFallback={dateFallback}
+            />
+          );
+        })}
       </ScrollView>
     </View>
   );
 }
 
 // ── Editorial body (existing shelf experience) ─────────────────────────
-function EditorialBody({ shelves, loading, theme, onCard }: {
+function EditorialBody({ shelves, loading, theme, onCard, venueNameById, galleryFallback }: {
   shelves: EditorialShelf[]; loading: boolean; theme: Theme;
   onCard: (shelf: EditorialShelf, c: EditorialCard) => void;
+  venueNameById: Record<string, string>;
+  galleryFallback: Record<string, { venueName: string; date: string }>;
 }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false}>
@@ -322,6 +428,8 @@ function EditorialBody({ shelves, loading, theme, onCard }: {
               cards={shelf.doc.cards || []}
               theme={theme}
               onCardPress={(c) => onCard(shelf, c)}
+              venueNameById={venueNameById}
+              galleryFallback={galleryFallback}
             />
           ))}
           <View style={{ height: 40 }}/>
@@ -333,9 +441,10 @@ function EditorialBody({ shelves, loading, theme, onCard }: {
 
 // ── Filter sheet (RN Modal slide-up; draft pattern) ─────────────────────
 function FilterSheet({
-  visible, theme, picked, onApply, onClose,
+  visible, theme, picked, filterValues, onApply, onClose,
 }: {
   visible: boolean; theme: Theme; picked: Picked;
+  filterValues: Record<FilterDim, string[]>;
   onApply: (next: Picked) => void; onClose: () => void;
 }) {
   // Draft state — discarded on close, committed on Apply.
@@ -383,7 +492,7 @@ function FilterSheet({
                       {dim.toUpperCase()}
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {FILTERS[dim].map(opt => {
+                      {filterValues[dim].map(opt => {
                         const on = draft[dim].includes(opt);
                         return (
                           <TouchableOpacity
@@ -436,9 +545,13 @@ function FilterSheet({
 
 // ── Search body (filter bar + results) ─────────────────────────────────
 type SearchItem =
-  | { kind: 'event';  data: FSEvent;  image: string }
-  | { kind: 'venue';  data: FSVenue;  image: string }
-  | { kind: 'deal';   id: string; title: string; venueName: string; detail: string; image: string };
+  | { kind: 'event';   data: FSEvent;  image: string }
+  | { kind: 'venue';   data: FSVenue;  image: string }
+  | { kind: 'deal';    id: string; title: string; venueName: string; detail: string; image: string }
+  | { kind: 'gallery'; data: GalleryDoc; image: string };
+// `menu` kind intentionally omitted from the union: see TYPE_MENUS_TODO at
+// the top of this file. The "Menus" filter option renders an empty results
+// state until the collectionGroup index lands.
 
 function venueFirstImage(v: FSVenue): string {
   const m = (v.media || []) as any[];
@@ -453,8 +566,8 @@ function venueFirstImage(v: FSVenue): string {
 type SearchDeal = { id: string; title: string; venueName: string; detail: string; image: string };
 
 function SearchBody({
-  theme, query, picked, onOpenFilters, onChipRemove, onEvent, onVenue,
-  events, venues, deals, loading,
+  theme, query, picked, onOpenFilters, onChipRemove, onEvent, onVenue, onGallery,
+  events, venues, deals, galleries, loading,
 }: {
   theme: Theme;
   query: string;
@@ -463,9 +576,11 @@ function SearchBody({
   onChipRemove: (dim: FilterDim, opt: string) => void;
   onEvent: (e: FSEvent) => void;
   onVenue: (v: FSVenue) => void;
+  onGallery: (g: GalleryDoc) => void;
   events: FSEvent[];
   venues: FSVenue[];
   deals: SearchDeal[];
+  galleries: GalleryDoc[];
   loading: boolean;
 }) {
   const [view,    setView]    = useState<'grid' | 'list'>('grid');   // grid-first
@@ -493,7 +608,7 @@ function SearchBody({
       q === '' || name.toLowerCase().includes(q) || sub.toLowerCase().includes(q);
 
     const out: SearchItem[] = [];
-    const includeKind = (k: 'Events' | 'Venues' | 'Deals') => wantType.length === 0 || wantType.includes(k);
+    const includeKind = (k: TypeOption) => wantType.length === 0 || wantType.includes(k);
 
     if (includeKind('Events')) {
       events.forEach(e => {
@@ -521,20 +636,42 @@ function SearchBody({
         });
       }
     }
+    if (includeKind('Galleries')) {
+      // Galleries carry no vibes/amenities — same exclusion pattern as Deals.
+      if (wantVibe.length === 0 && wantAmen.length === 0) {
+        galleries.forEach(g => {
+          const photographer = g.photographerName || '';
+          if (!matchSearch(g.title, `${photographer} · ${g.date || ''}`)) return;
+          const cover = g.coverImage || (g.images || []).find(Boolean) || '';
+          out.push({ kind: 'gallery', data: g, image: cover });
+        });
+      }
+    }
+    // 'Menus' includeKind('Menus') is intentionally a no-op — see TYPE_MENUS_TODO.
     return out;
-  }, [query, picked, events, venues, deals]);
+  }, [query, picked, events, venues, deals, galleries]);
 
   const onItemTap = (item: SearchItem) => {
     if (item.kind === 'event') onEvent(item.data);
     else if (item.kind === 'venue') onVenue(item.data);
+    else if (item.kind === 'gallery') onGallery(item.data);
     // deal cards non-navigating in v1 (no deal-detail screen).
   };
 
+  const itemName = (item: SearchItem) =>
+    item.kind === 'deal'    ? item.title
+    : item.kind === 'event' ? item.data.title
+    : item.kind === 'venue' ? item.data.name
+    : /* gallery */           item.data.title;
+  const itemSub = (item: SearchItem) =>
+    item.kind === 'deal'    ? item.venueName
+    : item.kind === 'event' ? `${item.data.venue} · ${item.data.date}`
+    : item.kind === 'venue' ? (item.data.category || item.data.neighborhood || '')
+    : /* gallery */           [item.data.photographerName, item.data.date].filter(Boolean).join(' · ');
+
   const renderGridCard = ({ item }: { item: SearchItem }) => {
-    const name = item.kind === 'deal' ? item.title : (item.kind === 'event' ? item.data.title : item.data.name);
-    const sub  = item.kind === 'deal' ? item.venueName
-              : item.kind === 'event' ? `${item.data.venue} · ${item.data.date}`
-              : (item.data.category || item.data.neighborhood || '');
+    const name = itemName(item);
+    const sub  = itemSub(item);
     const img  = item.image;
     const cardW = (SCREEN_WIDTH - 32 - 10) / 2;  // 16 gutter each side, 10 inter-column gap
     return (
@@ -558,10 +695,8 @@ function SearchBody({
   };
 
   const renderListCard = ({ item }: { item: SearchItem }) => {
-    const name = item.kind === 'deal' ? item.title : (item.kind === 'event' ? item.data.title : item.data.name);
-    const sub  = item.kind === 'deal' ? item.venueName
-              : item.kind === 'event' ? `${item.data.venue} · ${item.data.date}`
-              : (item.data.category || item.data.neighborhood || '');
+    const name = itemName(item);
+    const sub  = itemSub(item);
     return (
       <TouchableOpacity
         activeOpacity={0.85}
@@ -649,7 +784,12 @@ function SearchBody({
     <FlatList
       key={view}   // re-mount to apply numColumns change
       data={results}
-      keyExtractor={(item, i) => `${item.kind}-${i}-${item.kind === 'deal' ? item.id : (item.kind === 'event' ? item.data.id : item.data.id)}`}
+      keyExtractor={(item, i) => `${item.kind}-${i}-${
+        item.kind === 'deal' ? item.id
+        : item.kind === 'event' ? item.data.id
+        : item.kind === 'venue' ? item.data.id
+        : /* gallery */ item.data.id
+      }`}
       renderItem={view === 'grid' ? renderGridCard : renderListCard}
       numColumns={view === 'grid' ? 2 : 1}
       columnWrapperStyle={view === 'grid' ? { paddingHorizontal: 16, gap: 10, marginBottom: 10 } : undefined}
@@ -657,10 +797,19 @@ function SearchBody({
       ListHeaderComponent={<><FilterBar/><ResultCount/></>}
       stickyHeaderIndices={[0]}
       ListEmptyComponent={
-        <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
-          <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Nothing matches that</Text>
-          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>Try a different search or fewer filters.</Text>
-        </View>
+        // Menus-only filter shows a distinct empty state — search across menu
+        // items isn't wired yet (see TYPE_MENUS_TODO at top of file).
+        picked.Type.length === 1 && picked.Type[0] === 'Menus' ? (
+          <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Menu search coming soon</Text>
+            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>We're wiring cross-venue menu search. Try a venue to see its menu.</Text>
+          </View>
+        ) : (
+          <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Nothing matches that</Text>
+            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>Try a different search or fewer filters.</Text>
+          </View>
+        )
       }
       showsVerticalScrollIndicator={false}
     />
@@ -673,6 +822,17 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
   const [shelves, setShelves] = useState<EditorialShelf[]>([]);
   const [editorialLoading, setEditorialLoading] = useState(true);
 
+  // Gallery-card 3-line render fallback hydration. Two indices:
+  //   • venueNameById   — venueId → venueName (used when card carries venueId
+  //                       but not yet venueName).
+  //   • galleryFallback — galleryId → { venueName, date } (used for LEGACY
+  //                       gallery cards that have only galleryId).
+  // Both are populated once when shelves load, ONLY for gallery cards missing
+  // the denormalized fields (i.e. seeded before seed-photographer-features.ts
+  // was re-run). After the seed re-runs the maps stay empty / unused. Item 4.1.
+  const [venueNameById,   setVenueNameById]   = useState<Record<string, string>>({});
+  const [galleryFallback, setGalleryFallback] = useState<Record<string, { venueName: string; date: string }>>({});
+
   // Inline-search state.
   const [searchActive, setSearchActive] = useState(false);
   const [searchValue, setSearchValue]   = useState('');
@@ -682,13 +842,22 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
 
   // Lifted search dataset — fetched lazily on first search-bar tap and kept
   // alive across SearchBody mount/unmount so re-opening the overlay paints
-  // instantly instead of re-firing three Firestore queries every time.
-  const [searchEvents, setSearchEvents] = useState<FSEvent[]>([]);
-  const [searchVenues, setSearchVenues] = useState<FSVenue[]>([]);
-  const [searchDeals,  setSearchDeals]  = useState<SearchDeal[]>([]);
+  // instantly instead of re-firing the Firestore queries every time.
+  // Batch 6.1: added searchGalleries to the lifted set.
+  const [searchEvents,    setSearchEvents]    = useState<FSEvent[]>([]);
+  const [searchVenues,    setSearchVenues]    = useState<FSVenue[]>([]);
+  const [searchDeals,     setSearchDeals]     = useState<SearchDeal[]>([]);
+  const [searchGalleries, setSearchGalleries] = useState<GalleryDoc[]>([]);
   const [searchDataLoaded, setSearchDataLoaded] = useState(false);
   const searchLoadStartedRef = useRef(false);
   const searchUnmountedRef = useRef(false);
+
+  // Filter taxonomy — Vibe + Amenities values pulled from filters/{name}
+  // Firestore docs the first time search is opened. Falls back to the
+  // canonical FALLBACK_VIBES / FALLBACK_AMENITIES so the sheet is usable
+  // if the read fails. Cached for the screen's lifetime.
+  const [filterValues, setFilterValues] = useState<Record<FilterDim, string[]>>(FALLBACK_FILTERS);
+  const filterTaxonomyStartedRef = useRef(false);
 
   const ensureSearchData = () => {
     if (searchLoadStartedRef.current) return;
@@ -696,10 +865,11 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
     (async () => {
       try {
         const svc = await import('../../firestoreService');
-        const [evs, vns, ds] = await Promise.all([
+        const [evs, vns, ds, gls] = await Promise.all([
           svc.getApprovedEvents([], 200),
           svc.getApprovedVenues([], 200),
           svc.getActiveDeals([], 50),
+          svc.getApprovedGalleries(50),
         ]);
         if (searchUnmountedRef.current) return;
         setSearchEvents(evs);
@@ -707,11 +877,42 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         setSearchDeals((ds as any[]).map(d => ({
           id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image || '',
         })));
+        setSearchGalleries(gls);
         setSearchDataLoaded(true);
       } catch (e) {
         console.log('Discover search load failed', e);
         // Allow a retry on next tap if the first attempt failed.
         searchLoadStartedRef.current = false;
+      }
+    })();
+  };
+
+  // Filter taxonomy fetch runs in parallel with the search-data fetch. We
+  // don't gate the search-data loaded flag on it — if the read is slow or
+  // fails, the fallback values render and the sheet is still usable. Once
+  // it resolves we splice in the resolved values without disturbing the
+  // user's current `picked` selections.
+  const ensureFilterTaxonomy = () => {
+    if (filterTaxonomyStartedRef.current) return;
+    filterTaxonomyStartedRef.current = true;
+    (async () => {
+      try {
+        const svc = await import('../../firestoreService');
+        const [vibes, amenities] = await Promise.all([
+          svc.getFilterTaxonomy('vibes'),
+          svc.getFilterTaxonomy('amenities'),
+        ]);
+        if (searchUnmountedRef.current) return;
+        setFilterValues(prev => ({
+          Type:      prev.Type,
+          Vibe:      vibes      && vibes.length      > 0 ? vibes      : prev.Vibe,
+          Amenities: amenities  && amenities.length  > 0 ? amenities  : prev.Amenities,
+        }));
+      } catch (e) {
+        console.log('Discover filter-taxonomy load failed', e);
+        // Allow a retry on the next search-bar tap so a transient failure
+        // doesn't pin us to the fallback for the session.
+        filterTaxonomyStartedRef.current = false;
       }
     })();
   };
@@ -728,6 +929,51 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         const svc = await import('../../firestoreService');
         const data = await svc.getEditorialShelves();
         if (!cancelled) setShelves(data);
+
+        // Fallback hydration for gallery cards that DON'T already carry the
+        // denormalized `venueName` / `date` (older seed output). Resolve
+        // venue via the gallery doc → venue doc, in parallel. After
+        // seed-photographer-features.ts is re-run with the venueName + date
+        // embed, this branch finds nothing to hydrate and no extra reads fire.
+        const legacyGalleryIds = new Set<string>();
+        for (const shelf of data) {
+          for (const c of (shelf.doc.cards || [])) {
+            if (c.kind !== 'gallery') continue;
+            const cAny = c as EditorialCard & { venueName?: string; date?: string };
+            const hasVenue = !!(cAny.venueName && cAny.venueName.length > 0);
+            const hasDate  = !!(cAny.date && cAny.date.length > 0);
+            if (hasVenue && hasDate) continue;
+            if (c.galleryId) legacyGalleryIds.add(c.galleryId);
+          }
+        }
+        if (legacyGalleryIds.size === 0) return;
+
+        const uniqueGalleryIds = Array.from(legacyGalleryIds);
+        const galleryDocs = await Promise.all(uniqueGalleryIds.map(id => svc.getGalleryById(id).catch(() => null)));
+        if (cancelled) return;
+
+        const uniqueVenueIds = Array.from(new Set(
+          galleryDocs.filter((g): g is NonNullable<typeof g> => !!g && !!g.venueId).map(g => g.venueId!)
+        ));
+        const venues = uniqueVenueIds.length > 0
+          ? await Promise.all(uniqueVenueIds.map(id => svc.getVenueById(id).catch(() => null)))
+          : [];
+        if (cancelled) return;
+
+        const vMap: Record<string, string> = {};
+        venues.forEach(v => { if (v && v.id && v.name) vMap[v.id] = v.name; });
+
+        const gMap: Record<string, { venueName: string; date: string }> = {};
+        galleryDocs.forEach(g => {
+          if (!g || !g.id) return;
+          gMap[g.id] = {
+            venueName: g.venueId ? (vMap[g.venueId] || '') : '',
+            date: g.date || '',
+          };
+        });
+
+        setVenueNameById(prev => ({ ...prev, ...vMap }));
+        setGalleryFallback(prev => ({ ...prev, ...gMap }));
       } catch (e) {
         console.log('DiscoverEditorialScreen: load failed', e);
       } finally {
@@ -781,7 +1027,7 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         searchActive={searchActive}
         searchValue={searchValue}
         onSearchValueChange={setSearchValue}
-        onActivate={() => { ensureSearchData(); setSearchActive(true); }}
+        onActivate={() => { ensureSearchData(); ensureFilterTaxonomy(); setSearchActive(true); }}
         onCancel={() => { setSearchActive(false); setSearchValue(''); /* picked stays so toggle is round-trippable */ }}
         onMapTap={onMapTap}
       />
@@ -794,9 +1040,11 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
           onChipRemove={removeChip}
           onEvent={handleSearchEvent}
           onVenue={handleSearchVenue}
+          onGallery={(g) => onGalleryPress(galleryDocToData(g))}
           events={searchEvents}
           venues={searchVenues}
           deals={searchDeals}
+          galleries={searchGalleries}
           loading={!searchDataLoaded}
         />
       ) : (
@@ -805,12 +1053,15 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
           loading={editorialLoading}
           theme={theme}
           onCard={handleEditorialCard}
+          venueNameById={venueNameById}
+          galleryFallback={galleryFallback}
         />
       )}
       <FilterSheet
         visible={sheetOpen}
         theme={theme}
         picked={picked}
+        filterValues={filterValues}
         onApply={(next) => { setPicked(next); setSheetOpen(false); }}
         onClose={() => setSheetOpen(false)}
       />

@@ -45,6 +45,25 @@ async function main() {
   const gsnap = await db.collection('galleries').get();
   const allGalleries = gsnap.docs.map(d => ({ id: d.id, ...d.data() } as FirebaseFirestore.DocumentData & { id: string }));
 
+  // Pre-load all referenced venues so we can denormalize venue NAME onto each
+  // gallery-kind card. The card sits inside a TOP-LEVEL editorial doc that
+  // never re-joins on read, so the consumer app can render three lines
+  // (venue / date / title — matching the PhotoViewer overlay) without a
+  // per-card lookup at render time. Item 4.1.
+  const referencedVenueIds = Array.from(new Set(allGalleries.map(g => g.venueId).filter(Boolean)));
+  const venueNameById: Record<string, string> = {};
+  await Promise.all(referencedVenueIds.map(async (vid: string) => {
+    try {
+      const vsnap = await db.collection('venues').doc(vid).get();
+      if (vsnap.exists) {
+        const vname = (vsnap.data() as any)?.name;
+        if (typeof vname === 'string' && vname.length > 0) venueNameById[vid] = vname;
+      }
+    } catch (e) {
+      console.warn(`  ! venue lookup failed for ${vid}:`, (e as Error).message);
+    }
+  }));
+
   for (const f of FEATURES) {
     const galleries = allGalleries
       .filter(g => g.photographerName === f.handle && !!g.coverImage)
@@ -56,11 +75,20 @@ async function main() {
     }
 
     const totalPhotos = galleries.reduce((n, g) => n + (g.photoCount || 0), 0);
-    const cards = galleries.map(g => ({
-      kind: 'gallery', galleryId: g.id,
-      title: g.title, sub: `${g.photoCount || 0} photos`, image: g.coverImage,
-      tag: 'GALLERY', tagColor: GALLERY_TAG_COLOR,
-    }));
+    const cards = galleries.map(g => {
+      const vname = g.venueId ? venueNameById[g.venueId] : '';
+      // sub is kept as the legacy "N photos" line for back-compat with any
+      // older clients that haven't shipped the 3-line card render yet; new
+      // clients prefer venueName + date.
+      return {
+        kind: 'gallery', galleryId: g.id,
+        venueId: g.venueId || '',
+        venueName: vname || '',
+        date: g.date || '',
+        title: g.title, sub: `${g.photoCount || 0} photos`, image: g.coverImage,
+        tag: 'GALLERY', tagColor: GALLERY_TAG_COLOR,
+      };
+    });
 
     batch.set(db.collection('photographerFeatures').doc(f.id), {
       id: f.id,

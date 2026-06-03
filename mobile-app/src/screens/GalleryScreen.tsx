@@ -167,9 +167,16 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
             <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }} numberOfLines={1}>
               {gallery.title}
             </Text>
-            <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 1 }} numberOfLines={1}>
-              {gallery.venue}{gallery.date ? ` · ${gallery.date}` : ''}
-            </Text>
+            {gallery.venue ? (
+              <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600', marginTop: 2 }} numberOfLines={1}>
+                {gallery.venue}
+              </Text>
+            ) : null}
+            {gallery.date ? (
+              <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
+                {gallery.date}
+              </Text>
+            ) : null}
           </View>
           <TouchableOpacity style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
             <ShareIcon color={theme.subtext}/>

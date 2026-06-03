@@ -854,3 +854,39 @@ export async function getItineraryById(itineraryId: string): Promise<ItineraryDo
     return null;
   }
 }
+
+// ── Search-surface galleries ───────────────────────────────────────────
+// Top-level `galleries` collection, ordered newest-first. No status field
+// on gallery docs today, so this returns every gallery up to `max`. Used
+// by DiscoverEditorialScreen search when "Galleries" is in the Type filter.
+// Single-field orderBy (no composite index required).
+export async function getApprovedGalleries(max: number = 50): Promise<GalleryDoc[]> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'galleries'), orderBy('createdAt', 'desc'), limit(max))
+    );
+    return snap.docs.map(d => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
+  } catch (e) {
+    console.log('getApprovedGalleries error:', e);
+    return [];
+  }
+}
+
+// ── Search-surface filter taxonomies ───────────────────────────────────
+// Reads filters/{vibes,amenities} — single docs each shape { values: string[] }.
+// DiscoverEditorialScreen calls this lazily on first search-bar tap with a
+// hardcoded fallback in place if the read fails. Writes are admin-only
+// (firestore.rules catch-all blocks writes); seed via scripts/seed-filters.ts.
+export type FilterTaxonomyDoc = { values: string[] };
+export async function getFilterTaxonomy(name: 'vibes' | 'amenities'): Promise<string[] | null> {
+  try {
+    const snap = await getDoc(doc(collection(db, 'filters'), name));
+    if (!snap.exists()) return null;
+    const data = snap.data() as FilterTaxonomyDoc | undefined;
+    if (!data || !Array.isArray(data.values)) return null;
+    return data.values.filter(v => typeof v === 'string' && v.length > 0);
+  } catch (e) {
+    console.log(`getFilterTaxonomy(${name}) error:`, e);
+    return null;
+  }
+}

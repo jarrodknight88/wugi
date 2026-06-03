@@ -12,16 +12,23 @@
 // Typography: FONTS.display titles · FONTS.body body · FONTS.medium
 // buttons/labels · MONO ALLCAPS eyebrows.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator,
-  FlatList, StyleSheet, Animated,
+  FlatList, StyleSheet, Animated, Easing,
 } from 'react-native';
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FavoriteItem, PassData } from '../types';
-import { HeartIcon, ChevronRightIcon } from '../components/icons';
+import { ChevronRightIcon } from '../components/icons';
+import { HeartIconBordered } from '../components/HeartIconBordered';
 import { FONTS, MONO } from '../constants/fonts';
+
+// Undo window for unsave actions — within this delay the SavedCard is
+// hidden locally but the parent's onRemove() (Firestore mutation + in-
+// memory state filter) is NOT called yet. Tapping Undo cancels the
+// timer and animates the card back in.
+const UNDO_DURATION_MS = 4000;
 
 // Number of items previewed in each section's horizontal carousel before the
 // "View All" link takes the user to the full list.
@@ -63,42 +70,84 @@ function SectionHeader({ kicker, title, count, theme, onViewAll }: { kicker: str
 
 // ── Compact saved card — horizontal-carousel preview ──────────────────
 // Image-led card with uniform overlay (matches Home "Picks/Weekend" pattern).
-// Tappable heart in the top-right unsaves the item with a 200ms fade+scale
-// animation; the carousel reflows once the parent's favorites state drops it.
-// The heart's TouchableOpacity stops touch propagation (RN child-responder),
-// so heart-tap removes without firing the parent card's onPress.
-function SavedCard({ item, theme, onPress, onRemove }: { item: FavoriteItem; theme: Theme; onPress: () => void; onRemove: () => void }) {
-  const fade  = useRef(new Animated.Value(1)).current;
-  const scale = useRef(new Animated.Value(1)).current;
-  const dismissedRef = useRef(false);
+// Tappable heart in the top-right unsaves the item with a 250ms fade +
+// width-collapse animation; the carousel's gap reflows as the card's
+// outer width animates to 0. The card stays mounted (hidden) during the
+// 4s undo window — if the user taps Undo, the same animation runs in
+// reverse and the card pops back in. The heart's TouchableOpacity stops
+// touch propagation (RN child-responder), so heart-tap removes without
+// firing the parent card's onPress.
+//
+// The actual Firestore + in-memory state removal is owned by the parent
+// (props.onRemove); SavedCard purely owns its visual state. The parent
+// fires onRemove() either when the 4s timer expires or when the card is
+// preempted by a newer removal (single-pending-removal rule).
+const CARD_WIDTH = 140;
+function SavedCard({
+  item, theme, onPress, onRequestRemove, pending, onUndo,
+}: {
+  item: FavoriteItem;
+  theme: Theme;
+  onPress: () => void;
+  onRequestRemove: () => void;
+  pending: boolean;        // true while the 4s undo window is active for this card
+  onUndo: () => void;      // called when Undo is requested for this specific card
+}) {
+  const fade   = useRef(new Animated.Value(1)).current;
+  const widthA = useRef(new Animated.Value(CARD_WIDTH)).current;
+  const lastPending = useRef(false);
+
+  // Drive the collapse / restore animation off the `pending` flag so the
+  // SavedCard re-animates back in when the parent flips pending → false
+  // (Undo). Each direction is 250ms — fade and width animate together.
+  useEffect(() => {
+    if (pending === lastPending.current) return;
+    lastPending.current = pending;
+    Animated.parallel([
+      Animated.timing(fade, {
+        toValue: pending ? 0 : 1,
+        duration: 250,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: false, // width animates on JS thread; keep both in sync
+      }),
+      Animated.timing(widthA, {
+        toValue: pending ? 0 : CARD_WIDTH,
+        duration: 250,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [pending, fade, widthA]);
 
   const handleRemove = () => {
-    if (dismissedRef.current) return;
-    dismissedRef.current = true;
-    Animated.parallel([
-      Animated.timing(fade,  { toValue: 0,    duration: 200, useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 0.92, duration: 200, useNativeDriver: true }),
-    ]).start(() => onRemove());
+    if (pending) return;
+    onRequestRemove();
   };
 
   return (
-    <Animated.View style={{ opacity: fade, transform: [{ scale }] }}>
-      <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={{ width: 140, height: 180, borderRadius: 12, overflow: 'hidden' }}>
+    <Animated.View style={{ width: widthA, opacity: fade, overflow: 'hidden' }}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={pending ? onUndo : onPress}
+        disabled={false}
+        style={{ width: CARD_WIDTH, height: 180, borderRadius: 12, overflow: 'hidden' }}
+      >
         <Image cachePolicy="memory-disk" source={{ uri: item.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
         <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
         {!item.read && (
           <View style={{ position: 'absolute', top: 8, left: 8, width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.accent }}/>
         )}
-        {/* Heart-unsave — visible 24pt icon at top:8/right:8, hitSlop expands the
-            touch area to ~44×44 (iOS HIG). Nested TouchableOpacity catches the
-            tap so it does NOT propagate to the parent card's onPress. */}
+        {/* Heart-unsave — visible 24pt icon at top:8/right:8, hitSlop expands
+            the touch area to ~44×44 (iOS HIG). White outline (Batch 3.1)
+            improves legibility on busy photos. Nested TouchableOpacity
+            catches the tap so it does NOT propagate to parent onPress. */}
         <TouchableOpacity
           onPress={handleRemove}
           activeOpacity={0.7}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={{ position: 'absolute', top: 8, right: 8 }}
         >
-          <HeartIcon color={theme.accent} filled size={24}/>
+          <HeartIconBordered color={theme.accent} filled size={24}/>
         </TouchableOpacity>
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
           <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5, marginBottom: 3 }}>
@@ -183,7 +232,7 @@ export function SavedItemRow({ item, theme, onPress, onRemove }: { item: Favorit
         </Text>
       </View>
       <TouchableOpacity onPress={onRemove} style={{ padding: 16 }} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-        <HeartIcon color="#e74c3c" filled/>
+        <HeartIconBordered color="#e74c3c" filled/>
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -207,6 +256,80 @@ export function FavoritesScreen({
 }: Props) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [passesLoading, setPassesLoading] = useState(true);
+
+  // ── Pending-removal (undo) state — Batch 3.3 ──────────────────────
+  // We defer the parent's onRemove(id) until the 4s undo window closes
+  // (or another removal preempts it, or the screen unmounts). During
+  // the window the SavedCard for `pendingId` animates to width:0 and
+  // the undo pill banner is visible at the bottom.
+  //
+  // Only ONE pending removal exists at a time — a new unsave tap fires
+  // the previous pending removal immediately, then takes its place.
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const pendingRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const bannerFade = useRef(new Animated.Value(0)).current;
+
+  // Clears the timer + ref but does NOT call onRemove. Used both for
+  // Undo (we want to keep the favorite) and when preempting one
+  // pending removal with another (we already fired onRemove manually).
+  const clearPending = useCallback(() => {
+    if (pendingRef.current) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current = null;
+    }
+  }, []);
+
+  const requestRemoval = useCallback((id: string) => {
+    // If something else is already pending, commit it first so we never
+    // hold more than one pending removal. This matches the "latest
+    // action replaces existing banner" rule.
+    if (pendingRef.current && pendingRef.current.id !== id) {
+      const prev = pendingRef.current;
+      clearTimeout(prev.timer);
+      pendingRef.current = null;
+      onRemove(prev.id);
+    }
+    const timer = setTimeout(() => {
+      // 4s expired — finalize the removal.
+      const cur = pendingRef.current;
+      if (!cur || cur.id !== id) return;
+      pendingRef.current = null;
+      onRemove(id);
+      setPendingId(null);
+    }, UNDO_DURATION_MS);
+    pendingRef.current = { id, timer };
+    setPendingId(id);
+  }, [onRemove]);
+
+  const undoPending = useCallback(() => {
+    clearPending();
+    setPendingId(null);
+  }, [clearPending]);
+
+  // Fade the banner in/out as pendingId changes.
+  useEffect(() => {
+    Animated.timing(bannerFade, {
+      toValue: pendingId ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [pendingId, bannerFade]);
+
+  // On unmount: commit any in-flight pending removal so the user's
+  // intent is honored even if they navigate away.
+  useEffect(() => {
+    return () => {
+      const pr = pendingRef.current;
+      if (pr) {
+        clearTimeout(pr.timer);
+        pendingRef.current = null;
+        onRemove(pr.id);
+      }
+    };
+    // onRemove is stable from RootNavigator's perspective per-render;
+    // we intentionally run cleanup once on unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Live passes listener — mirrors MyPassesScreen pattern
   useEffect(() => {
@@ -331,7 +454,9 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
-                onRemove={() => onRemove(item.id)}
+                onRequestRemove={() => requestRemoval(item.id)}
+                pending={pendingId === item.id}
+                onUndo={undoPending}
               />
             )}
           />
@@ -359,12 +484,52 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
-                onRemove={() => onRemove(item.id)}
+                onRequestRemove={() => requestRemoval(item.id)}
+                pending={pendingId === item.id}
+                onUndo={undoPending}
               />
             )}
           />
         )}
       </ScrollView>
+
+      {/* ── Undo banner — Batch 3.3 ─────────────────────────────────
+          Bottom-anchored pill. Fades in when a removal is pending and
+          fades out when the 4s timer expires OR the user taps Undo.
+          pointerEvents flips with visibility so the banner doesn't
+          block touches when hidden. */}
+      <Animated.View
+        pointerEvents={pendingId ? 'box-none' : 'none'}
+        style={{
+          position: 'absolute', left: 16, right: 16, bottom: 24,
+          opacity: bannerFade,
+          alignItems: 'center',
+        }}
+      >
+        <View style={{
+          flexDirection: 'row', alignItems: 'center',
+          backgroundColor: theme.card,
+          borderRadius: 22, paddingLeft: 18, paddingRight: 6, paddingVertical: 6,
+          borderWidth: 1, borderColor: theme.border,
+          shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+          elevation: 4,
+          maxWidth: '100%',
+        }}>
+          <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body, marginRight: 12 }}>
+            Card removed
+          </Text>
+          <TouchableOpacity
+            onPress={undoPending}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, backgroundColor: theme.accent }}
+          >
+            <Text style={{ color: theme.onAccent ?? '#fff', fontSize: 13, fontFamily: FONTS.medium, letterSpacing: 0.2 }}>
+              Undo
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     </View>
   );
 }
