@@ -8,29 +8,26 @@
 //
 // Sectional structure (top → bottom):
 //   1. Hero — paged carousel + parchment venue name overlay
-//   2. Stats trio (open status · rating · price) + category line
-//      • Kept per answer #E — the kit drops these but they read real
-//        data we already have, so we coexist them with the kit's
-//        category line below.
+//   2. Category line (the stats trio was removed to match the design —
+//      see the note by the amenityList derivation; data still on venue).
 //   3. VenueContactBlock — "FIND US" · 64×64 logo/initials · underlined
-//      accent address + phone · chevron
-//   4. VenueHoursInfoBlock — "HOURS & INFO" secondary block carrying
-//      hours / website / instagram (added per answer #2 so this useful
-//      data isn't dropped from the page).
-//   5. VenueAboutBlock — "ABOUT THE PLACE" · paragraph only
-//   6. VenueMenuBlock — "MENU" eyebrow + "View All" link + real-data
+//      accent address + phone · chevron that expands hours / website /
+//      instagram inline (mirrors EventScreen's VenueIdentityBlock idiom;
+//      replaces the old standalone HOURS & INFO block).
+//   4. VenueAboutBlock — "ABOUT THE PLACE" · paragraph only
+//   5. VenueMenuBlock — "MENU" eyebrow + "View All" link + real-data
 //      teaser (engrained section, matches Event's 803d69a pattern).
-//   7. VenueAttributesIcons — "WHAT TO EXPECT" · 2-col icon-grid card
-//      built from venue.amenities (or attributes fallback).
-//   8. VenueUpcomingEventsBlock — "HAPPENING HERE · N UPCOMING"
+//   6. VenueAttributesStrip — "WHAT TO EXPECT" · inline middot-separated
+//      text strip built from venue.amenities (or attributes fallback).
+//   7. VenueUpcomingEventsBlock — "HAPPENING HERE · N UPCOMING"
 //      horizontal scroller of 200-wide cards with date-badge top-left.
-//   9. VenueGalleriesGrid — "GALLERIES · N NIGHTS" · 2-col aspect-1
+//   8. VenueGalleriesGrid — "GALLERIES · N NIGHTS" · 2-col aspect-1
 //      grid; "All →" link when >4 galleries pushes the new
 //      VenueGalleriesListScreen via onAllGalleries.
-//  10. Sticky CTAs — Get Tickets (when active event) over Directions +
+//   9. Sticky CTAs — Get Tickets (when active event) over Directions +
 //      Reserve (when reservation URL present).
 //
-// Type via FONTS.* (PP Neue Montreal); MONO for eyebrows / stats.
+// Type via FONTS.* (PP Neue Montreal); MONO for eyebrows.
 // Real-data-only: any section with no backing data is omitted.
 //
 // VenueIdentityBlock and useVenueById are intentionally NOT touched here.
@@ -43,47 +40,21 @@ import { BlurView } from 'expo-blur';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem } from '../types';
-import { BackIcon, StarIcon, ChevronRightIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
+import { BackIcon, ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 import { makeGallery } from '../constants/mockData';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2);
-const STATUS_GREEN  = '#5c9a7e';
 const GALLERY_PURPLE = '#9b59b6';
 const GALLERIES_INLINE_MAX = 4;
 const GALLERY_GRID_GUTTER  = 16;
 const GALLERY_GRID_GAP     = 8;
 const GALLERY_CARD_W = (SCREEN_WIDTH - GALLERY_GRID_GUTTER * 2 - GALLERY_GRID_GAP) / 2;
 
-// ── Amenity icons ─────────────────────────────────────────────────────
-// Ported verbatim from the kit's AMENITY_ICON map. Keys are Title-Case
-// with spaces — matches the Firestore venue.amenities[] convention
-// (Teranga: "Hookah", "Bottle Service", "Reservations" all exact). Misses
-// fall through to a generic circle. The normalizeAmenity helper is
-// defensive insurance against future case/punctuation drift; today's
-// data needs no normalization to hit the exact keys.
-const AMENITY_ICON: Record<string, string> = {
-  'Rooftop':        'M3 21h18M5 21V10l7-5 7 5v11M9 21v-5h6v5',
-  'Bottle Service': 'M10 3h4v3l1.5 3v12h-7V9L10 6V3z',
-  'Dress Code':     'M8 3l4 3 4-3 4 5-3 2v10H7V10L4 8z',
-  'Open Late':      'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z',
-  'Reservations':   'M8 2v3M16 2v3M3 9h18M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z',
-  'Patio':          'M3 21h18M6 21v-7M18 21v-7M3 14h18l-2-6H5l-2 6z',
-  'Live Music':     'M9 18V5l10-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zm10-2a3 3 0 11-6 0 3 3 0 016 0z',
-  'Hookah':         'M12 4v8m0 0c-3 0-5 2-5 5h10c0-3-2-5-5-5zM10 4h4',
-};
-const CIRCLE_FALLBACK = 'M12 2a10 10 0 100 20 10 10 0 000-20z';
-function normalizeAmenity(label: string): string {
-  return String(label || '').trim().toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ');
-}
-const AMENITY_ICON_NORMALIZED: Record<string, string> = Object.entries(AMENITY_ICON)
-  .reduce((acc, [k, v]) => { acc[normalizeAmenity(k)] = v; return acc; }, {} as Record<string, string>);
-function amenityPath(label: string): string {
-  if (AMENITY_ICON[label]) return AMENITY_ICON[label];
-  const norm = normalizeAmenity(label);
-  return AMENITY_ICON_NORMALIZED[norm] || CIRCLE_FALLBACK;
-}
+// Clock glyph for the FIND US "hours" expansion row (15×15, viewBox 24) —
+// the only amenity SVG still needed now that WHAT TO EXPECT is a text strip.
+const CLOCK_PATH = 'M12 7v5l3 2M12 21a9 9 0 100-18 9 9 0 000 18z';
 
 type ActiveTicketEvent = {
   id: string;
@@ -115,14 +86,21 @@ type Props = {
 // ── Section sub-components ────────────────────────────────────────────
 
 // "FIND US" — 64×64 logo (or initials fallback) + name + underlined accent
-// address (tap → maps) + phone (tap → tel:) + chevron. Matches the kit's
-// "Event page venue-strip aesthetic" pattern.
+// address (tap → maps) + phone (tap → tel:) + chevron. Tapping the chevron
+// expands hours / website / instagram inline, mirroring EventScreen's
+// VenueIdentityBlock idiom (chevron swaps Right↔Down, conditional render, no
+// animation). This is where that data lives now — the old HOURS & INFO block
+// was removed to match the design.
 function VenueContactBlock({ venue, theme, onMapPress }: { venue: VenueData; theme: Theme; onMapPress: () => void }) {
+  const [expanded, setExpanded] = useState(false);
   if (!venue.address && !venue.phone) return null;
   const initials = (venue.name || '').slice(0, 2).toUpperCase();
   const onPhonePress = () => {
     if (venue.phone) Linking.openURL(`tel:${venue.phone}`).catch(() => {});
   };
+  const websiteLabel = venue.website ? venue.website.replace(/^https?:\/\//, '') : '';
+  const igHandle = venue.instagram ? venue.instagram.replace('@', '') : '';
+  const hasExtra = !!(venue.hoursText || venue.website || venue.instagram);
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
       <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
@@ -153,45 +131,45 @@ function VenueContactBlock({ venue, theme, onMapPress }: { venue: VenueData; the
             </TouchableOpacity>
           )}
         </View>
-        <View style={{ paddingTop: 4 }}>
-          <ChevronRightIcon color={theme.subtext}/>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// "HOURS & INFO" — secondary block carrying hours / website / instagram so
-// they aren't dropped from the page (per answer #2). Same row pattern the
-// old combined info card used.
-function VenueHoursInfoBlock({ venue, theme }: { venue: VenueData; theme: Theme }) {
-  const rows: { label: string; value: string; onPress?: () => void }[] = [];
-  if (venue.hoursText) rows.push({ label: 'HOURS', value: venue.hoursText });
-  if (venue.website) rows.push({
-    label: 'WEBSITE',
-    value: venue.website.replace(/^https?:\/\//, ''),
-    onPress: () => Linking.openURL(venue.website.startsWith('http') ? venue.website : `https://${venue.website}`).catch(() => {}),
-  });
-  if (venue.instagram) rows.push({
-    label: 'INSTAGRAM',
-    value: venue.instagram,
-    onPress: () => Linking.openURL(`https://instagram.com/${venue.instagram.replace('@', '')}`).catch(() => {}),
-  });
-  if (rows.length === 0) return null;
-  return (
-    <View style={{ paddingHorizontal: 16, paddingTop: 18 }}>
-      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
-        HOURS &amp; INFO
-      </Text>
-      <View style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: 'hidden' }}>
-        {rows.map((r, i) => (
-          <TouchableOpacity key={r.label} disabled={!r.onPress} activeOpacity={r.onPress ? 0.7 : 1} onPress={r.onPress}
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: theme.divider }}>
-            <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.4 }}>{r.label}</Text>
-            <Text style={{ color: r.onPress ? theme.accent : theme.text, fontSize: 12, fontFamily: FONTS.medium, flexShrink: 1, textAlign: 'right' }} numberOfLines={2}>{r.value}</Text>
+        {hasExtra ? (
+          <TouchableOpacity onPress={() => setExpanded(v => !v)} activeOpacity={0.7} style={{ paddingTop: 4, paddingLeft: 4 }}>
+            {expanded ? <ChevronDownIcon color={theme.subtext}/> : <ChevronRightIcon color={theme.subtext}/>}
           </TouchableOpacity>
-        ))}
+        ) : (
+          <View style={{ paddingTop: 4 }}>
+            <ChevronRightIcon color={theme.subtext}/>
+          </View>
+        )}
       </View>
+
+      {/* Expanded: hours / website / instagram — only rows with data, aligned
+          under the text column (64 logo + 14 gap). */}
+      {expanded && hasExtra && (
+        <View style={{ marginTop: 14, paddingLeft: 78, gap: 12 }}>
+          {!!venue.hoursText && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                <Path d={CLOCK_PATH} stroke={theme.accent} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
+              </Svg>
+              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body, flexShrink: 1 }}>{venue.hoursText}</Text>
+            </View>
+          )}
+          {!!venue.website && (
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+              onPress={() => Linking.openURL(venue.website.startsWith('http') ? venue.website : `https://${venue.website}`).catch(() => {})}>
+              <GlobeIcon color={theme.accent}/>
+              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body }}>{websiteLabel}</Text>
+            </TouchableOpacity>
+          )}
+          {!!venue.instagram && (
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+              onPress={() => Linking.openURL(`https://instagram.com/${igHandle}`).catch(() => {})}>
+              <InstagramIcon color={theme.accent}/>
+              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body }}>{venue.instagram}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -234,30 +212,18 @@ function VenueMenuBlock({ venue, theme, onMenuPress }: { venue: VenueData; theme
   );
 }
 
-// "WHAT TO EXPECT" — 2-col icon+label grid inside a single card. Reads
-// venue.amenities[] (or attributes[] as legacy fallback).
-function VenueAttributesIcons({ items, theme }: { items: string[]; theme: Theme }) {
+// "WHAT TO EXPECT" — inline middot-separated text strip (per design). Reads
+// venue.amenities[] (or attributes[] legacy fallback); wraps naturally.
+function VenueAttributesStrip({ items, theme }: { items: string[]; theme: Theme }) {
   if (!items || items.length === 0) return null;
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 10 }}>
+      <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
         WHAT TO EXPECT
       </Text>
-      <View style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: 'hidden', flexDirection: 'row', flexWrap: 'wrap' }}>
-        {items.map((label, i) => (
-          <View key={`${label}-${i}`} style={{
-            width: '50%', flexDirection: 'row', alignItems: 'center', gap: 10,
-            paddingHorizontal: 14, paddingVertical: 12,
-            borderTopWidth: i >= 2 ? 1 : 0, borderTopColor: theme.divider,
-            borderLeftWidth: i % 2 === 1 ? 1 : 0, borderLeftColor: theme.divider,
-          }}>
-            <Svg width={17} height={17} viewBox="0 0 24 24" fill="none">
-              <Path d={amenityPath(label)} stroke={theme.accent} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
-            </Svg>
-            <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.medium, letterSpacing: -0.1, flex: 1 }} numberOfLines={1}>{label}</Text>
-          </View>
-        ))}
-      </View>
+      <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, lineHeight: 20 }}>
+        {items.join(' · ')}
+      </Text>
     </View>
   );
 }
@@ -425,14 +391,12 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
     return () => { cancelled = true; };
   }, [venue.id]);
 
-  // Stats trio — open status (green) · rating · price. Render only what exists.
-  const openLabel = venue.openStatusHint || (venue.hoursText ? venue.hoursText.split('  ·  ')[0] : undefined);
-  const stats: { kind: 'open' | 'rating' | 'price'; value: string }[] = [];
-  if (openLabel) stats.push({ kind: 'open', value: openLabel });
-  if (typeof venue.rating === 'number') stats.push({ kind: 'rating', value: venue.rating.toFixed(1) });
-  if (venue.priceTier) stats.push({ kind: 'price', value: venue.priceTier });
+  // Stats trio (open status · rating · price) intentionally not rendered —
+  // aligned to the design. The data is still on venue (openStatusHint /
+  // rating / priceTier) and can be resurfaced once there's a defined source
+  // of truth for open-status.
 
-  // Amenities for the icon grid — prefer phase-2 amenities[], fall back to
+  // Amenities for the inline strip — prefer phase-2 amenities[], fall back to
   // legacy attributes[] (same precedence the old pill list used).
   const amenityList = (venue.amenities && venue.amenities.length > 0) ? venue.amenities : (venue.attributes || []);
 
@@ -579,44 +543,26 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           )}
         </View>
 
-        {/* 2. Stats trio + category line (kept per answer #E) */}
-        {(stats.length > 0 || !!venue.category) && (
+        {/* 2. Category line */}
+        {!!venue.category && (
           <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
-            {stats.length > 0 && (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {stats.map((s, i) => (
-                  <View key={i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 5 }}>
-                    {s.kind === 'open' && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: STATUS_GREEN }}/>}
-                    {s.kind === 'rating' && <StarIcon color={theme.iconAccent}/>}
-                    <Text style={{ color: s.kind === 'open' ? STATUS_GREEN : theme.text, fontSize: 12, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.3 }} numberOfLines={1}>
-                      {s.value}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-            {!!venue.category && (
-              <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: stats.length > 0 ? 12 : 0 }}>{venue.category}</Text>
-            )}
+            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body }}>{venue.category}</Text>
           </View>
         )}
 
-        {/* 3. FIND US */}
+        {/* 3. FIND US (hours / website / instagram expand from the chevron) */}
         <VenueContactBlock venue={venue} theme={theme} onMapPress={onMapPress}/>
 
-        {/* 4. HOURS & INFO (secondary; answer #2) */}
-        <VenueHoursInfoBlock venue={venue} theme={theme}/>
-
-        {/* 5. ABOUT THE PLACE */}
+        {/* 4. ABOUT THE PLACE */}
         <VenueAboutBlock venue={venue} theme={theme}/>
 
-        {/* 6. MENU — engrained */}
+        {/* 5. MENU — engrained */}
         {onMenuPress && (
           <VenueMenuBlock venue={venue} theme={theme} onMenuPress={onMenuPress}/>
         )}
 
-        {/* 7. WHAT TO EXPECT — amenity icon grid */}
-        <VenueAttributesIcons items={amenityList} theme={theme}/>
+        {/* 6. WHAT TO EXPECT — inline amenity strip */}
+        <VenueAttributesStrip items={amenityList} theme={theme}/>
 
         {/* 8. HAPPENING HERE — upcoming events */}
         <VenueUpcomingEventsBlock events={upcoming} theme={theme} onEventPress={onEventPress}/>
