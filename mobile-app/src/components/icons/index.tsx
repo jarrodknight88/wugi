@@ -114,6 +114,29 @@ export function InfoIcon({ color }: { color: string }) {
   );
 }
 
+// Paper-plane / send glyph for the photo viewer bottom toolbar.
+// Instagram-style 45° angled outline; matches Lucide "send".
+export function SendIcon({ color, size = 22 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M22 2L11 13" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M22 2l-7 20-4-9-9-4 20-7z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    </Svg>
+  );
+}
+
+// Shopping-bag glyph — bag body with U-shape handles rising above. This
+// reads more clearly than the cart-style path used previously (where the
+// handle dipped below the bag's top edge).
+export function ShoppingBagIcon({ color, size = 22 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 8h14l-1 13H6L5 8z" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M9 8V6a3 3 0 016 0v2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+    </Svg>
+  );
+}
+
 // ── Contact / Social icons ────────────────────────────────────────────
 export function LocationIcon({ color }: { color: string }) {
   return (

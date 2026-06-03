@@ -27,11 +27,14 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Alert,
+  Share,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
 import type { MenuItem } from '../types';
-import { BackIcon } from '../components/icons';
+import { BackIcon, ShareIcon, FlagIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -341,6 +344,23 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
     }
   }, [items]);
 
+  // Share + Report handlers — mirror the EventScreen / VenueScreen /
+  // ItineraryDetailScreen pattern (system Share for share; Alert ack for
+  // report).
+  const handleShare = () => {
+    Share.share({
+      message: `Check out ${venueName}'s menu on Wugi!`,
+      title: `${venueName} — Menu`,
+    }).catch(() => {});
+  };
+  const handleReport = () => {
+    Alert.alert(
+      'Report Menu',
+      'Thank you — we\'ll review this menu.',
+      [{ text: 'OK' }],
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {loading ? (
@@ -408,7 +428,20 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                   {venueName}
                 </Text>
               </View>
-              <View style={{ width: 40 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={handleShare}
+                  style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <ShareIcon color={theme.text}/>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleReport}
+                  style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <FlagIcon color={theme.text}/>
+                </TouchableOpacity>
+              </View>
             </View>
           </SafeAreaView>
           <View
@@ -498,7 +531,9 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                 }}
               />
 
-              {/* Back button */}
+              {/* Top icon row — Back (left) + Share + Report (right).
+                  Same glass-pill BlurView pattern as Event / Venue /
+                  Photo screens. */}
               <SafeAreaView
                 style={{
                   position: 'absolute',
@@ -506,25 +541,68 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                   left: 0,
                   right: 0,
                   flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                   paddingHorizontal: 16,
                   paddingTop: 8,
                 }}
               >
-                <TouchableOpacity
-                  onPress={onBack}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(0,0,0,0.5)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(244,239,225,0.15)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <BackIcon color={theme.onImage} />
+                <TouchableOpacity onPress={onBack} activeOpacity={0.85}>
+                  <BlurView
+                    intensity={20}
+                    tint="dark"
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      overflow: 'hidden',
+                      borderWidth: 1,
+                      borderColor: 'rgba(244,239,225,0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <BackIcon color={theme.onImage} />
+                  </BlurView>
                 </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <TouchableOpacity onPress={handleShare} activeOpacity={0.85}>
+                    <BlurView
+                      intensity={20}
+                      tint="dark"
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        overflow: 'hidden',
+                        borderWidth: 1,
+                        borderColor: 'rgba(244,239,225,0.15)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <ShareIcon color={theme.onImage} />
+                    </BlurView>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleReport} activeOpacity={0.85}>
+                    <BlurView
+                      intensity={20}
+                      tint="dark"
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        overflow: 'hidden',
+                        borderWidth: 1,
+                        borderColor: 'rgba(244,239,225,0.15)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <FlagIcon color={theme.onImage} />
+                    </BlurView>
+                  </TouchableOpacity>
+                </View>
               </SafeAreaView>
 
               {/* Venue name overlay */}

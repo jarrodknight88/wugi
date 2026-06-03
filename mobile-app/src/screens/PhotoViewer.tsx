@@ -1,17 +1,49 @@
 // ─────────────────────────────────────────────────────────────────────
-// Wugi — PhotoViewer Screen
+// Wugi — PhotoViewer Screen  (UAT V4 polish)
+//
+// Changes vs prior:
+//   • Top toolbar: ported to the Event/Venue glass-pill pattern
+//     (BlurView 40×40, intensity:20 tint:dark, 1px border, top:64
+//     left:20/right:20). Top-right is a single kebab pill that opens
+//     an iOS ActionSheet (Android: Alert) with Share + Report —
+//     identical pattern to EventScreen / VenueScreen.
+//   • Bottom toolbar: now Like / Buy / Send only. Info icon and Report
+//     icon are removed — Info is replaced by a persistent info overlay
+//     anchored above the bottom toolbar (joins the icon-overlay fade),
+//     and Report lives in the kebab overflow.
+//   • Send icon (paper-plane) replaces the bottom-toolbar Share icon
+//     while preserving the share-sheet handler. Buy icon swapped to
+//     ShoppingBagIcon for a cleaner read.
+//   • Double-tap heart animation enlarged from 22px → 100px to match
+//     Instagram scale.
+//   • Like / Unlike now writes to the existing top-level `favorites`
+//     collection via firestoreService.addFavorite / removeFavorite
+//     (itemType: 'photo'), using the same deterministic doc id
+//     `${uid}_photo_${photoId}` as event/venue favorites. Local
+//     `liked` state drives UI instantly; the write is fire-and-forget.
+//     Note: RootNavigator's in-memory `favorites` array still skips
+//     photo hydration on login (FavoriteItem.type today is
+//     'event'|'venue' only — see types/index.ts). That doesn't matter
+//     for like/unlike correctness; Saved-tab UI for photos is a
+//     post-launch follow-up that will require extending FavoriteItem.
+//   • Tap-to-toggle behavior unchanged: single-tap → fade both the icon
+//     overlay AND the info overlay; double-tap → like.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions,  } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions, Alert, Platform, ActionSheetIOS } from 'react-native';
 import { Image } from 'expo-image';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, LinearGradient as SvgLinearGradient, Stop, Defs, Rect } from 'react-native-svg';
+import { BlurView } from 'expo-blur';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type { Theme } from '../constants/colors';
 import type { GalleryPhoto } from '../types';
-import { BackIcon, ShareIcon, HeartIcon, InfoIcon, CartIcon, FlagIcon } from '../components/icons';
+import { BackIcon, HeartIcon, KebabVerticalIcon, ShoppingBagIcon, SendIcon } from '../components/icons';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Big double-tap heart — Instagram-scale.
+const BIG_HEART_SIZE = 100;
 
 type Props = {
   photos: GalleryPhoto[];
@@ -27,7 +59,6 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showUI, setShowUI]   = useState(true);
   const [liked, setLiked]     = useState<Record<string, boolean>>({});
-  const [showInfo, setShowInfo] = useState(false);
 
   const scrollRef    = useRef<ScrollView>(null);
   const uiOpacity    = useRef(new Animated.Value(1)).current;
@@ -65,6 +96,35 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
     ]).start();
   };
 
+  // Fire-and-forget persistence for like/unlike. Writes to the shared
+  // top-level `favorites` collection (itemType: 'photo') via the same
+  // firestoreService helpers event/venue saves use — deterministic doc
+  // id `${uid}_photo_${photoId}` keeps add/remove idempotent and aligns
+  // with the existing Firestore security rules.
+  const persistLikeToggle = async (photoId: string, willBeLiked: boolean) => {
+    try {
+      const { getAuth } = await import('@react-native-firebase/auth');
+      const uid = getAuth().currentUser?.uid;
+      if (!uid) return; // signed-out — skip write silently
+      const svc = await import('../../firestoreService');
+      if (willBeLiked) {
+        await svc.addFavorite(uid, 'photo', photoId);
+      } else {
+        await svc.removeFavorite(uid, 'photo', photoId);
+      }
+    } catch (e) {
+      console.log('PhotoViewer: favorites write failed', e);
+    }
+  };
+
+  const toggleLike = () => {
+    const isLiked = !!liked[photo.id];
+    const next = !isLiked;
+    setLiked(p => ({ ...p, [photo.id]: next }));
+    if (next) animateHeart();
+    persistLikeToggle(photo.id, next);
+  };
+
   const handleShare = async () => {
     try {
       const fileName = `wugi_${photo.id}.jpg`;
@@ -73,6 +133,44 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
       await Sharing.shareAsync(localUri, { mimeType: 'image/jpeg', dialogTitle: galleryTitle, UTI: 'public.jpeg' });
     } catch (e) {
       console.log('Share error:', e);
+    }
+  };
+
+  // Existing Wugi Report pattern — same simple acknowledgement Alert
+  // EventScreen / VenueScreen / ItineraryDetailScreen all use today.
+  const handleReport = () => {
+    Alert.alert(
+      'Report Photo',
+      'Thank you — we\'ll review this photo.',
+      [{ text: 'OK' }],
+    );
+  };
+
+  // Kebab overflow — mirrors EventScreen / VenueScreen /
+  // ItineraryDetailScreen pattern (ActionSheetIOS on iOS, fallback
+  // Alert on Android). Options: Share, Report.
+  const openOverflowMenu = () => {
+    const sheetTitle = galleryTitle || 'Photo';
+    if (Platform.OS === 'ios') {
+      const options = ['Share', 'Report', 'Cancel'];
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: options.length - 1,
+          destructiveButtonIndex: options.indexOf('Report'),
+          title: sheetTitle,
+        },
+        (index: number) => {
+          if (index === 0) handleShare();
+          else if (index === 1) handleReport();
+        },
+      );
+    } else {
+      Alert.alert(sheetTitle, 'Choose an action', [
+        { text: 'Share',  onPress: handleShare },
+        { text: 'Report', onPress: handleReport, style: 'destructive' },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
     }
   };
 
@@ -94,9 +192,11 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
     const isDouble = now - lastTap.current < 300;
     lastTap.current = now;
     if (isDouble) {
-      const isLiked = liked[photo.id];
-      setLiked(p => ({ ...p, [photo.id]: !isLiked }));
-      if (!isLiked) animateHeart();
+      const isLiked = !!liked[photo.id];
+      const next = !isLiked;
+      setLiked(p => ({ ...p, [photo.id]: next }));
+      if (next) animateHeart();
+      persistLikeToggle(photo.id, next);
     } else {
       setTimeout(() => {
         if (Date.now() - lastTap.current >= 280) toggleUI();
@@ -110,6 +210,15 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
   const scrollTo = (index: number) => {
     scrollRef.current?.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
     setCurrentIndex(index);
+  };
+
+  // ── Shared glass-pill style for top icon buttons ─────────────────
+  // Mirrors EventScreen / VenueScreen Wave 1 pattern exactly (40×40,
+  // intensity:20 tint:dark, 1px border at 15% on-image).
+  const glassPill = {
+    width: 40, height: 40, borderRadius: 20, overflow: 'hidden' as const,
+    borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)',
+    alignItems: 'center' as const, justifyContent: 'center' as const,
   };
 
   return (
@@ -142,19 +251,19 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
         ))}
       </ScrollView>
 
-      {/* Double-tap heart */}
+      {/* Double-tap heart — Instagram-scale, centered over the photo. */}
       <Animated.View
         pointerEvents="none"
         style={{
           position: 'absolute', alignSelf: 'center',
-          top: SCREEN_HEIGHT / 2 - 44,
+          top: SCREEN_HEIGHT / 2 - BIG_HEART_SIZE / 2,
           opacity: heartOpacity, transform: [{ scale: likeScale }],
         }}
       >
-        <HeartIcon color="#fff" filled/>
+        <HeartIcon color="#fff" filled size={BIG_HEART_SIZE}/>
       </Animated.View>
 
-      {/* UI overlay */}
+      {/* UI overlay — top + bottom toolbars + info overlay, fade together. */}
       <Animated.View
         style={{ ...StyleSheet.absoluteFillObject, opacity: uiOpacity }}
         pointerEvents={showUI ? 'box-none' : 'none'}
@@ -182,48 +291,73 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
           </TouchableOpacity>
         )}
 
-        {/* Top bar */}
-        <SafeAreaView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 }}>
-          <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }} onPress={onBack}>
-            <BackIcon color="#fff"/>
+        {/* Top bar — glass-pill Back (left) + counter + glass-pill Share +
+            glass-pill Report (right). Matches Event/Venue Wave-1 pattern. */}
+        <View style={{ position: 'absolute', top: 64, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <TouchableOpacity onPress={onBack} activeOpacity={0.85}>
+            <BlurView intensity={20} tint="dark" style={glassPill}>
+              <BackIcon color="#f4efe1"/>
+            </BlurView>
           </TouchableOpacity>
-          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+
+          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
             {currentIndex + 1} / {photos.length}
           </Text>
-          <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }} onPress={handleShare}>
-            <ShareIcon color="#fff"/>
-          </TouchableOpacity>
-        </SafeAreaView>
 
-        {/* Bottom bar */}
-        <SafeAreaView style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
-          {showInfo && (
-            <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 14, padding: 14 }}>
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 2 }}>{galleryTitle}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 2 }}>{venue}</Text>
-              <Text style={{ color: theme.accent, fontSize: 12 }}>{date}</Text>
+          <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.85}>
+            <BlurView intensity={20} tint="dark" style={glassPill}>
+              <KebabVerticalIcon color="#f4efe1"/>
+            </BlurView>
+          </TouchableOpacity>
+        </View>
+
+        {/* Info overlay — width-to-width gradient pad anchored above the
+            bottom toolbar. Fades in/out with the rest of the UI overlay
+            (parent `uiOpacity`). */}
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+          <View style={{ width: '100%', height: 140, position: 'relative' }}>
+            <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
+              <Defs>
+                <SvgLinearGradient id="photoInfoGrad" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#000" stopOpacity="0"/>
+                  <Stop offset="0.6" stopColor="#000" stopOpacity="0.6"/>
+                  <Stop offset="1" stopColor="#000" stopOpacity="0.95"/>
+                </SvgLinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width="100%" height="100%" fill="url(#photoInfoGrad)"/>
+            </Svg>
+            <View style={{ paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12 }}>
+              <Text numberOfLines={1} style={{ color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
+                {galleryTitle}
+              </Text>
+              {!!venue && (
+                <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 }}>
+                  {venue}
+                </Text>
+              )}
+              {!!date && (
+                <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 12, marginTop: 2 }}>
+                  {date}
+                </Text>
+              )}
             </View>
-          )}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 24, paddingBottom: 32, paddingTop: 16, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={() => { const isLiked = liked[photo.id]; setLiked(p => ({ ...p, [photo.id]: !isLiked })); if (!isLiked) animateHeart(); }}>
+          </View>
+        </View>
+
+        {/* Bottom bar — Like / Buy / Send. */}
+        <SafeAreaView style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 24, paddingBottom: 32, paddingTop: 16, backgroundColor: 'rgba(0,0,0,0.55)' }}>
+            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={toggleLike}>
               <HeartIcon color={liked[photo.id] ? '#e74c3c' : '#fff'} filled={liked[photo.id]}/>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Like</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={handleShare}>
-              <ShareIcon color="#fff"/>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Share</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={() => setShowInfo(!showInfo)}>
-              <InfoIcon color={showInfo ? theme.accent : '#fff'}/>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Info</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={{ alignItems: 'center', gap: 4 }}>
-              <CartIcon color="#fff"/>
+              <ShoppingBagIcon color="#fff"/>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Buy</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }}>
-              <FlagIcon color="#fff"/>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Report</Text>
+            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={handleShare}>
+              <SendIcon color="#fff"/>
+              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Send</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
