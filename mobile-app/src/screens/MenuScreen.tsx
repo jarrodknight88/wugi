@@ -29,12 +29,14 @@ import {
   FlatList,
   Alert,
   Share,
+  Platform,
+  ActionSheetIOS,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
 import type { MenuItem } from '../types';
-import { BackIcon, ShareIcon, FlagIcon } from '../components/icons';
+import { BackIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -361,6 +363,34 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
     );
   };
 
+  // Kebab overflow — replaces the separate Share + Report icons with the
+  // same glass-pill kebab pattern PhotoViewer / EventScreen / VenueScreen
+  // use (ActionSheetIOS on iOS, fallback Alert on Android). A custom
+  // Wugi-styled ActionSheet is a separate post-launch task.
+  const openOverflowMenu = () => {
+    if (Platform.OS === 'ios') {
+      const options = ['Share', 'Report', 'Cancel'];
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: options.length - 1,
+          destructiveButtonIndex: options.indexOf('Report'),
+          title: venueName ? `${venueName} — Menu` : 'Menu',
+        },
+        (index: number) => {
+          if (index === 0) handleShare();
+          else if (index === 1) handleReport();
+        },
+      );
+    } else {
+      Alert.alert(venueName ? `${venueName} — Menu` : 'Menu', 'Choose an action', [
+        { text: 'Share',  onPress: handleShare },
+        { text: 'Report', onPress: handleReport, style: 'destructive' },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {loading ? (
@@ -428,20 +458,13 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                   {venueName}
                 </Text>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <TouchableOpacity
-                  onPress={handleShare}
-                  style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <ShareIcon color={theme.text}/>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleReport}
-                  style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <FlagIcon color={theme.text}/>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                onPress={openOverflowMenu}
+                activeOpacity={0.85}
+                style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <KebabVerticalIcon color={theme.text}/>
+              </TouchableOpacity>
             </View>
           </SafeAreaView>
           <View
@@ -565,44 +588,24 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                     <BackIcon color={theme.onImage} />
                   </BlurView>
                 </TouchableOpacity>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <TouchableOpacity onPress={handleShare} activeOpacity={0.85}>
-                    <BlurView
-                      intensity={20}
-                      tint="dark"
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        overflow: 'hidden',
-                        borderWidth: 1,
-                        borderColor: 'rgba(244,239,225,0.15)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <ShareIcon color={theme.onImage} />
-                    </BlurView>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleReport} activeOpacity={0.85}>
-                    <BlurView
-                      intensity={20}
-                      tint="dark"
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        overflow: 'hidden',
-                        borderWidth: 1,
-                        borderColor: 'rgba(244,239,225,0.15)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <FlagIcon color={theme.onImage} />
-                    </BlurView>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.85}>
+                  <BlurView
+                    intensity={20}
+                    tint="dark"
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      overflow: 'hidden',
+                      borderWidth: 1,
+                      borderColor: 'rgba(244,239,225,0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <KebabVerticalIcon color={theme.onImage} />
+                  </BlurView>
+                </TouchableOpacity>
               </SafeAreaView>
 
               {/* Venue name overlay */}

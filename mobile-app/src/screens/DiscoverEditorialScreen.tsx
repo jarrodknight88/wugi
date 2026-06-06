@@ -328,20 +328,22 @@ function ShelfCard({ card, theme, onPress, venueNameFallback, dateFallback }: {
       </View>
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 14 }}>
         {isGallery ? (
+          // Event / Venue / Date — matches the PhotoViewer info overlay
+          // stack. `card.title` is the event-named gallery title.
           <>
+            <Text numberOfLines={2} style={{ color: '#f4efe1', fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.3, lineHeight: 18, marginBottom: 3 }}>
+              {card.title}
+            </Text>
             {!!venueLine && (
-              <Text numberOfLines={1} style={{ color: 'rgba(244,239,225,0.7)', fontSize: 11, fontFamily: FONTS.body, marginBottom: 2 }}>
+              <Text numberOfLines={1} style={{ color: 'rgba(244,239,225,0.7)', fontSize: 11, fontFamily: FONTS.body, marginBottom: 1 }}>
                 {venueLine}
               </Text>
             )}
             {!!dateLine && (
-              <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 11, fontFamily: FONTS.body, marginBottom: 2 }}>
+              <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 11, fontFamily: FONTS.body }}>
                 {dateLine}
               </Text>
             )}
-            <Text numberOfLines={2} style={{ color: '#f4efe1', fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.3, lineHeight: 18 }}>
-              {card.title}
-            </Text>
           </>
         ) : (
           <>
@@ -607,6 +609,13 @@ function SearchBody({
     const matchSearch = (name: string, sub: string) =>
       q === '' || name.toLowerCase().includes(q) || sub.toLowerCase().includes(q);
 
+    // Galleries carry no vibes/amenities of their own — they inherit them
+    // (and their venue name) from the parent venue. Index the loaded venues
+    // by id so gallery rows can resolve venueName + venue vibes/amenities
+    // without a per-card Firestore read.
+    const venueById: Record<string, FSVenue> = {};
+    venues.forEach(v => { if (v.id) venueById[v.id] = v; });
+
     const out: SearchItem[] = [];
     const includeKind = (k: TypeOption) => wantType.length === 0 || wantType.includes(k);
 
@@ -637,15 +646,19 @@ function SearchBody({
       }
     }
     if (includeKind('Galleries')) {
-      // Galleries carry no vibes/amenities — same exclusion pattern as Deals.
-      if (wantVibe.length === 0 && wantAmen.length === 0) {
-        galleries.forEach(g => {
-          const photographer = g.photographerName || '';
-          if (!matchSearch(g.title, `${photographer} · ${g.date || ''}`)) return;
-          const cover = g.coverImage || (g.images || []).find(Boolean) || '';
-          out.push({ kind: 'gallery', data: g, image: cover });
-        });
-      }
+      // Galleries inherit vibes/amenities from their parent venue, so an
+      // active Vibe/Amenity filter no longer excludes them outright (the old
+      // behavior). Query text matches on the gallery's (event-named) title
+      // OR the venue name; vibe/amenity filters match against the venue's.
+      galleries.forEach(g => {
+        const v = g.venueId ? venueById[g.venueId] : undefined;
+        const venueName = v?.name || '';
+        if (!matchVibe(v?.vibes)) return;
+        if (!matchAmen(v?.amenities)) return;
+        if (!matchSearch(g.title, venueName)) return;
+        const cover = g.coverImage || (g.images || []).find(Boolean) || '';
+        out.push({ kind: 'gallery', data: g, image: cover });
+      });
     }
     // 'Menus' includeKind('Menus') is intentionally a no-op — see TYPE_MENUS_TODO.
     return out;

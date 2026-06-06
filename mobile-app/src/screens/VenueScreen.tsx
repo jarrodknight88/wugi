@@ -142,18 +142,10 @@ function VenueContactBlock({ venue, theme, onMapPress }: { venue: VenueData; the
         )}
       </View>
 
-      {/* Expanded: hours / website / instagram — only rows with data, aligned
-          under the text column (64 logo + 14 gap). */}
+      {/* Expanded: website / instagram / hours — only rows with data, aligned
+          under the text column (64 logo + 14 gap). Order per UAT V5. */}
       {expanded && hasExtra && (
         <View style={{ marginTop: 14, paddingLeft: 78, gap: 12 }}>
-          {!!venue.hoursText && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-                <Path d={CLOCK_PATH} stroke={theme.accent} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
-              </Svg>
-              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body, flexShrink: 1 }}>{venue.hoursText}</Text>
-            </View>
-          )}
           {!!venue.website && (
             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
               onPress={() => Linking.openURL(venue.website.startsWith('http') ? venue.website : `https://${venue.website}`).catch(() => {})}>
@@ -167,6 +159,14 @@ function VenueContactBlock({ venue, theme, onMapPress }: { venue: VenueData; the
               <InstagramIcon color={theme.accent}/>
               <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body }}>{venue.instagram}</Text>
             </TouchableOpacity>
+          )}
+          {!!venue.hoursText && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                <Path d={CLOCK_PATH} stroke={theme.accent} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
+              </Svg>
+              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.body, flexShrink: 1 }}>{venue.hoursText}</Text>
+            </View>
           )}
         </View>
       )}

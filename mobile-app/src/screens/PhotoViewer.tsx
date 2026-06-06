@@ -34,7 +34,12 @@ import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Animated, PanRe
 import { Image } from 'expo-image';
 import Svg, { Path, LinearGradient as SvgLinearGradient, Stop, Defs, Rect } from 'react-native-svg';
 import { BlurView } from 'expo-blur';
-import * as FileSystem from 'expo-file-system';
+// SDK 54 (expo-file-system v19) removed `cacheDirectory` + `downloadAsync`
+// from the package's main entry — they live only in the `/legacy` entry now.
+// The new File-class API is not yet adopted here, so import the legacy
+// surface explicitly. Without this, both symbols are `undefined` and the
+// share handler threw silently (caught + logged), leaving Share dead.
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import type { Theme } from '../constants/colors';
 import type { GalleryPhoto } from '../types';
@@ -91,8 +96,8 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
         Animated.spring(likeScale, { toValue: 1.4, useNativeDriver: true }),
       ]),
       Animated.spring(likeScale, { toValue: 1, useNativeDriver: true }),
-      Animated.delay(500),
-      Animated.timing(heartOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+      // Tightened: no 500ms hold — fade out promptly so the heart doesn't linger.
+      Animated.timing(heartOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start();
   };
 
@@ -260,7 +265,7 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
           opacity: heartOpacity, transform: [{ scale: likeScale }],
         }}
       >
-        <HeartIcon color="#fff" filled size={BIG_HEART_SIZE}/>
+        <HeartIcon color="#FF3B30" filled size={BIG_HEART_SIZE}/>
       </Animated.View>
 
       {/* UI overlay — top + bottom toolbars + info overlay, fade together. */}
@@ -311,11 +316,15 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
           </TouchableOpacity>
         </View>
 
-        {/* Info overlay — width-to-width gradient pad anchored above the
-            bottom toolbar. Fades in/out with the rest of the UI overlay
-            (parent `uiOpacity`). */}
+        {/* Info overlay — Event / Venue / Date as a single left-aligned
+            stack, anchored ABOVE the bottom toolbar icons (paddingBottom
+            clears the toolbar). Shares the same dark gradient the toolbar
+            sits on so the two read as one pad. Fades in/out with the rest
+            of the UI overlay (parent `uiOpacity`). `galleryTitle` carries
+            the event name (gallery titles are event-named in our data;
+            eventId backfill tracked separately). */}
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
-          <View style={{ width: '100%', height: 140, position: 'relative' }}>
+          <View style={{ width: '100%', height: 210, position: 'relative', justifyContent: 'flex-end' }}>
             <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
               <Defs>
                 <SvgLinearGradient id="photoInfoGrad" x1="0" y1="0" x2="0" y2="1">
@@ -326,17 +335,17 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
               </Defs>
               <Rect x="0" y="0" width="100%" height="100%" fill="url(#photoInfoGrad)"/>
             </Svg>
-            <View style={{ paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12 }}>
-              <Text numberOfLines={1} style={{ color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
+            <View style={{ paddingHorizontal: 20, paddingBottom: 116 }}>
+              <Text numberOfLines={1} style={{ color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: -0.2 }}>
                 {galleryTitle}
               </Text>
               {!!venue && (
-                <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 }}>
+                <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 3 }}>
                   {venue}
                 </Text>
               )}
               {!!date && (
-                <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 12, marginTop: 2 }}>
+                <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 12, marginTop: 3 }}>
                   {date}
                 </Text>
               )}
