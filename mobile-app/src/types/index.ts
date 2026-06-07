@@ -164,12 +164,15 @@ export type ForYouCard = {
 // ── Favorites ─────────────────────────────────────────────────────────
 export type FavoriteItem = {
   id: string;
-  type: 'event' | 'venue';
+  type: 'event' | 'venue' | 'photo';
   title: string;
   subtitle: string;
   image: string;
   read: boolean;
-  data: EventData | VenueData;
+  // `data` is the navigation payload for event/venue favorites. Photo
+  // favorites are display-only in the Saved tab (no photo-detail screen
+  // yet), so they carry no payload — hence optional.
+  data?: EventData | VenueData;
 };
 
 // Persisted favorite doc in the top-level `favorites` collection.
@@ -217,6 +220,12 @@ export type EditorialCard = {
   venueId?:  string;      // 'venue' | 'stop'
   eventId?:  string;      // 'event'
   galleryId?: string;     // 'gallery'
+  // Denormalized display fields written onto gallery-kind cards by
+  // seed-photographer-features.ts so the 3-line gallery card renders
+  // (event / venue / date) without a per-card join. (Batch 4 follow-up —
+  // previously surfaced via a narrow cast in DiscoverEditorialScreen.)
+  venueName?: string;     // 'gallery'
+  date?:      string;     // 'gallery'
 };
 
 type EditorialShelfBase = {

@@ -31,7 +31,8 @@
 // — no real venue has >50 photos today.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator, Animated, Easing, StyleSheet } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import MasonryList from 'react-native-masonry-list';
 import type { Theme } from '../constants/colors';
 import type { GalleryData } from '../types';
@@ -39,6 +40,58 @@ import { BackIcon, ShareIcon } from '../components/icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PAGE_SIZE = 50;
+
+// Pulsing skeleton shown behind each masonry tile while its photo loads.
+// Lightweight looping-opacity pulse (no gradient sweep) — keeps it cheap
+// across a 2-column masonry grid.
+function PhotoSkeleton({ theme, style }: { theme: Theme; style?: any }) {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 0.8, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return <Animated.View style={[{ backgroundColor: theme.card, opacity: pulse }, style]} />;
+}
+
+// Custom masonry image. react-native-masonry-list renders each cell with a
+// hardcoded `backgroundColor: "gainsboro"` gray box while the image loads
+// (UAT V6). Swapping in our own image component via `customImageComponent`
+// (which keeps the lib's TouchableOpacity wrapper, so taps still open
+// PhotoViewer) lets us show a themed shimmer skeleton until onLoad, then
+// fade the photo in. `theme` is threaded through `customImageProps`.
+function MasonryPhoto({ source, style, theme }: { source: any; style?: any; theme: Theme }) {
+  const [loaded, setLoaded] = useState(false);
+  const fade = useRef(new Animated.Value(0)).current;
+  const uri =
+    (source && (source.uri || (typeof source === 'string' ? source : source?.source?.uri))) || '';
+  // Drop the lib's gainsboro background; keep size + margin + borderRadius.
+  const { backgroundColor, ...box } = (style || {}) as any;
+  const reveal = () => {
+    setLoaded(true);
+    Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  };
+  return (
+    <View style={[box, { overflow: 'hidden', backgroundColor: theme.bg }]}>
+      {!loaded && <PhotoSkeleton theme={theme} style={StyleSheet.absoluteFill} />}
+      <Animated.View style={{ ...StyleSheet.absoluteFillObject, opacity: fade }}>
+        <ExpoImage
+          source={{ uri }}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          onLoad={reveal}
+          onError={reveal}
+        />
+      </Animated.View>
+    </View>
+  );
+}
 
 type Props = {
   gallery: GalleryData;
@@ -204,6 +257,8 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
             spacing={1}
             backgroundColor={theme.bg}
             imageContainerStyle={{ borderRadius: 10 }}
+            customImageComponent={MasonryPhoto}
+            customImageProps={{ theme }}
             onPressImage={handlePress}
             onEndReached={() => {
               if (hasMore && !loadingRef.current) loadNextPage();

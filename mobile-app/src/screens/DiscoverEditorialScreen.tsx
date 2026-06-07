@@ -307,13 +307,11 @@ function ShelfCard({ card, theme, onPress, venueNameFallback, dateFallback }: {
   const width = Math.round(200 * (card.ratio ?? 1));
   // 'photographer' is the only kind with no navigation target.
   const navigates = card.kind !== 'photographer';
-  // Denormalized fields the seed writes onto gallery-kind cards but which
-  // aren't on the EditorialCard type today (src/types/index.ts is frozen
-  // for this batch). Cast through `any` rather than widening the type.
-  const cardAny = card as EditorialCard & { venueName?: string; date?: string };
+  // Denormalized display fields (venueName / date) the seed writes onto
+  // gallery-kind cards — now native on EditorialCard (no cast needed).
   const isGallery = card.kind === 'gallery';
-  const venueLine = isGallery ? (cardAny.venueName || venueNameFallback || '') : '';
-  const dateLine  = isGallery ? (cardAny.date || dateFallback || '') : '';
+  const venueLine = isGallery ? (card.venueName || venueNameFallback || '') : '';
+  const dateLine  = isGallery ? (card.date || dateFallback || '') : '';
   return (
     <TouchableOpacity
       activeOpacity={navigates ? 0.9 : 1}
@@ -957,9 +955,8 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         for (const shelf of data) {
           for (const c of (shelf.doc.cards || [])) {
             if (c.kind !== 'gallery') continue;
-            const cAny = c as EditorialCard & { venueName?: string; date?: string };
-            const hasVenue = !!(cAny.venueName && cAny.venueName.length > 0);
-            const hasDate  = !!(cAny.date && cAny.date.length > 0);
+            const hasVenue = !!(c.venueName && c.venueName.length > 0);
+            const hasDate  = !!(c.date && c.date.length > 0);
             if (hasVenue && hasDate) continue;
             if (c.galleryId) legacyGalleryIds.add(c.galleryId);
           }

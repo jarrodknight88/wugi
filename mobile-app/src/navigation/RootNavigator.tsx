@@ -182,8 +182,10 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   // ── Hydrate favorites from Firestore on login ────────────────────────
   // Resolves each persisted {itemType,itemId} to a full FavoriteItem via
   // getEventById / getVenueById so the Saved tab renders title/image. Photo
-  // favorites are skipped here (no consumer photo-detail screen yet); the
-  // write-path still persists them. On logout (uid null) we clear the array.
+  // favorites hydrate too: their itemId is the synthetic `${galleryId}-${i}`
+  // id PhotoViewer likes against, so we parse the galleryId, fetch the gallery
+  // (event-named title + date + image) and its venue name for the caption.
+  // On logout (uid null) we clear the array.
   useEffect(() => {
     let cancelled = false;
     if (!uid) { setFavorites([]); return; }
@@ -227,7 +229,30 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
               read: true, data,
             };
           }
-          return null; // 'photo' — persisted but not hydrated into the UI yet
+          if (d.itemType === 'photo') {
+            // itemId is the synthetic `${galleryId}-${index}` id (see
+            // galleryDocToData / VenueGalleriesListScreen). Split on the LAST
+            // hyphen so hyphenated gallery ids survive; the trailing segment
+            // is the numeric photo index within the gallery's images array.
+            const m = d.itemId.match(/^(.*)-(\d+)$/);
+            if (!m) return null;
+            const galleryId = m[1];
+            const index = Number(m[2]);
+            const g = await svc.getGalleryById(galleryId);
+            if (!g) return null;
+            const images = (g.images || []).filter(Boolean);
+            const image = images[index] || g.coverImage || images[0] || '';
+            const venueName = g.venueId
+              ? ((await svc.getVenueById(g.venueId).catch(() => null))?.name || '')
+              : '';
+            const subtitle = [venueName, g.date].filter(Boolean).join(' · ');
+            return {
+              id: d.itemId, type: 'photo',
+              title: g.title || 'Photo',   // gallery title is event-named
+              subtitle, image, read: true,
+            };
+          }
+          return null;
         }));
         if (!cancelled) {
           const items = resolved.filter((x): x is FavoriteItem => x !== null);

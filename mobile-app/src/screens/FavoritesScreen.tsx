@@ -151,7 +151,7 @@ function SavedCard({
         </TouchableOpacity>
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 }}>
           <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5, marginBottom: 3 }}>
-            {item.type === 'event' ? 'EVENT' : 'VENUE'}
+            {item.type === 'event' ? 'EVENT' : item.type === 'venue' ? 'VENUE' : 'PHOTO'}
           </Text>
           <Text style={{ color: theme.onImage, fontSize: 13, fontFamily: FONTS.display, lineHeight: 16, marginBottom: 2 }} numberOfLines={2}>{item.title}</Text>
           <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.subtitle}</Text>
@@ -393,6 +393,7 @@ export function FavoritesScreen({
 
   const savedEvents  = favorites.filter(f => f.type === 'event');
   const savedVenues  = favorites.filter(f => f.type === 'venue');
+  const savedPhotos  = favorites.filter(f => f.type === 'photo');
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -484,6 +485,39 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
+                onRequestRemove={() => requestRemoval(item.id)}
+                pending={pendingId === item.id}
+                onUndo={undoPending}
+              />
+            )}
+          />
+        )}
+
+        {/* ── Saved Photos — liked photos from Wugi Lens galleries.
+            Display-only (no photo-detail screen yet): tapping just marks
+            the card read. Caption is event (gallery title) + venue · date,
+            packed into the SavedCard title/subtitle. No photographer name
+            (gated on the tier-system task). ── */}
+        <SectionHeader
+          kicker="SAVED PHOTOS"
+          title="Photos you liked"
+          count={savedPhotos.length > 0 ? savedPhotos.length : undefined}
+          theme={theme}
+        />
+        {savedPhotos.length === 0 ? (
+          <EmptySection label="Double-tap a photo in any gallery to like it and it'll appear here." theme={theme}/>
+        ) : (
+          <FlatList
+            data={savedPhotos.slice(0, PREVIEW_LIMIT)}
+            keyExtractor={f => f.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+            renderItem={({ item }) => (
+              <SavedCard
+                item={item}
+                theme={theme}
+                onPress={() => onMarkRead(item.id)}
                 onRequestRemove={() => requestRemoval(item.id)}
                 pending={pendingId === item.id}
                 onUndo={undoPending}
