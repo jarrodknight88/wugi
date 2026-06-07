@@ -147,10 +147,15 @@ function toVenueData(v: FSVenue): VenueData {
     ctaPrimary: v.ctaPrimary, ctaSecondary: v.ctaSecondary,
   } as VenueData;
 }
-function galleryDocToData(g: GalleryDoc): GalleryData {
+// `venue` carries the VENUE NAME (shown on the PhotoViewer overlay + Gallery
+// header). The gallery doc only has venueId (no venueName), so the resolved
+// name is passed in by the caller — editorial path via getVenueById, search
+// path via the already-loaded venues list. We no longer fall back to
+// photographerName here (that surfaced "@handle" as the venue line — UAT V6).
+function galleryDocToData(g: GalleryDoc, venueName?: string): GalleryData {
   const images = (g.images || []).filter(Boolean);
   return {
-    id: g.id, title: g.title, venue: g.photographerName || '',
+    id: g.id, title: g.title, venue: venueName || '',
     date: g.date || '', coverImage: g.coverImage || images[0] || '',
     photos: (images.length > 0 ? images : [g.coverImage].filter(Boolean))
       .map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 300 })),
@@ -1015,7 +1020,13 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         if (e) onEventPress(toEventData(e));
       } else if (card.kind === 'gallery' && card.galleryId) {
         const g = await svc.getGalleryById(card.galleryId);
-        if (g) onGalleryPress(galleryDocToData(g));
+        if (g) {
+          // Resolve the real venue name for the overlay / header (gallery
+          // doc only carries venueId). Falls back to the card's denormalized
+          // venueName if the lookup misses.
+          const v = g.venueId ? await svc.getVenueById(g.venueId).catch(() => null) : null;
+          onGalleryPress(galleryDocToData(g, v?.name || (card as any).venueName));
+        }
       }
       // 'photographer' is non-navigating.
     } catch (e) {
@@ -1053,7 +1064,12 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
           onChipRemove={removeChip}
           onEvent={handleSearchEvent}
           onVenue={handleSearchVenue}
-          onGallery={(g) => onGalleryPress(galleryDocToData(g))}
+          onGallery={(g) => {
+            // Resolve venue name from the already-loaded search venues so the
+            // Gallery header / PhotoViewer overlay show the venue, not a handle.
+            const vn = g.venueId ? searchVenues.find(v => v.id === g.venueId)?.name : undefined;
+            onGalleryPress(galleryDocToData(g, vn));
+          }}
           events={searchEvents}
           venues={searchVenues}
           deals={searchDeals}

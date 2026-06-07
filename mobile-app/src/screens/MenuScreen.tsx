@@ -34,6 +34,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
+import Constants from 'expo-constants';
 import type { Theme } from '../constants/colors';
 import type { MenuItem } from '../types';
 import { BackIcon, KebabVerticalIcon } from '../components/icons';
@@ -41,6 +42,11 @@ import { FONTS, MONO } from '../constants/fonts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.8);
+// Status-bar inset. The app doesn't depend on react-native-safe-area-context,
+// so we read the height from expo-constants (already a dep). Used to push the
+// sticky SectionNav below the notch when it pins to the top of the scroll —
+// otherwise it rendered behind the iOS status bar (UAT V6).
+const STATUS_BAR_H = Constants.statusBarHeight ?? 0;
 // Honey-amber tag color from design
 const TAG_AMBER = '#d4a85c';
 const TAG_AMBER_BG = 'rgba(212,168,92,0.13)';
@@ -72,7 +78,11 @@ function SectionNav({
       style={{
         borderBottomWidth: 1,
         borderBottomColor: theme.divider,
-        paddingVertical: 10,
+        // Inset the top by the status-bar height so the pills clear the notch
+        // once this nav pins to the top of the scroll (stickyHeaderIndices).
+        // In the un-pinned state this reads as breathing room below the hero.
+        paddingTop: STATUS_BAR_H + 10,
+        paddingBottom: 10,
         backgroundColor: theme.bg,
       }}
     >
@@ -554,20 +564,19 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                 }}
               />
 
-              {/* Top icon row — Back (left) + Share + Report (right).
-                  Same glass-pill BlurView pattern as Event / Venue /
-                  Photo screens. */}
-              <SafeAreaView
+              {/* Top icon row — Back (left) + kebab (right). Matches the
+                  VenueScreen image-hero header exactly for design parity
+                  (UAT V6): fixed top:64, horizontal 20, 40×40 glass pills. */}
+              <View
                 style={{
                   position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
+                  top: 64,
+                  left: 20,
+                  right: 20,
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  paddingHorizontal: 16,
-                  paddingTop: 8,
+                  zIndex: 2,
                 }}
               >
                 <TouchableOpacity onPress={onBack} activeOpacity={0.85}>
@@ -606,7 +615,7 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
                     <KebabVerticalIcon color={theme.onImage} />
                   </BlurView>
                 </TouchableOpacity>
-              </SafeAreaView>
+              </View>
 
               {/* Venue name overlay */}
               <View
