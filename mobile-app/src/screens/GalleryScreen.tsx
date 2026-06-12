@@ -32,6 +32,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator, Animated, Easing, StyleSheet } from 'react-native';
+import { ChevronRightIcon } from '../components/icons';
 import { Image as ExpoImage } from 'expo-image';
 import MasonryList from 'react-native-masonry-list';
 import type { Theme } from '../constants/colors';
@@ -97,6 +98,9 @@ type Props = {
   gallery: GalleryData;
   onBack: () => void;
   onPhotoPress: (index: number) => void;
+  // When provided, the venue line under the title becomes tappable and
+  // deep-links to the venue profile (resolved venueId owned by the navigator).
+  onVenuePress?: () => void;
   theme: Theme;
 };
 
@@ -109,19 +113,26 @@ type LoadedPhoto = {
 
 type MasonryImage = { uri: string; width: number; height: number };
 
-export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
+export function GalleryScreen({ gallery, onBack, onPhotoPress, onVenuePress, theme }: Props) {
   const [photos, setPhotos]               = useState<LoadedPhoto[]>([]);
   const [hasMore, setHasMore]             = useState(true);
   const [loadingMore, setLoadingMore]     = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing]       = useState(false);
   const lastDocRef = useRef<any>(null);
   const loadingRef = useRef(false);   // debounce concurrent loads
 
-  const loadNextPage = async () => {
-    if (loadingRef.current || !hasMore) return;
+  // `reset:true` (pull-to-refresh / gallery change) ignores the hasMore guard,
+  // clears the cursor, and REPLACES the photo list with page 1. `reset:false`
+  // (onEndReached) appends the next page. Single in-flight load via loadingRef.
+  const loadPage = async (reset: boolean) => {
+    if (loadingRef.current) return;
+    if (!reset && !hasMore) return;
     loadingRef.current = true;
-    // Only show the in-grid spinner after the initial page lands.
-    if (photos.length > 0) setLoadingMore(true);
+    if (reset) lastDocRef.current = null;
+    // Only show the in-grid "loading more" spinner when appending after the
+    // initial page (never during a pull-to-refresh).
+    else if (photos.length > 0) setLoadingMore(true);
     try {
       const { getFirestore, collection, getDocs, query, where, limit, startAfter } =
         await import('@react-native-firebase/firestore');
@@ -134,7 +145,7 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
         where('galleryId', '==', gallery.id),
         limit(PAGE_SIZE),
       );
-      if (lastDocRef.current) {
+      if (!reset && lastDocRef.current) {
         q = query(
           collection(db, 'photos'),
           where('galleryId', '==', gallery.id),
@@ -165,17 +176,26 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
         return 0;
       });
 
-      lastDocRef.current = snap.docs[snap.docs.length - 1] || lastDocRef.current;
-      setPhotos(prev => [...prev, ...next.map(({ _cap, ...rest }: any) => rest as LoadedPhoto)]);
+      lastDocRef.current = snap.docs[snap.docs.length - 1] || (reset ? null : lastDocRef.current);
+      const cleaned = next.map(({ _cap, ...rest }: any) => rest as LoadedPhoto);
+      setPhotos(prev => reset ? cleaned : [...prev, ...cleaned]);
       setHasMore(snap.size === PAGE_SIZE);
     } catch (e) {
       console.log('GalleryScreen: page load failed', e);
-      setHasMore(false);
+      if (!reset) setHasMore(false);
     } finally {
       loadingRef.current = false;
       setInitialLoading(false);
       setLoadingMore(false);
+      if (reset) setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    if (loadingRef.current) return;
+    setRefreshing(true);
+    setHasMore(true);
+    loadPage(true);
   };
 
   useEffect(() => {
@@ -186,7 +206,7 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
     setInitialLoading(true);
     lastDocRef.current = null;
     loadingRef.current = false;
-    loadNextPage();
+    loadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gallery.id]);
 
@@ -221,9 +241,18 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
               {gallery.title}
             </Text>
             {gallery.venue ? (
-              <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600', marginTop: 2 }} numberOfLines={1}>
-                {gallery.venue}
-              </Text>
+              onVenuePress && gallery.venueId ? (
+                <TouchableOpacity onPress={onVenuePress} activeOpacity={0.7} hitSlop={{ top: 4, bottom: 4, left: 0, right: 0 }} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
+                  <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
+                    {gallery.venue}
+                  </Text>
+                  <ChevronRightIcon color={theme.accent}/>
+                </TouchableOpacity>
+              ) : (
+                <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600', marginTop: 2 }} numberOfLines={1}>
+                  {gallery.venue}
+                </Text>
+              )
             ) : null}
             {gallery.date ? (
               <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
@@ -261,9 +290,11 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, theme }: Props) {
             customImageProps={{ theme }}
             onPressImage={handlePress}
             onEndReached={() => {
-              if (hasMore && !loadingRef.current) loadNextPage();
+              if (hasMore && !loadingRef.current) loadPage(false);
             }}
             onEndReachedThreshold={0.5}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
           />
           {/* "Loading more" indicator — overlaid at the bottom of the
               visible area while the next page fetches. Disappears when

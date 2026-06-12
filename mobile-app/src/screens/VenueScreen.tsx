@@ -336,6 +336,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
     date: g.date,
     coverImage: g.coverImage,
     photos: (g.images || []).map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 })),
+    venueId: g.venueId || venue.id,
   });
   const heroRef = useRef<FlatList<{ type: string; uri: string }>>(null);
   const heroMedia = venue.media.length > 0 ? venue.media : [{ type: 'image', uri: '' }];

@@ -33,6 +33,10 @@ declare module 'react-native-masonry-list' {
     onLongPressImage?: (item: MasonryImage, index: number) => void;
     onEndReached?: (info?: { distanceFromEnd: number }) => void;
     onEndReachedThreshold?: number;
+    // Forwarded to the underlying FlatList for pull-to-refresh (lib passes
+    // these straight through — see node_modules/.../src/MasonryList.js).
+    refreshing?: boolean;
+    onRefresh?: () => void;
     rerender?: boolean;
     customImageComponent?: ComponentType<any>;
     customImageProps?: object;

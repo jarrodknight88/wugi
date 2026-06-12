@@ -40,6 +40,7 @@ import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, KebabVerticalIcon, ChevronRightIcon } from '../components/icons';
 import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
 import { useEventGallery } from '../hooks/useEventGallery';
+import { useEventGalleriesByEventId } from '../hooks/useEventGalleriesByEventId';
 import { useVenueById } from '../hooks/useVenueById';
 import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
@@ -105,10 +106,26 @@ function EventScreenInner({
     .filter(e => e.id !== event.id && Array.isArray(e.media) && e.media.length > 0)
     .slice(0, 3);
 
-  // Real-time gallery from Wugi Lens
-  const { gallery: liveGallery, loading: galleryLoading } = useEventGallery(event.id);
-  const activeGallery: GalleryData = liveGallery || event.gallery || EMPTY_GALLERY;
+  // Build #74 §2: prefer the gallery linked by eventId in the top-level
+  // `galleries` collection (the real Home→Event→photo link). Fall back to the
+  // live Wugi Lens eventGalleries listener, then the embedded mock gallery,
+  // then empty — i.e. only show a generic gallery when the eventId query is
+  // genuinely empty. (eventId backfill in scripts/ lights this up in prod.)
+  const { gallery: linkedGallery, loading: linkedLoading } = useEventGalleriesByEventId(event.id);
+  const { gallery: liveGallery, loading: liveLoading } = useEventGallery(event.id);
+  const galleryLoading = linkedLoading || (!linkedGallery && liveLoading);
+  // Defensive: any branch may be null/oddly-shaped on incomplete docs.
+  const activeGalleryRaw: GalleryData = linkedGallery || liveGallery || event.gallery || EMPTY_GALLERY;
+  // Ensure a venueId rides along so the gallery/photo venue line is tappable
+  // even when the resolved gallery (live listener / mock) didn't carry one.
+  const activeGallery: GalleryData = {
+    ...activeGalleryRaw,
+    venueId: activeGalleryRaw.venueId || eventVenueId || undefined,
+  };
   const galleryPhotos = Array.isArray(activeGallery?.photos) ? activeGallery.photos : [];
+  // True when a real gallery (linked-by-eventId or live Lens) resolved — drives
+  // the GALLERIES strip's "Photos loading…" vs "No photos yet" copy.
+  const hasResolvedGallery = !!(linkedGallery || liveGallery);
 
   // ── Venue press handler: prefer onNavigateToVenue(venue) if available ──
   const handleVenuePress = () => {
@@ -516,7 +533,7 @@ function EventScreenInner({
         )}
 
         {/* ── Galleries strip ──────────────────────────────────────────── */}
-        {(galleryLoading || galleryPhotos.length > 0 || liveGallery) && (
+        {(galleryLoading || galleryPhotos.length > 0 || hasResolvedGallery) && (
           <>
             <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -530,13 +547,13 @@ function EventScreenInner({
                     <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
                       {galleryPhotos.length > 0
                         ? `${galleryPhotos.length} photos from past nights`
-                        : liveGallery
+                        : hasResolvedGallery
                           ? 'Photos loading…'
                           : 'No photos yet'}
                     </Text>
                   )}
                 </View>
-                {(galleryPhotos.length > 0 || liveGallery) && (
+                {(galleryPhotos.length > 0 || hasResolvedGallery) && (
                   <TouchableOpacity
                     onPress={() => onGalleryPress(activeGallery)}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}

@@ -45,6 +45,10 @@ type Props = {
   // UAT-V3 (additive): tap "View All" on a Saved section to open the
   // corresponding full-list view. When omitted the link doesn't render.
   onViewAllSaved?: (kind: 'event' | 'venue') => void;
+  // Build #74 §4 (additive): tap a liked photo to deep-link into PhotoViewer
+  // at that exact photo. Receives the synthetic favorite id `${galleryId}-${i}`.
+  // When omitted, tapping a saved photo just marks it read (legacy behavior).
+  onPhotoPress?: (photoId: string) => void;
 };
 
 // ── Section header (Passes still uses the no-link variant) ────────────
@@ -252,7 +256,7 @@ export function EmptySection({ label, theme }: { label: string; theme: Theme }) 
 
 // ── FavoritesScreen ───────────────────────────────────────────────────
 export function FavoritesScreen({
-  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onPassPress, onViewAllSaved,
+  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onPassPress, onViewAllSaved, onPhotoPress,
 }: Props) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [passesLoading, setPassesLoading] = useState(true);
@@ -494,10 +498,11 @@ export function FavoritesScreen({
         )}
 
         {/* ── Saved Photos — liked photos from Wugi Lens galleries.
-            Display-only (no photo-detail screen yet): tapping just marks
-            the card read. Caption is event (gallery title) + venue · date,
-            packed into the SavedCard title/subtitle. No photographer name
-            (gated on the tier-system task). ── */}
+            Build #74 §4: tapping deep-links into PhotoViewer at this exact
+            photo (parse galleryId+index from the synthetic id, open the
+            source gallery scrolled to it). Caption is event (gallery title) +
+            venue · date, packed into the SavedCard title/subtitle. No
+            photographer name (gated on the tier-system task). ── */}
         <SectionHeader
           kicker="SAVED PHOTOS"
           title="Photos you liked"
@@ -517,7 +522,7 @@ export function FavoritesScreen({
               <SavedCard
                 item={item}
                 theme={theme}
-                onPress={() => onMarkRead(item.id)}
+                onPress={() => { onMarkRead(item.id); onPhotoPress?.(item.id); }}
                 onRequestRemove={() => requestRemoval(item.id)}
                 pending={pendingId === item.id}
                 onUndo={undoPending}

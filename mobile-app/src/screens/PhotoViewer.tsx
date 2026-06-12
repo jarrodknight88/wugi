@@ -57,10 +57,13 @@ type Props = {
   venue: string;
   date: string;
   onBack: () => void;
+  // When provided, the venue line in the info overlay becomes tappable and
+  // deep-links to the venue profile (resolved venueId owned by the navigator).
+  onVenuePress?: () => void;
   theme: Theme;
 };
 
-export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, theme }: Props) {
+export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, theme }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showUI, setShowUI]   = useState(true);
   const [liked, setLiked]     = useState<Record<string, boolean>>({});
@@ -130,14 +133,32 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
     persistLikeToggle(photo.id, next);
   };
 
+  // Share the FULL-RES photo. iOS' share sheet needs a real LOCAL file URI —
+  // handing it the remote URL is what produced the broken-thumbnail preview
+  // and the failed Share-to-Photos / Messages through #71–#73. So we download
+  // the image to a cache file first, then share that file. Every failure path
+  // now surfaces a visible Alert instead of a swallowed console.log — that
+  // silent catch is exactly what hid this regression for three builds.
   const handleShare = async () => {
+    const uri = photo?.uri;
     try {
-      const fileName = `wugi_${photo.id}.jpg`;
-      const localUri = (FileSystem.cacheDirectory ?? '') + fileName;
-      await FileSystem.downloadAsync(photo.uri, localUri);
+      if (!uri) throw new Error('This photo isn’t available to share yet.');
+      // expo-sharing must be available (it is on iOS/Android; guards web/sims).
+      if (!(await Sharing.isAvailableAsync())) {
+        throw new Error('Sharing isn’t available on this device.');
+      }
+      const baseDir = FileSystem.cacheDirectory;
+      if (!baseDir) throw new Error('No local cache directory is available.');
+      // Sanitize the id into a safe filename (synthetic ids contain hyphens;
+      // gallery ids can contain other punctuation).
+      const safeName = String(photo.id || 'photo').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const localUri = `${baseDir}wugi_${safeName}.jpg`;
+      const { status } = await FileSystem.downloadAsync(uri, localUri);
+      if (status !== 200) throw new Error(`Couldn’t download the image (HTTP ${status}).`);
       await Sharing.shareAsync(localUri, { mimeType: 'image/jpeg', dialogTitle: galleryTitle, UTI: 'public.jpeg' });
-    } catch (e) {
-      console.log('Share error:', e);
+    } catch (e: any) {
+      console.log('PhotoViewer share error:', e);
+      Alert.alert('Couldn’t share photo', e?.message || 'Something went wrong preparing this photo. Please try again.');
     }
   };
 
@@ -323,8 +344,10 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
             of the UI overlay (parent `uiOpacity`). `galleryTitle` carries
             the event name (gallery titles are event-named in our data;
             eventId backfill tracked separately). */}
-        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
-          <View style={{ width: '100%', height: 210, position: 'relative', justifyContent: 'flex-end' }}>
+        {/* box-none (not none): the gradient/title/date stay non-interactive but
+            the venue line below can receive taps when onVenuePress is wired. */}
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+          <View pointerEvents="box-none" style={{ width: '100%', height: 210, position: 'relative', justifyContent: 'flex-end' }}>
             <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
               <Defs>
                 <SvgLinearGradient id="photoInfoGrad" x1="0" y1="0" x2="0" y2="1">
@@ -340,9 +363,20 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
                 {galleryTitle}
               </Text>
               {!!venue && (
-                <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 3 }}>
-                  {venue}
-                </Text>
+                onVenuePress ? (
+                  <TouchableOpacity onPress={onVenuePress} activeOpacity={0.7} hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                    <Text numberOfLines={1} style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+                      {venue}
+                    </Text>
+                    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                      <Path d="M9 18l6-6-6-6" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+                    </Svg>
+                  </TouchableOpacity>
+                ) : (
+                  <Text numberOfLines={1} style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 3 }}>
+                    {venue}
+                  </Text>
+                )
               )}
               {!!date && (
                 <Text numberOfLines={1} style={{ color: theme.accent, fontSize: 12, marginTop: 3 }}>

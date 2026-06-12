@@ -159,6 +159,7 @@ function galleryDocToData(g: GalleryDoc, venueName?: string): GalleryData {
     date: g.date || '', coverImage: g.coverImage || images[0] || '',
     photos: (images.length > 0 ? images : [g.coverImage].filter(Boolean))
       .map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 300 })),
+    venueId: g.venueId || undefined,
   };
 }
 

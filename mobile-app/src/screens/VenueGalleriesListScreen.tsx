@@ -73,6 +73,7 @@ export function VenueGalleriesListScreen({ venueId, theme, onBack, onGalleryPres
     date: g.date,
     coverImage: g.coverImage,
     photos: (g.images || []).map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 })),
+    venueId: g.venueId || venueId,
   });
 
   return (

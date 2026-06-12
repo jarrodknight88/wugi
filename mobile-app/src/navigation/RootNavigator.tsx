@@ -106,7 +106,68 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   const navigateToMap     = (address: string, venueName: string) => push({ screen: 'map', address, venueName });
   const navigateToGallery = (gallery: GalleryData) => push({ screen: 'gallery', gallery });
   const navigateToPhoto   = (photos: GalleryPhoto[], initialIndex: number, gallery: GalleryData) =>
-    push({ screen: 'photo', photos, initialIndex, galleryTitle: gallery.title, venue: gallery.venue, date: gallery.date });
+    push({ screen: 'photo', photos, initialIndex, galleryTitle: gallery.title, venue: gallery.venue, date: gallery.date, venueId: gallery.venueId });
+
+  // ── Resolve a venueId → VenueData and push VenueScreen ────────────────
+  // Used by the tappable venue line in the gallery header / photo overlay
+  // (Build #74 §3). The galleries collection only carries venueId, so we
+  // read the venue doc and map it to the VenueData shape VenueScreen expects
+  // (it re-queries events/galleries by venue.id internally). No-op if the
+  // venueId is missing or the doc doesn't exist (test/closed venues return
+  // null from getVenueById).
+  const navigateToVenueById = async (venueId?: string) => {
+    if (!venueId) return;
+    try {
+      const svc = await import('../../firestoreService');
+      const v = await svc.getVenueById(venueId);
+      if (!v) return;
+      const data = {
+        id: v.id, name: v.name, category: v.category || '',
+        address: v.address || '', phone: v.phone || '',
+        website: v.website || '', instagram: v.instagram || '',
+        logoUrl: (v as any).logoUrl || undefined,
+        attributes: v.attributes || [], about: v.about || '',
+        media: (v.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
+        menuDescription: '', menuAttributes: [], bestSellers: [],
+        upcomingEvents: [], galleries: [],
+      } as unknown as VenueData;
+      navigateToVenue(data);
+    } catch (e) {
+      console.log('navigateToVenueById failed', e);
+    }
+  };
+
+  // ── Open a liked photo (Saved tab) in PhotoViewer at its exact index ──
+  // Build #74 §4. The favorite id is the synthetic `${galleryId}-${index}`;
+  // galleryId may itself contain hyphens, so split on the FINAL hyphen. Then
+  // getGalleryById, rebuild the gallery's photo array from images[], and open
+  // PhotoViewer at the parsed index (clamped defensively).
+  const openLikedPhoto = async (photoId: string) => {
+    const m = photoId.match(/^(.*)-(\d+)$/);
+    if (!m) return;
+    const galleryId = m[1];
+    const index = Number(m[2]);
+    try {
+      const svc = await import('../../firestoreService');
+      const g = await svc.getGalleryById(galleryId);
+      if (!g) return;
+      const images = (g.images || []).filter(Boolean);
+      if (images.length === 0) return;
+      const photos: GalleryPhoto[] = images.map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 }));
+      const venueName = g.venueId
+        ? ((await svc.getVenueById(g.venueId).catch(() => null))?.name || '')
+        : '';
+      const gallery: GalleryData = {
+        id: g.id, title: g.title || 'Photo', venue: venueName,
+        date: g.date || '', coverImage: g.coverImage || images[0] || '',
+        photos, venueId: g.venueId || undefined,
+      };
+      const safeIndex = Math.min(Math.max(0, index), photos.length - 1);
+      navigateToPhoto(photos, safeIndex, gallery);
+    } catch (e) {
+      console.log('openLikedPhoto failed', e);
+    }
+  };
 
   // ── Notification deep-link handler ───────────────────────────────────
   useEffect(() => {
@@ -310,8 +371,8 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
 
     if (current.screen === 'camera')  return <CameraScreen   onClose={pop} theme={theme}/>;
     if (current.screen === 'passes')  return <MyPassesScreen onBack={pop}  theme={theme}/>;
-    if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} theme={theme}/>;
-    if (current.screen === 'gallery') return <GalleryScreen  gallery={current.gallery} onBack={pop} onPhotoPress={index => navigateToPhoto(current.gallery.photos, index, current.gallery)} theme={theme}/>;
+    if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} onVenuePress={current.venueId ? () => navigateToVenueById(current.venueId) : undefined} theme={theme}/>;
+    if (current.screen === 'gallery') return <GalleryScreen  gallery={current.gallery} onBack={pop} onPhotoPress={index => navigateToPhoto(current.gallery.photos, index, current.gallery)} onVenuePress={current.gallery.venueId ? () => navigateToVenueById(current.gallery.venueId) : undefined} theme={theme}/>;
     if (current.screen === 'map')     return <MapScreen      address={current.address} venueName={current.venueName} onBack={pop} theme={theme}/>;
     // Editorial Discover: the search/filter mode is the existing DiscoverScreen,
     // pushed on top of the editorial default view. onBack returns to editorial.
@@ -486,7 +547,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
         {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite}/>}
-        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllSaved={kind => push({ screen: 'savedList', kind })}/>}
+        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}
         <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
       </View>

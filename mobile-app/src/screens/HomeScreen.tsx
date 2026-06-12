@@ -219,7 +219,11 @@ function HomeHeroCarousel({ banners, theme }: { banners: BannerItem[]; theme: Th
   };
 
   const renderBanner = (b: BannerItem) => (
-    <>
+    // Whole banner is tappable → same target as the CTA pill (Build #74 §5).
+    // activeOpacity:1 so the full-bleed press doesn't flash the image; the
+    // nested CTA TouchableOpacity keeps its own press feedback. Horizontal
+    // swipes still page because the parent ScrollView wins the pan responder.
+    <TouchableOpacity activeOpacity={1} onPress={b.onCtaPress} style={{ flex: 1 }}>
       <Image
         cachePolicy="memory-disk"
         source={{ uri: b.image }}
@@ -247,7 +251,7 @@ function HomeHeroCarousel({ banners, theme }: { banners: BannerItem[]; theme: Th
           </TouchableOpacity>
         </BlurView>
       </View>
-    </>
+    </TouchableOpacity>
   );
 
   return (

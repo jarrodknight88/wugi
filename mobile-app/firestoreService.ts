@@ -842,6 +842,28 @@ export async function getGalleryById(galleryId: string): Promise<GalleryDoc | nu
   }
 }
 
+// Fetch galleries linked to a specific event (top-level `galleries`,
+// gallery.eventId == eventId). Used by EventScreen to render the real event
+// gallery instead of a generic placeholder. Single-field where (no composite
+// index required); newest-first sort is client-side. Returns [] when no
+// gallery has been linked yet (eventId backfill — scripts/backfill-gallery-eventid.ts
+// — populates this in prod; until then most galleries have eventId:null and
+// the caller falls back to its existing generic gallery).
+export async function getGalleriesByEvent(eventId: string, max: number = 20): Promise<GalleryDoc[]> {
+  try {
+    if (!eventId) return [];
+    const snap = await getDocs(
+      query(collection(db, 'galleries'), where('eventId', '==', eventId), limit(max))
+    );
+    const docs = snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
+    docs.sort((a: GalleryDoc, b: GalleryDoc) => ((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0));
+    return docs;
+  } catch (e) {
+    console.log('getGalleriesByEvent error:', e);
+    return [];
+  }
+}
+
 // Fetch a single itinerary doc (top-level `itineraries`) so the editorial
 // itinerary hero card can deep-link to ItineraryDetailScreen.
 export async function getItineraryById(itineraryId: string): Promise<ItineraryDoc | null> {

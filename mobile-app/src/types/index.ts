@@ -16,6 +16,11 @@ export type GalleryData = {
   date: string;
   coverImage: string;
   photos: GalleryPhoto[];
+  // Resolved venue doc id (when known) so the GalleryScreen header / PhotoViewer
+  // overlay venue line can deep-link to VenueScreen via getVenueById. Optional
+  // because mock/seed galleries and the live eventGalleries listener may not
+  // carry it — the venue line stays non-tappable when absent.
+  venueId?: string;
 };
 
 // Top-level `galleries` collection doc — the single source of truth for
@@ -270,7 +275,7 @@ export type NavEntry =
   | { screen: 'venue'; venue: VenueData }
   | { screen: 'map'; address: string; venueName: string }
   | { screen: 'gallery'; gallery: GalleryData }
-  | { screen: 'photo'; photos: GalleryPhoto[]; initialIndex: number; galleryTitle: string; venue: string; date: string }
+  | { screen: 'photo'; photos: GalleryPhoto[]; initialIndex: number; galleryTitle: string; venue: string; date: string; venueId?: string }
   | { screen: 'passes' }
   | { screen: 'camera' }
   | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
