@@ -54,7 +54,6 @@ const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2);
 const GALLERY_PURPLE = '#9b59b6';
 const GALLERIES_INLINE_MAX = 4;
 const UPCOMING_INLINE_MAX = 5;
-const UPCOMING_CARD_W = SCREEN_WIDTH - 32;
 const GALLERY_GRID_GUTTER  = 16;
 const GALLERY_GRID_GAP     = 8;
 const GALLERY_CARD_W = (SCREEN_WIDTH - GALLERY_GRID_GUTTER * 2 - GALLERY_GRID_GAP) / 2;
@@ -265,11 +264,13 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
           </TouchableOpacity>
         )}
       </View>
-      <View style={{ paddingHorizontal: 16, gap: 12 }}>
-        {visible.map(item => (
-          <VibeEventCard key={item.id} event={item} label={item.date} theme={theme} onPress={() => onEventPress(item)} width={UPCOMING_CARD_W} height={220}/>
-        ))}
-      </View>
+      <FlatList
+        data={visible} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+        renderItem={({ item }) => (
+          <VibeEventCard event={item} label={item.date} theme={theme} onPress={() => onEventPress(item)}/>
+        )}
+      />
     </>
   );
 }
