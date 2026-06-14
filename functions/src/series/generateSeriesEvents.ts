@@ -14,6 +14,11 @@
 //     isSeriesAnchor:false purely to keep the field present.
 //
 // Series lacking a valid recurrence are skipped; the rest still process.
+//
+// Architecture: the date math + doc-building + idempotency live ONLY in the pure
+// planner `planSeries` (no writes). The writer `generateForSeries` consumes a
+// plan and performs the writes; the dryRun callable returns a plan and writes
+// nothing. There is no duplicated logic.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
@@ -41,12 +46,57 @@ function stepDaysFor(frequency: string | undefined): number {
   return frequency === 'biweekly' ? 14 : frequency === 'monthly' ? 28 : 7; // default weekly
 }
 
+// Build the FULL instance doc for a given series + occurrence date. This is the
+// exact payload written by the writer — keep it identical to preserve the write
+// path byte-for-byte. (serverTimestamp() sentinels resolve at write time, so it
+// is harmless to build them here even on the dry-run path, where they are never
+// written.)
+function buildInstanceDoc(s: FirebaseFirestore.DocumentData, seriesId: string, iso: string) {
+  return {
+    title:          s.title || s.name || '',
+    venue:          s.venue || s.venueName || '',
+    venueName:      s.venueName || s.venue || '',
+    venueId:        s.venueId || '',
+    date:           displayFromISO(iso),
+    dateISO:        iso,                       // ensures computed-anchor eligibility works
+    time:           s.time || '9:00 PM',
+    age:            s.age || '21+',
+    about:          s.about || '',
+    category:       s.category ?? null,
+    media:          s.media || [],
+    vibes:          s.vibes || [],
+    status:         'approved',                // auto-approved
+    hasTickets:     false,
+    market:         s.market || 'atlanta',
+    seriesId,
+    seriesInstance: true,
+    instanceDate:   displayFromISO(iso),
+    isSeriesAnchor: false,                     // field present; read paths ignore it
+    isFeatured:     false,
+    createdAt:      admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt:      admin.firestore.FieldValue.serverTimestamp(),
+  };
+}
+
 type GenResult = { seriesId: string; generated: number; ids: string[]; skipped?: string };
 
-async function generateForSeries(seriesId: string, weeksAhead = 8): Promise<GenResult> {
+type PlanInstance = { id: string; dateISO: string; doc: ReturnType<typeof buildInstanceDoc> };
+type PlanSkip = { id: string; dateISO: string; reason: string };
+export type SeriesPlan = {
+  seriesId: string;
+  toCreate: PlanInstance[];
+  toSkip: PlanSkip[];
+  skipped?: string; // 'series-not-found' | 'invalid-recurrence' (whole series skipped)
+};
+
+// PURE planner — performs NO writes. Reads the eventSeries doc + existing
+// instances, computes the rolling future window, builds each would-create doc
+// with its deterministic id, and partitions occurrences into toCreate / toSkip
+// (idempotency: existing instances skipped by id AND by dateISO).
+export async function planSeries(seriesId: string, weeksAhead = 8): Promise<SeriesPlan> {
   const seriesSnap = await db.collection('eventSeries').doc(seriesId).get();
   if (!seriesSnap.exists) {
-    return { seriesId, generated: 0, ids: [], skipped: 'series-not-found' };
+    return { seriesId, toCreate: [], toSkip: [], skipped: 'series-not-found' };
   }
   const s = seriesSnap.data()!;
 
@@ -60,8 +110,7 @@ async function generateForSeries(seriesId: string, weeksAhead = 8): Promise<GenR
     typeof tz === 'string' && tz.length > 0 &&
     typeof slug === 'string' && slug.length > 0;
   if (!validRecurrence) {
-    console.warn(`generateForSeries: ${seriesId} skipped — invalid/missing recurrence`);
-    return { seriesId, generated: 0, ids: [], skipped: 'invalid-recurrence' };
+    return { seriesId, toCreate: [], toSkip: [], skipped: 'invalid-recurrence' };
   }
 
   // ── Existing instances → dedupe by id AND by dateISO (covers legacy docs
@@ -84,59 +133,82 @@ async function generateForSeries(seriesId: string, weeksAhead = 8): Promise<GenR
   while (new Date(cursor).getUTCDay() !== dow) cursor += DAY_MS;
 
   const endDate: Date | null = s.endDate?.toDate?.() || null;
-  const generated: string[] = [];
+  const toCreate: PlanInstance[] = [];
+  const toSkip: PlanSkip[] = [];
 
   for (; cursor <= horizonUTC; cursor += step * DAY_MS) {
     if (endDate && cursor > endDate.getTime()) break;
     const iso = new Date(cursor).toISOString().slice(0, 10); // YYYY-MM-DD
     const id = `${slug}-${iso}`;
-    if (existingIds.has(id) || existingISO.has(iso)) continue; // idempotent
+    if (existingIds.has(id)) { toSkip.push({ id, dateISO: iso, reason: 'exists-by-id' }); continue; }
+    if (existingISO.has(iso)) { toSkip.push({ id, dateISO: iso, reason: 'exists-by-dateISO' }); continue; }
+    toCreate.push({ id, dateISO: iso, doc: buildInstanceDoc(s, seriesId, iso) });
+  }
 
-    await db.collection('events').doc(id).set({
-      title:          s.title || s.name || '',
-      venue:          s.venue || s.venueName || '',
-      venueName:      s.venueName || s.venue || '',
-      venueId:        s.venueId || '',
-      date:           displayFromISO(iso),
-      dateISO:        iso,                       // ensures computed-anchor eligibility works
-      time:           s.time || '9:00 PM',
-      age:            s.age || '21+',
-      about:          s.about || '',
-      category:       s.category ?? null,
-      media:          s.media || [],
-      vibes:          s.vibes || [],
-      status:         'approved',                // auto-approved
-      hasTickets:     false,
-      market:         s.market || 'atlanta',
-      seriesId,
-      seriesInstance: true,
-      instanceDate:   displayFromISO(iso),
-      isSeriesAnchor: false,                     // field present; read paths ignore it
-      isFeatured:     false,
-      createdAt:      admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt:      admin.firestore.FieldValue.serverTimestamp(),
-    });
-    generated.push(id);
+  return { seriesId, toCreate, toSkip };
+}
+
+// WRITER — consumes a plan and performs the writes. Write payload + the
+// eventSeries update are byte-for-byte unchanged from the prior implementation.
+async function generateForSeries(seriesId: string, weeksAhead = 8): Promise<GenResult> {
+  const plan = await planSeries(seriesId, weeksAhead);
+  if (plan.skipped) {
+    if (plan.skipped === 'invalid-recurrence') {
+      console.warn(`generateForSeries: ${seriesId} skipped — invalid/missing recurrence`);
+    }
+    return { seriesId, generated: 0, ids: [], skipped: plan.skipped };
+  }
+
+  const ids: string[] = [];
+  for (const item of plan.toCreate) {
+    await db.collection('events').doc(item.id).set(item.doc);
+    ids.push(item.id);
   }
 
   await db.collection('eventSeries').doc(seriesId).update({
     lastGenerated:  admin.firestore.FieldValue.serverTimestamp(),
-    totalGenerated: admin.firestore.FieldValue.increment(generated.length),
+    totalGenerated: admin.firestore.FieldValue.increment(ids.length),
   });
 
-  return { seriesId, generated: generated.length, ids: generated };
+  return { seriesId, generated: ids.length, ids };
 }
 
 // Callable — manual trigger from the dashboard.
+//   • dryRun === true  → preview only (planSeries), writes NOTHING. seriesId is
+//     optional; when omitted, previews every `active` series.
+//   • dryRun false/absent → unchanged behavior: requires seriesId, plan → write.
 export const generateSeriesEvents = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-  const { seriesId, weeksAhead = 8 } = data;
+  const { seriesId, weeksAhead = 8, dryRun } = data;
+
+  if (dryRun === true) {
+    let ids: string[];
+    if (seriesId) {
+      ids = [seriesId];
+    } else {
+      const active = await db.collection('eventSeries').where('status', '==', 'active').get();
+      ids = active.docs.map(d => d.id);
+    }
+    const plans = await Promise.all(ids.map(id => planSeries(id, weeksAhead)));
+    return {
+      dryRun: true,
+      totalToCreate: plans.reduce((n, p) => n + p.toCreate.length, 0),
+      series: plans.map(p => ({
+        seriesId: p.seriesId,
+        skipped: p.skipped ?? null,
+        toCreateCount: p.toCreate.length,
+        toCreate: p.toCreate.map(i => ({ id: i.id, dateISO: i.dateISO })),
+        toSkip: p.toSkip.map(i => ({ id: i.id, dateISO: i.dateISO, reason: i.reason })),
+      })),
+    };
+  }
+
   if (!seriesId) throw new functions.https.HttpsError('invalid-argument', 'seriesId required');
   return generateForSeries(seriesId, weeksAhead);
 });
 
 // Scheduled — NIGHTLY at 05:00 America/New_York. Generates an 8-week window for
-// every active series; one failing series never aborts the rest.
+// every active series; one failing series never aborts the rest. Always writes.
 export const generateSeriesEventsScheduled = functions.pubsub
   .schedule('0 5 * * *')
   .timeZone('America/New_York')
