@@ -366,40 +366,94 @@ function notTestVenue<T extends { isTestVenue?: boolean }>(d: T): boolean {
 // and freshly-scraped data surfaces above hand-seeded test docs whose IDs
 // happen to sort early. Composite index in firebase/firestore.indexes.json.
 //
-// VENUE-DATA-08 Deliverable C: filter on isSeriesAnchor==true so recurring
-// event series (Friday Happy Hour at Teranga × 9 occurrences, etc.) only
-// surface ONE card in consumer feed. Use getEventsForVenue() below to read
-// all occurrences for a venue detail page.
+// ── Computed series anchor (replaces the stored isSeriesAnchor flag) ───
+// The marquee/feed surfaces exactly ONE card per recurring series: the
+// soonest occurrence that has not yet expired. Expiry rule: an occurrence
+// dated D stays eligible until 06:00 America/New_York on D+1, then it rolls
+// forward to the next occurrence. This is computed at query time — no stored
+// or maintained anchor (retires isSeriesAnchor for read paths).
+
+// Earliest still-eligible calendar date (YYYY-MM-DD) in America/New_York.
+// Before 06:00 ET, yesterday's occurrence is still "live tonight" and eligible.
+function minEligibleDateISOEastern(now: Date = new Date()): string {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+  });
+  const p = Object.fromEntries(fmt.formatToParts(now).map(x => [x.type, x.value]));
+  let base = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day));
+  if (Number(p.hour) < 6) base -= 86400000; // pre-6am ET → yesterday still eligible
+  return new Date(base).toISOString().slice(0, 10);
+}
+
+// Occurrence date as YYYY-MM-DD: prefer dateISO; else null (undated one-offs
+// are treated as always-eligible so they are never silently dropped).
+function occurrenceDateISO(e: FSEvent): string | null {
+  const iso = (e as any).dateISO;
+  return (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}/.test(iso)) ? iso.slice(0, 10) : null;
+}
+
+// Collapse a raw approved-events list into the feed: drop expired occurrences,
+// then keep exactly one card per seriesId (the earliest eligible occurrence).
+// Events without a seriesId pass through individually (one-offs).
+function computeSeriesFeed(events: FSEvent[]): FSEvent[] {
+  const minISO = minEligibleDateISOEastern();
+  const out: FSEvent[] = [];
+  const bySeries = new Map<string, FSEvent>();
+  for (const e of events) {
+    const iso = occurrenceDateISO(e);
+    if (iso !== null && iso < minISO) continue; // expired
+    const sid = (e as any).seriesId;
+    if (!sid) { out.push(e); continue; }
+    const cur = bySeries.get(sid);
+    if (!cur) { bySeries.set(sid, e); continue; }
+    const a = occurrenceDateISO(e) ?? '9999-99-99';
+    const b = occurrenceDateISO(cur) ?? '9999-99-99';
+    if (a < b) bySeries.set(sid, e); // keep soonest eligible occurrence
+  }
+  out.push(...bySeries.values());
+  return out;
+}
+
+// Stable feed ordering: featured first, then newest createdAt (matches the
+// prior server orderBy now that grouping happens client-side).
+function sortFeed(a: FSEvent, b: FSEvent): number {
+  const f = ((b as any).isFeatured ? 1 : 0) - ((a as any).isFeatured ? 1 : 0);
+  if (f !== 0) return f;
+  return (((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0));
+}
+
+// Computed-anchor feed (replaces the isSeriesAnchor==true filter). Fetches
+// approved events featured-first, then collapses each series to its earliest
+// eligible occurrence client-side. vibes filtering is applied client-side so
+// the query needs only ONE composite index (status, isFeatured, createdAt) —
+// see the index note in the #76 report; DO NOT auto-deploy.
 export async function getApprovedEvents(
   userVibes?: string[],
   max: number = 100
 ): Promise<FSEvent[]> {
   try {
-    let q;
-    if (userVibes && userVibes.length > 0) {
-      q = query(
-        collection(db, 'events'),
-        where('status', '==', 'approved'),
-        where('isSeriesAnchor', '==', true),
-        where('vibes', 'array-contains-any', userVibes),
-        orderBy('isFeatured', 'desc'),
-        orderBy('createdAt', 'desc'),
-        limit(max)
-      );
-    } else {
-      q = query(
-        collection(db, 'events'),
-        where('status', '==', 'approved'),
-        where('isSeriesAnchor', '==', true),
-        orderBy('isFeatured', 'desc'),
-        orderBy('createdAt', 'desc'),
-        limit(max)
-      );
-    }
+    // Fetch generously (we collapse series client-side, so over-fetch to make
+    // sure each distinct series is represented before trimming to `max`).
+    const fetchLimit = Math.min(Math.max(max * 5, 100), 500);
+    const q = query(
+      collection(db, 'events'),
+      where('status', '==', 'approved'),
+      orderBy('isFeatured', 'desc'),
+      orderBy('createdAt', 'desc'),
+      limit(fetchLimit)
+    );
     const snap = await getDocs(q);
-    return snap.docs
+    const raw = snap.docs
       .map(d => ({ id: d.id, ...d.data() } as FSEvent))
       .filter(notTestVenue);
+
+    let feed = computeSeriesFeed(raw);
+    if (userVibes && userVibes.length > 0) {
+      feed = feed.filter(e => (e.vibes || []).some(v => userVibes.includes(v)));
+    }
+    feed.sort(sortFeed);
+    return feed.slice(0, max);
   } catch (e) {
     console.log('getApprovedEvents error:', e);
     return [];
@@ -560,8 +614,15 @@ export async function getApprovedVenuesPage(args: {
 }
 
 // ── Paginated events (cursor-based) ──────────────────────────────────
-// VENUE-DATA-08 Deliverable C: also filters isSeriesAnchor==true so the
-// infinite-scroll feed shows ONE card per recurring series.
+// Computed-anchor feed (retires isSeriesAnchor). Each page is collapsed to the
+// earliest eligible occurrence per series via computeSeriesFeed.
+//
+// ⚠️ REVIEW (#76, flagged — Phase 1 deliberately conservative): series dedup is
+// applied WITHIN each page only. Because pagination is cursor-based over raw
+// approved events, the same series could still appear on two different pages
+// (different occurrences). Guaranteeing one-card-per-series ACROSS pages without
+// the stored flag requires either offset pagination over the fully-computed feed
+// or a load-all approach — a pagination-model change. NOT decided here; see report.
 export async function getApprovedEventsPage(args: {
   cursor?:    PageCursor;
   limit?:     number;
@@ -571,21 +632,22 @@ export async function getApprovedEventsPage(args: {
   try {
     const constraints: any[] = [
       where('status', '==', 'approved'),
-      where('isSeriesAnchor', '==', true),
       orderBy('isFeatured', 'desc'),
       orderBy('createdAt',  'desc'),
     ];
-    if (userVibes && userVibes.length > 0) {
-      constraints.unshift(where('vibes', 'array-contains-any', userVibes));
-    }
     if (cursor) constraints.push(startAfter(cursor));
     constraints.push(limit(pageSize));
 
     const snap = await getDocs(query(collection(db, 'events'), ...constraints));
-    const all  = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent)).filter(notTestVenue);
+    const raw  = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent)).filter(notTestVenue);
+    let events = computeSeriesFeed(raw);
+    if (userVibes && userVibes.length > 0) {
+      events = events.filter(e => (e.vibes || []).some(v => userVibes.includes(v)));
+    }
+    events.sort(sortFeed);
     const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
     return {
-      events:     all,
+      events,
       nextCursor: snap.docs.length === pageSize ? lastDoc : null,
       hasMore:    snap.docs.length === pageSize,
     };
@@ -877,7 +939,18 @@ export async function getGalleriesBySeries(seriesId: string, max: number = 20): 
       query(collection(db, 'galleries'), where('seriesId', '==', seriesId), limit(max))
     );
     const docs = snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
-    docs.sort((a: GalleryDoc, b: GalleryDoc) => ((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0));
+    // Tiebreak: when multiple galleries share a seriesId, return the one tied to
+    // the MOST RECENT occurrence first (newest by `event_date`, an ISO YYYY-MM-DD
+    // string → lexical compare desc). Fall back to createdAt when event_date is
+    // absent/equal. The resolution path (useEventGalleriesBySeriesId) takes [0]
+    // and maps images[] → GalleryData.photos, so the returned gallery's .photos
+    // is populated downstream.
+    docs.sort((a: GalleryDoc, b: GalleryDoc) => {
+      const ad = (a as any).event_date || '';
+      const bd = (b as any).event_date || '';
+      if (ad !== bd) return bd < ad ? -1 : 1; // newer event_date first
+      return ((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0);
+    });
     return docs;
   } catch (e) {
     console.log('getGalleriesBySeries error:', e);

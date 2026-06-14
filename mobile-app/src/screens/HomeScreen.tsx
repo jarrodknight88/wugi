@@ -74,6 +74,7 @@ type BannerItem = {
 function toEventData(e: FSEvent): EventData {
   return {
     id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+    seriesId: e.seriesId ?? null,
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
     hasTickets: (e as any).hasTickets === true,

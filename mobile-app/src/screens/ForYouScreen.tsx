@@ -20,6 +20,7 @@ function fsEventToCard(e: FSEvent): ForYouCard {
     tag: e.vibes?.[0] || 'Event', tagColor: '#2a7a5a',
     data: {
       id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+      seriesId: e.seriesId ?? null,
       date: e.date, time: e.time, age: e.age || '21+',
       about: e.about || '', vibes: e.vibes || [],
       media: e.media?.map(m => ({ type: m.type as 'image'|'video', uri: m.uri })) || [{ type: 'image', uri: `https://picsum.photos/seed/${e.id}/600/900` }],

@@ -184,6 +184,9 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
           screen: 'event',
           event: {
             id: eventId,
+            // FCM payload may carry seriesId so EventScreen can resolve a
+            // series gallery on a cold deep-link; absent → null (no-op).
+            seriesId: (data as any).seriesId ?? null,
             title: data.eventTitle ?? 'Event',
             venue: data.venueName ?? '',
             // FCM payload may carry venueId so EventScreen can resolve the
@@ -280,6 +283,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             if (!e) return null;
             const data = {
               id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+              seriesId: (e as any).seriesId ?? null,
               date: e.date, time: e.time, age: e.age, about: e.about || '',
               media: (e.media || []) as any, gallery: undefined as any,
               hasTickets: (e as any).hasTickets === true,

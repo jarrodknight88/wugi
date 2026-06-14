@@ -358,6 +358,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           const e = d.data();
           return {
             id: d.id, title: e.title || e.name || '', venue: venue.name, venueId: venue.id,
+            seriesId: e.seriesId ?? null,
             date: e.date || '', time: e.time || '', age: e.age || venue.age || '', about: e.about || '',
             media: (e.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
             hasTickets: e.hasTickets === true,

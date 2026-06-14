@@ -85,8 +85,9 @@ export type EventData = {
   // may not carry it; the lookup hook treats missing venueId as a no-op.
   venueId?: string;
   // Recurring-series id (mirrors FSEvent.seriesId). Drives series-based gallery
-  // resolution in EventScreen. Optional: hand-seeded/deep-link events may omit it.
-  seriesId?: string;
+  // resolution in EventScreen. Optional/nullable: hand-seeded/deep-link events
+  // may omit it; mappers thread `e.seriesId ?? null` so the field is explicit.
+  seriesId?: string | null;
   date: string;
   time: string;
   age: string;
@@ -321,6 +322,9 @@ export type FSEvent = {
   media: { type: string; uri: string }[];
   status: string;
   hasTickets?: boolean;
+  // Recurring-series id (mirrors events.seriesId). Threaded into EventData by the
+  // FSEvent→EventData mappers so EventScreen can resolve a series-linked gallery.
+  seriesId?: string | null;
   // Editorial featured flag — when true, the event is hand-promoted to the
   // top of the Home featured slot (preferred over the legacy isFeatured /
   // soonest fallback). Set by seed-featured.ts / the Dashboard.
