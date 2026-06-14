@@ -375,7 +375,7 @@ function notTestVenue<T extends { isTestVenue?: boolean }>(d: T): boolean {
 
 // Earliest still-eligible calendar date (YYYY-MM-DD) in America/New_York.
 // Before 06:00 ET, yesterday's occurrence is still "live tonight" and eligible.
-function minEligibleDateISOEastern(now: Date = new Date()): string {
+export function minEligibleDateISOEastern(now: Date = new Date()): string {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York', hourCycle: 'h23',
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
@@ -396,7 +396,7 @@ function occurrenceDateISO(e: FSEvent): string | null {
 // Collapse a raw approved-events list into the feed: drop expired occurrences,
 // then keep exactly one card per seriesId (the earliest eligible occurrence).
 // Events without a seriesId pass through individually (one-offs).
-function computeSeriesFeed(events: FSEvent[]): FSEvent[] {
+export function computeSeriesFeed(events: FSEvent[]): FSEvent[] {
   const minISO = minEligibleDateISOEastern();
   const out: FSEvent[] = [];
   const bySeries = new Map<string, FSEvent>();

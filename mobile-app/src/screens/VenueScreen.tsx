@@ -43,11 +43,16 @@ import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem } from
 import { BackIcon, ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 import { makeGallery } from '../constants/mockData';
+// Reuse the SAME series-collapse the marquee uses (one card per series, soonest
+// eligible, expired dropped) — do not reimplement. Exported from firestoreService.
+import { computeSeriesFeed } from '../../firestoreService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2);
 const GALLERY_PURPLE = '#9b59b6';
 const GALLERIES_INLINE_MAX = 4;
+const UPCOMING_INLINE_MAX = 5;
+const UPCOMING_CARD_W = SCREEN_WIDTH - 32;
 const GALLERY_GRID_GUTTER  = 16;
 const GALLERY_GRID_GAP     = 8;
 const GALLERY_CARD_W = (SCREEN_WIDTH - GALLERY_GRID_GUTTER * 2 - GALLERY_GRID_GAP) / 2;
@@ -80,6 +85,10 @@ type Props = {
   // VenueGalleriesListScreen. Hidden if the prop is absent or there are
   // ≤ GALLERIES_INLINE_MAX galleries (no overflow to link to).
   onAllGalleries?: (venueId: string) => void;
+  // UAT V10 Venue #1/#2 (additive): "View all" link on the upcoming-events
+  // section pushes the VenueEventsListScreen. Hidden if absent or there are
+  // ≤ UPCOMING_INLINE_MAX collapsed cards (nothing to overflow to).
+  onAllEvents?: (venueId: string) => void;
   theme: Theme;
 };
 
@@ -230,43 +239,66 @@ function VenueAttributesStrip({ items, theme }: { items: string[]; theme: Theme 
 
 // "HAPPENING HERE" — refit per kit: 200-wide cards with date-badge top-left,
 // soft scrim, title + time below.
-function VenueUpcomingEventsBlock({ events, theme, onEventPress }: { events: EventData[]; theme: Theme; onEventPress: (e: EventData) => void }) {
+// Full-length event card — mirrors the home/featured card style (full-width,
+// image bg + dark overlay + bottom gradient, date·time pill, large title,
+// venue line). Exported-style reuse wasn't possible (home cards are inline), so
+// this is the shared full-length card for the venue upcoming section + list.
+export function VenueEventCard({ event, theme, onPress }: { event: EventData; theme: Theme; onPress: () => void }) {
+  return (
+    <TouchableOpacity activeOpacity={0.92} onPress={onPress}
+      style={{ width: UPCOMING_CARD_W, height: 220, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.card }}>
+      <Image cachePolicy="memory-disk" source={{ uri: (event.media || [])[0]?.uri || '' }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover"/>
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.32)' }}/>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['transparent', 'transparent', 'rgba(0,0,0,0.88)']}
+        locations={[0, 0.45, 1]}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      />
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16 }}>
+        {(!!event.date || !!event.time) && (
+          <View style={{ alignSelf: 'flex-start', backgroundColor: theme.accent, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
+            <Text style={{ color: '#fff', fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }}>
+              {[event.date, event.time].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+        )}
+        <Text style={{ color: '#fff', fontSize: 20, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 2 }} numberOfLines={2}>{event.title}</Text>
+        {!!event.venue && <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontFamily: FONTS.body }} numberOfLines={1}>{event.venue}</Text>}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllEvents }: {
+  events: EventData[]; venueId: string; theme: Theme;
+  onEventPress: (e: EventData) => void;
+  onAllEvents?: (venueId: string) => void;
+}) {
   if (events.length === 0) return null;
+  const showAllLink = !!onAllEvents && events.length > UPCOMING_INLINE_MAX;
+  const visible = events.slice(0, UPCOMING_INLINE_MAX);
   return (
     <>
-      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
-        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
-          HAPPENING HERE · {events.length} UPCOMING
-        </Text>
-        <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>What's on the calendar</Text>
-      </View>
-      <FlatList
-        data={events} keyExtractor={e => e.id} horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-        renderItem={({ item }) => (
-          <TouchableOpacity activeOpacity={0.9} onPress={() => onEventPress(item)}
-            style={{ width: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}>
-            <View style={{ width: '100%', height: 110 }}>
-              <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || '' }} style={{ width: '100%', height: '100%' }} contentFit="cover"/>
-              <LinearGradient
-                pointerEvents="none"
-                colors={['transparent', 'transparent', 'rgba(0,0,0,0.85)']}
-                locations={[0, 0.4, 1]}
-                style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
-              />
-              {!!item.date && (
-                <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 }}>
-                  <Text style={{ color: theme.onImage, fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.4 }}>{item.date}</Text>
-                </View>
-              )}
-            </View>
-            <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 }}>
-              <Text style={{ color: theme.text, fontSize: 13, fontFamily: FONTS.display, marginBottom: 2 }} numberOfLines={1}>{item.title}</Text>
-              {!!item.time && <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.time}</Text>}
-            </View>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
+            HAPPENING HERE · {events.length} UPCOMING
+          </Text>
+          <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>What's on the calendar</Text>
+        </View>
+        {showAllLink && (
+          <TouchableOpacity onPress={() => onAllEvents!(venueId)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <Text style={{ color: theme.accent, fontSize: 13, fontFamily: FONTS.medium }}>View all</Text>
+            <ChevronRightIcon color={theme.accent}/>
           </TouchableOpacity>
         )}
-      />
+      </View>
+      <View style={{ paddingHorizontal: 16, gap: 12 }}>
+        {visible.map(item => (
+          <VenueEventCard key={item.id} event={item} theme={theme} onPress={() => onEventPress(item)}/>
+        ))}
+      </View>
     </>
   );
 }
@@ -321,7 +353,7 @@ function VenueGalleriesGrid({ galleries, venueId, theme, onGalleryPress, onAllGa
 }
 
 // ── Main screen ────────────────────────────────────────────────────────
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, onAllGalleries, theme }: Props) {
+export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, onAllGalleries, onAllEvents, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
   const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
@@ -353,19 +385,27 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           await import('@react-native-firebase/firestore');
         const db = getFirestore();
         const snap = await getDocs(query(collection(db, 'events'), where('venueId', '==', venue.id)));
-        const approved = snap.docs.filter(d => d.data().status === 'approved');
-        const evs: EventData[] = approved.slice(0, 8).map(d => {
-          const e = d.data();
-          return {
-            id: d.id, title: e.title || e.name || '', venue: venue.name, venueId: venue.id,
+        const approved = snap.docs.filter((d: any) => d.data().status === 'approved');
+        // Collapse to ONE card per series (soonest eligible, expired dropped) via
+        // the SAME computeSeriesFeed the marquee uses, then order soonest-first.
+        // Non-series one-offs pass through. Fixes UAT V10 Venue #2 (Friday Happy
+        // Hour showing once per Friday).
+        const raw = approved.map((d: any) => ({ id: d.id, ...(d.data() as object) }));
+        const evs: EventData[] = computeSeriesFeed(raw as any)
+          .slice()
+          .sort((a: any, b: any) => {
+            const ad = a.dateISO || '9999-99-99', bd = b.dateISO || '9999-99-99';
+            return ad < bd ? -1 : ad > bd ? 1 : 0; // soonest first; undated last
+          })
+          .map((e: any) => ({
+            id: e.id, title: e.title || e.name || '', venue: venue.name, venueId: venue.id,
             seriesId: e.seriesId ?? null,
             date: e.date || '', time: e.time || '', age: e.age || venue.age || '', about: e.about || '',
             media: (e.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
             hasTickets: e.hasTickets === true,
-            gallery: makeGallery(d.id, e.title || e.name || '', venue.name, e.date || '', ['gp1','gp2','gp3','gp4']),
-          };
-        });
-        const ticketDoc = approved.find(d => d.data().hasTickets === true);
+            gallery: makeGallery(e.id, e.title || e.name || '', venue.name, e.date || '', ['gp1','gp2','gp3','gp4']),
+          }));
+        const ticketDoc = approved.find((d: any) => d.data().hasTickets === true);
 
         // Galleries — top-level collection, queried by venueId only (single
         // field, no composite index) and sorted by createdAt desc client-side.
@@ -567,7 +607,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
         <VenueAttributesStrip items={amenityList} theme={theme}/>
 
         {/* 8. HAPPENING HERE — upcoming events */}
-        <VenueUpcomingEventsBlock events={upcoming} theme={theme} onEventPress={onEventPress}/>
+        <VenueUpcomingEventsBlock events={upcoming} venueId={venue.id} theme={theme} onEventPress={onEventPress} onAllEvents={onAllEvents}/>
 
         {/* 9. GALLERIES — 2-col grid + "All →" */}
         <VenueGalleriesGrid

@@ -35,6 +35,7 @@ import { MapScreen }        from '../screens/MapScreen';
 import { SavedListScreen }  from '../screens/SavedListScreen';
 import { ItineraryDetailScreen } from '../screens/ItineraryDetailScreen';
 import { VenueGalleriesListScreen } from '../screens/VenueGalleriesListScreen';
+import { VenueEventsListScreen } from '../screens/VenueEventsListScreen';
 
 // Features
 import { CameraScreen }          from '../features/stories/CameraScreen';
@@ -408,6 +409,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     if (current.screen === 'itinerary') return <ItineraryDetailScreen itineraryId={current.itineraryId} theme={theme} onBack={pop} onVenuePress={navigateToVenue}/>;
     // Venue v2: full "All →" galleries destination from the GALLERIES section.
     if (current.screen === 'venueGalleries') return <VenueGalleriesListScreen venueId={current.venueId} theme={theme} onBack={pop} onGalleryPress={navigateToGallery}/>;
+    if (current.screen === 'venueEvents') return <VenueEventsListScreen venueId={current.venueId} theme={theme} onBack={pop} onEventPress={navigateToEvent}/>;
 
     if (current.screen === 'ticketSelection') return (
       <TicketSelectionScreen
@@ -532,6 +534,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         // Venue v2 (additive): "All →" galleries link pushes the new
         // VenueGalleriesListScreen scoped to this venue.
         onAllGalleries={(venueId) => push({ screen: 'venueGalleries', venueId })}
+        onAllEvents={(venueId) => push({ screen: 'venueEvents', venueId })}
         theme={theme}
       />
     );

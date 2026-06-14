@@ -306,7 +306,8 @@ export type NavEntry =
   | { screen: 'itinerary'; itineraryId: string }
   // Venue galleries list — full-list "All →" destination from VenueScreen's
   // GALLERIES section when a venue has more than the 4 inline tiles.
-  | { screen: 'venueGalleries'; venueId: string };
+  | { screen: 'venueGalleries'; venueId: string }
+  | { screen: 'venueEvents'; venueId: string };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {
