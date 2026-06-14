@@ -46,6 +46,8 @@ import { makeGallery } from '../constants/mockData';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
 // eligible, expired dropped) — do not reimplement. Exported from firestoreService.
 import { computeSeriesFeed } from '../../firestoreService';
+// Shared event card — the SAME card as the home "Picks for you" feed.
+import { VibeEventCard } from '../components/VibeEventCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2);
@@ -239,37 +241,6 @@ function VenueAttributesStrip({ items, theme }: { items: string[]; theme: Theme 
 
 // "HAPPENING HERE" — refit per kit: 200-wide cards with date-badge top-left,
 // soft scrim, title + time below.
-// Full-length event card — mirrors the home/featured card style (full-width,
-// image bg + dark overlay + bottom gradient, date·time pill, large title,
-// venue line). Exported-style reuse wasn't possible (home cards are inline), so
-// this is the shared full-length card for the venue upcoming section + list.
-export function VenueEventCard({ event, theme, onPress }: { event: EventData; theme: Theme; onPress: () => void }) {
-  return (
-    <TouchableOpacity activeOpacity={0.92} onPress={onPress}
-      style={{ width: UPCOMING_CARD_W, height: 220, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.card }}>
-      <Image cachePolicy="memory-disk" source={{ uri: (event.media || [])[0]?.uri || '' }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover"/>
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.32)' }}/>
-      <LinearGradient
-        pointerEvents="none"
-        colors={['transparent', 'transparent', 'rgba(0,0,0,0.88)']}
-        locations={[0, 0.45, 1]}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-      />
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16 }}>
-        {(!!event.date || !!event.time) && (
-          <View style={{ alignSelf: 'flex-start', backgroundColor: theme.accent, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }}>
-              {[event.date, event.time].filter(Boolean).join(' · ')}
-            </Text>
-          </View>
-        )}
-        <Text style={{ color: '#fff', fontSize: 20, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 2 }} numberOfLines={2}>{event.title}</Text>
-        {!!event.venue && <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontFamily: FONTS.body }} numberOfLines={1}>{event.venue}</Text>}
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllEvents }: {
   events: EventData[]; venueId: string; theme: Theme;
   onEventPress: (e: EventData) => void;
@@ -296,7 +267,7 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
       </View>
       <View style={{ paddingHorizontal: 16, gap: 12 }}>
         {visible.map(item => (
-          <VenueEventCard key={item.id} event={item} theme={theme} onPress={() => onEventPress(item)}/>
+          <VibeEventCard key={item.id} event={item} label={item.date} theme={theme} onPress={() => onEventPress(item)} width={UPCOMING_CARD_W} height={220}/>
         ))}
       </View>
     </>

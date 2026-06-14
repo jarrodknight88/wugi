@@ -11,13 +11,15 @@
 // client-side (no composite index needed).
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Dimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { computeSeriesFeed } from '../../firestoreService';
-import { VenueEventCard } from './VenueScreen';
+import { VibeEventCard } from '../components/VibeEventCard';
+
+const CARD_W = Dimensions.get('window').width - 32;
 
 type Props = {
   venueId: string;
@@ -114,7 +116,7 @@ export function VenueEventsListScreen({ venueId, theme, onBack, onEventPress }: 
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 12 }}>
             {events.map(ev => (
-              <VenueEventCard key={ev.id} event={ev} theme={theme} onPress={() => onEventPress(ev)}/>
+              <VibeEventCard key={ev.id} event={ev} label={ev.date} theme={theme} onPress={() => onEventPress(ev)} width={CARD_W} height={220}/>
             ))}
           </View>
         )}

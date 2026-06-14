@@ -43,6 +43,7 @@ import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from
 import { EVENTS, VENUES, DEALS, makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { ChevronRightIcon } from '../components/icons';
+import { VibeEventCard } from '../components/VibeEventCard';
 
 // Design content-type tag color for deals — ember terracotta (--tag-deal).
 const DEAL_COLOR = '#a8533f';
@@ -618,17 +619,7 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
               data={picks} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 170, height: 240, borderRadius: 14, overflow: 'hidden' }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
-                  <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
-                  <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
-                  <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>{picksReason}</Text>
-                  </View>
-                  <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 14 }}>
-                    <Text style={{ color: theme.onImage, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, lineHeight: 18, marginBottom: 3 }} numberOfLines={2}>{item.title}</Text>
-                    <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{item.venue}{item.time ? ` · ${item.time}` : ''}</Text>
-                  </View>
-                </TouchableOpacity>
+                <VibeEventCard event={item} label={picksReason} theme={theme} onPress={() => onEventPress(item)}/>
               )}
             />
           </>
