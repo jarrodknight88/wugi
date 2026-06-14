@@ -864,6 +864,27 @@ export async function getGalleriesByEvent(eventId: string, max: number = 20): Pr
   }
 }
 
+// Fetch galleries linked to a recurring series (top-level `galleries`,
+// gallery.seriesId == seriesId). Lets EventScreen resolve a gallery for ANY
+// occurrence of a series, not just the single event a gallery's eventId points
+// at. Single-field where (no composite index required); newest-first sort is
+// client-side. Returns [] when no gallery carries this seriesId (seriesId
+// backfill populates this in prod; until then galleries are eventId/venueId-scoped).
+export async function getGalleriesBySeries(seriesId: string, max: number = 20): Promise<GalleryDoc[]> {
+  try {
+    if (!seriesId) return [];
+    const snap = await getDocs(
+      query(collection(db, 'galleries'), where('seriesId', '==', seriesId), limit(max))
+    );
+    const docs = snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
+    docs.sort((a: GalleryDoc, b: GalleryDoc) => ((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0));
+    return docs;
+  } catch (e) {
+    console.log('getGalleriesBySeries error:', e);
+    return [];
+  }
+}
+
 // Fetch a single itinerary doc (top-level `itineraries`) so the editorial
 // itinerary hero card can deep-link to ItineraryDetailScreen.
 export async function getItineraryById(itineraryId: string): Promise<ItineraryDoc | null> {

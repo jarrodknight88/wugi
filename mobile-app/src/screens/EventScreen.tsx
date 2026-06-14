@@ -41,16 +41,13 @@ import { BackIcon, KebabVerticalIcon, ChevronRightIcon } from '../components/ico
 import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
 import { useEventGallery } from '../hooks/useEventGallery';
 import { useEventGalleriesByEventId } from '../hooks/useEventGalleriesByEventId';
+import { useEventGalleriesBySeriesId } from '../hooks/useEventGalleriesBySeriesId';
 import { useVenueById } from '../hooks/useVenueById';
 import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Design hero: aspectRatio 0.95 → height = width / 0.95
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 0.95);
-
-const EMPTY_GALLERY: GalleryData = {
-  id: 'empty', title: '', venue: '', date: '', coverImage: '', photos: [],
-} as GalleryData;
 
 // Purple used for the GALLERIES eyebrow (matches design --tag-photos)
 const GALLERY_PURPLE = '#9b59b6';
@@ -106,26 +103,27 @@ function EventScreenInner({
     .filter(e => e.id !== event.id && Array.isArray(e.media) && e.media.length > 0)
     .slice(0, 3);
 
-  // Build #74 §2: prefer the gallery linked by eventId in the top-level
-  // `galleries` collection (the real Home→Event→photo link). Fall back to the
-  // live Wugi Lens eventGalleries listener, then the embedded mock gallery,
-  // then empty — i.e. only show a generic gallery when the eventId query is
-  // genuinely empty. (eventId backfill in scripts/ lights this up in prod.)
+  // Real-or-nothing display rule across THREE real sources (no mock/empty
+  // fallback — when none resolve we render nothing for the photos section):
+  //   • linkedGallery — top-level galleries/ linked by eventId (per-occurrence, most specific)
+  //   • seriesGallery — top-level galleries/ linked by seriesId (whole series)
+  //   • liveGallery   — Wugi Lens eventGalleries listener (live)
+  // Precedence: the most specific curated link wins — eventId, then seriesId,
+  // then the Lens live listener.
   const { gallery: linkedGallery, loading: linkedLoading } = useEventGalleriesByEventId(event.id);
+  const { gallery: seriesGallery, loading: seriesLoading } = useEventGalleriesBySeriesId(event.seriesId ?? null);
   const { gallery: liveGallery, loading: liveLoading } = useEventGallery(event.id);
-  const galleryLoading = linkedLoading || (!linkedGallery && liveLoading);
-  // Defensive: any branch may be null/oddly-shaped on incomplete docs.
-  const activeGalleryRaw: GalleryData = linkedGallery || liveGallery || event.gallery || EMPTY_GALLERY;
+  // null when no real gallery is linked/live — the strip stays hidden.
+  const resolvedGallery: GalleryData | null = linkedGallery || seriesGallery || liveGallery || null;
+  // Keep the loading state only while nothing has resolved yet AND at least one
+  // source is still in flight; once all sources settle empty, the strip hides.
+  const galleryLoading = !resolvedGallery && (linkedLoading || seriesLoading || liveLoading);
   // Ensure a venueId rides along so the gallery/photo venue line is tappable
-  // even when the resolved gallery (live listener / mock) didn't carry one.
-  const activeGallery: GalleryData = {
-    ...activeGalleryRaw,
-    venueId: activeGalleryRaw.venueId || eventVenueId || undefined,
-  };
-  const galleryPhotos = Array.isArray(activeGallery?.photos) ? activeGallery.photos : [];
-  // True when a real gallery (linked-by-eventId or live Lens) resolved — drives
-  // the GALLERIES strip's "Photos loading…" vs "No photos yet" copy.
-  const hasResolvedGallery = !!(linkedGallery || liveGallery);
+  // even when the resolved gallery didn't carry one.
+  const activeGallery: GalleryData | null = resolvedGallery
+    ? { ...resolvedGallery, venueId: resolvedGallery.venueId || eventVenueId || undefined }
+    : null;
+  const galleryPhotos = Array.isArray(activeGallery?.photos) ? activeGallery!.photos : [];
 
   // ── Venue press handler: prefer onNavigateToVenue(venue) if available ──
   const handleVenuePress = () => {
@@ -533,7 +531,7 @@ function EventScreenInner({
         )}
 
         {/* ── Galleries strip ──────────────────────────────────────────── */}
-        {(galleryLoading || galleryPhotos.length > 0 || hasResolvedGallery) && (
+        {(galleryLoading || galleryPhotos.length > 0) && (
           <>
             <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -545,17 +543,13 @@ function EventScreenInner({
                     <ActivityIndicator size="small" color={theme.accent} style={{ alignSelf: 'flex-start', marginTop: 2 }}/>
                   ) : (
                     <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
-                      {galleryPhotos.length > 0
-                        ? `${galleryPhotos.length} photos from past nights`
-                        : hasResolvedGallery
-                          ? 'Photos loading…'
-                          : 'No photos yet'}
+                      {`${galleryPhotos.length} photos from past nights`}
                     </Text>
                   )}
                 </View>
-                {(galleryPhotos.length > 0 || hasResolvedGallery) && (
+                {galleryPhotos.length > 0 && (
                   <TouchableOpacity
-                    onPress={() => onGalleryPress(activeGallery)}
+                    onPress={() => onGalleryPress(activeGallery!)}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
                     activeOpacity={0.8}
                   >
@@ -573,7 +567,7 @@ function EventScreenInner({
               contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
             >
               {galleryPhotos.slice(0, 5).map(photo => (
-                <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(activeGallery)} activeOpacity={0.9}>
+                <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(activeGallery!)} activeOpacity={0.9}>
                   <Image
                     cachePolicy="memory-disk"
                     source={{ uri: photo.uri }}
@@ -584,7 +578,7 @@ function EventScreenInner({
               ))}
               {galleryPhotos.length > 5 && (
                 <TouchableOpacity
-                  onPress={() => onGalleryPress(activeGallery)}
+                  onPress={() => onGalleryPress(activeGallery!)}
                   style={{
                     width: 100, height: 100, borderRadius: 10,
                     backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
@@ -595,17 +589,6 @@ function EventScreenInner({
                   <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>+{galleryPhotos.length - 5}</Text>
                   <Text style={{ color: theme.subtext, fontSize: 10, fontFamily: FONTS.body, marginTop: 2 }}>more</Text>
                 </TouchableOpacity>
-              )}
-              {galleryPhotos.length === 0 && !galleryLoading && (
-                <View
-                  style={{
-                    width: 200, height: 100, borderRadius: 10,
-                    backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
-                    alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
-                  <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>Photos coming soon</Text>
-                </View>
               )}
             </ScrollView>
           </>

@@ -29,7 +29,14 @@ function formatDate(d: Date): string {
 
 async function generateForSeries(seriesId: string, weeksAhead = 8) {
   const seriesSnap = await db.collection('eventSeries').doc(seriesId).get();
-  if (!seriesSnap.exists) throw new Error(`Series ${seriesId} not found`);
+  // The `eventSeries` collection is currently empty in prod even though event
+  // docs carry seriesId. A missing series doc must NO-OP, not throw: throwing
+  // fails the manual callable and (pre-Promise.allSettled) could abort batch
+  // runs. Return the same empty result shape callers already handle.
+  if (!seriesSnap.exists) {
+    console.warn(`generateForSeries: eventSeries/${seriesId} not found — skipping (no-op)`);
+    return { generated: 0, ids: [] as string[] };
+  }
 
   const s = seriesSnap.data()!;
   const now = new Date();

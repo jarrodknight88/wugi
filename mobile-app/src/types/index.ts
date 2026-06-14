@@ -36,6 +36,11 @@ export type GalleryDoc = {
   id: string;
   venueId: string;
   eventId?: string | null;
+  // Recurring-series link (mirrors events.seriesId). Lets a gallery resolve to
+  // every occurrence of a series, not just a single event instance. Optional /
+  // nullable: most galleries are venue- or event-scoped until the seriesId
+  // backfill runs. See getGalleriesBySeries.
+  seriesId?: string | null;
   title: string;
   coverImage: string;        // cover image URL
   images: string[];          // image URLs
@@ -58,14 +63,16 @@ export type PhotoDoc = {
   id: string;
   galleryId: string;
   venueId: string;
-  eventId?: string | null;
-  imageUrl: string;          // photo image URL (placeholder until Lens uploads)
-  photographerName?: string;
-  photographerId?: string | null;
-  likes: number;
-  price: number;             // CENTS (e.g. 500 = $5.00)
-  createdAt?: unknown;       // Firestore Timestamp
-  source: 'dashboard' | 'lens' | 'seed';
+  filename?: string;
+  capturedAt?: string;
+  watermarkedUrl: string;     // public Storage download URL (watermarked variant) — what the app displays
+  cleanStoragePath?: string;  // gs:// path to the clean/unwatermarked original (no public download URL)
+  photographer?: string;
+  photographerHandle?: string;
+  width?: number;
+  height?: number;
+  createdAt?: unknown;        // Firestore Timestamp
+  source: string;             // observed in prod: 'placeholder-prince-williams' (also 'dashboard' | 'lens')
 };
 
 // ── Event ─────────────────────────────────────────────────────────────
@@ -77,6 +84,9 @@ export type EventData = {
   // lookup. Optional because hand-seeded mock data and notification deep-links
   // may not carry it; the lookup hook treats missing venueId as a no-op.
   venueId?: string;
+  // Recurring-series id (mirrors FSEvent.seriesId). Drives series-based gallery
+  // resolution in EventScreen. Optional: hand-seeded/deep-link events may omit it.
+  seriesId?: string;
   date: string;
   time: string;
   age: string;

@@ -29,7 +29,7 @@
 //   • Tap-to-toggle behavior unchanged: single-tap → fade both the icon
 //     overlay AND the info overlay; double-tap → like.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions, Alert, Platform, ActionSheetIOS } from 'react-native';
 import { Image } from 'expo-image';
 import Svg, { Path, LinearGradient as SvgLinearGradient, Stop, Defs, Rect } from 'react-native-svg';
@@ -60,13 +60,40 @@ type Props = {
   // When provided, the venue line in the info overlay becomes tappable and
   // deep-links to the venue profile (resolved venueId owned by the navigator).
   onVenuePress?: () => void;
+  // Synthetic ids (`${galleryId}-${index}`) of photos already liked in the
+  // favorites store. Owned by RootNavigator (live `favorites` state) and passed
+  // at render so hearts render filled on FIRST paint for EVERY photo regardless
+  // of entry path (normal gallery nav OR Saved deep-link), and re-fill reactively
+  // if favorites hydrate after mount (cold deep-link). See render-time derivation
+  // in `isPhotoLiked`.
+  likedPhotoIds?: string[];
+  // Optimistic, in-memory-only sync of a like/unlike back to RootNavigator's
+  // `favorites` array (NO Firestore write — that stays in persistLikeToggle).
+  // Keeps `likedPhotoIds` reactive within-session so the Saved tab updates
+  // immediately and a viewer re-entry (fresh mount, empty overrides) stays
+  // correct. `meta` lets the navigator build a usable Saved card.
+  onPhotoLikeChange?: (
+    photoId: string,
+    liked: boolean,
+    meta: { title: string; subtitle: string; image: string },
+  ) => void;
   theme: Theme;
 };
 
-export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, theme }: Props) {
+export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, likedPhotoIds, onPhotoLikeChange, theme }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showUI, setShowUI]   = useState(true);
-  const [liked, setLiked]     = useState<Record<string, boolean>>({});
+  // In-session like/unlike overrides ONLY. The source of truth at render time is
+  // the favorites store (`likedPhotoIds`); this map records the user's taps this
+  // session so an in-session toggle wins over (and survives a late hydration of)
+  // the store. Never seeded from `{}` for display — display is derived below.
+  const [likedOverrides, setLikedOverrides] = useState<Record<string, boolean>>({});
+  // Store membership as a Set for O(1) lookup; rebuilt only when the prop changes.
+  const storeLikedIds = useMemo(() => new Set(likedPhotoIds || []), [likedPhotoIds]);
+  // Effective liked state for a photo: an in-session override wins; otherwise
+  // fall back to the favorites store. Used by both render and the toggles.
+  const isPhotoLiked = (id: string): boolean =>
+    Object.prototype.hasOwnProperty.call(likedOverrides, id) ? likedOverrides[id] : storeLikedIds.has(id);
 
   const scrollRef    = useRef<ScrollView>(null);
   const uiOpacity    = useRef(new Animated.Value(1)).current;
@@ -126,11 +153,12 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
   };
 
   const toggleLike = () => {
-    const isLiked = !!liked[photo.id];
+    const isLiked = isPhotoLiked(photo.id);
     const next = !isLiked;
-    setLiked(p => ({ ...p, [photo.id]: next }));
+    setLikedOverrides(p => ({ ...p, [photo.id]: next }));
     if (next) animateHeart();
     persistLikeToggle(photo.id, next);
+    onPhotoLikeChange?.(photo.id, next, { title: galleryTitle, subtitle: venue, image: photo.uri });
   };
 
   // Share the FULL-RES photo. iOS' share sheet needs a real LOCAL file URI —
@@ -218,11 +246,12 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
     const isDouble = now - lastTap.current < 300;
     lastTap.current = now;
     if (isDouble) {
-      const isLiked = !!liked[photo.id];
+      const isLiked = isPhotoLiked(photo.id);
       const next = !isLiked;
-      setLiked(p => ({ ...p, [photo.id]: next }));
+      setLikedOverrides(p => ({ ...p, [photo.id]: next }));
       if (next) animateHeart();
       persistLikeToggle(photo.id, next);
+      onPhotoLikeChange?.(photo.id, next, { title: galleryTitle, subtitle: venue, image: photo.uri });
     } else {
       setTimeout(() => {
         if (Date.now() - lastTap.current >= 280) toggleUI();
@@ -391,7 +420,7 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
         <SafeAreaView style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 24, paddingBottom: 32, paddingTop: 16, backgroundColor: 'rgba(0,0,0,0.55)' }}>
             <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={toggleLike}>
-              <HeartIcon color={liked[photo.id] ? '#e74c3c' : '#fff'} filled={liked[photo.id]}/>
+              <HeartIcon color={isPhotoLiked(photo.id) ? '#e74c3c' : '#fff'} filled={isPhotoLiked(photo.id)}/>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Like</Text>
             </TouchableOpacity>
             <TouchableOpacity style={{ alignItems: 'center', gap: 4 }}>

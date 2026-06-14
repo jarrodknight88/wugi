@@ -240,6 +240,26 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   const markFavoriteRead = (id: string) => setFavorites(prev => prev.map(f => f.id === id ? { ...f, read: true } : f));
   const unreadFavCount   = favorites.filter(f => !f.read).length;
 
+  // Optimistic, IN-MEMORY-ONLY photo like/unlike from PhotoViewer. PhotoViewer
+  // owns the Firestore write (its persistLikeToggle); this only keeps the
+  // in-memory `favorites` array — and therefore the reactive `likedPhotoIds`
+  // prop and the Saved tab — in sync within-session. No persistence here (that
+  // would double-write). Synthetic id `${galleryId}-${index}`, type 'photo'.
+  const onPhotoLikeChange = (
+    photoId: string,
+    liked: boolean,
+    meta: { title: string; subtitle: string; image: string },
+  ) => {
+    setFavorites(prev => {
+      const exists = prev.some(f => f.type === 'photo' && f.id === photoId);
+      if (liked) {
+        if (exists) return prev;
+        return [...prev, { id: photoId, type: 'photo', title: meta.title || 'Photo', subtitle: meta.subtitle || '', image: meta.image || '', read: false }];
+      }
+      return prev.filter(f => !(f.type === 'photo' && f.id === photoId));
+    });
+  };
+
   // ── Hydrate favorites from Firestore on login ────────────────────────
   // Resolves each persisted {itemType,itemId} to a full FavoriteItem via
   // getEventById / getVenueById so the Saved tab renders title/image. Photo
@@ -371,7 +391,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
 
     if (current.screen === 'camera')  return <CameraScreen   onClose={pop} theme={theme}/>;
     if (current.screen === 'passes')  return <MyPassesScreen onBack={pop}  theme={theme}/>;
-    if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} onVenuePress={current.venueId ? () => navigateToVenueById(current.venueId) : undefined} theme={theme}/>;
+    if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} onVenuePress={current.venueId ? () => navigateToVenueById(current.venueId) : undefined} likedPhotoIds={favorites.filter(f => f.type === 'photo').map(f => f.id)} onPhotoLikeChange={onPhotoLikeChange} theme={theme}/>;
     if (current.screen === 'gallery') return <GalleryScreen  gallery={current.gallery} onBack={pop} onPhotoPress={index => navigateToPhoto(current.gallery.photos, index, current.gallery)} onVenuePress={current.gallery.venueId ? () => navigateToVenueById(current.gallery.venueId) : undefined} theme={theme}/>;
     if (current.screen === 'map')     return <MapScreen      address={current.address} venueName={current.venueName} onBack={pop} theme={theme}/>;
     // Editorial Discover: the search/filter mode is the existing DiscoverScreen,

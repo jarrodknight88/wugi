@@ -325,6 +325,13 @@ export type EventV2 = {
   recurrenceRule?: string;
   timezone?: string;
 
+  // Recurring series. Present in prod on ~100% of event docs (seriesId) and used
+  // as an equality filter (isSeriesAnchor) by feed queries + the series Cloud
+  // Functions. Previously absent from this type — added to fix schema drift.
+  // See AGENTS.md "Firestore foot-guns" and functions/src/series/.
+  seriesId?: string | null;
+  isSeriesAnchor?: boolean;
+
   // Where
   venueId: string;
   venueName: string;
