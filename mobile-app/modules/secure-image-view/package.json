@@ -1,0 +1,7 @@
+{
+  "name": "secure-image-view",
+  "version": "0.1.0",
+  "description": "iOS screenshot/recording/AirPlay-guarded image view with native pinch-zoom and pan.",
+  "main": "index.ts",
+  "private": true
+}

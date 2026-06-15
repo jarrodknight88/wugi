@@ -31,7 +31,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions, Alert, Platform, ActionSheetIOS } from 'react-native';
-import { Image } from 'expo-image';
+import { SecureImageView } from '../../modules/secure-image-view';
 import Svg, { Path, LinearGradient as SvgLinearGradient, Stop, Defs, Rect } from 'react-native-svg';
 import { BlurView } from 'expo-blur';
 // SDK 54 (expo-file-system v19) removed `cacheDirectory` + `downloadAsync`
@@ -297,10 +297,15 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
             onPress={handleTap}
             style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center' }}
           >
-            <Image cachePolicy="memory-disk"
-              source={{ uri: item.uri }}
+            <SecureImageView
+              uri={item.uri}
               style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.85 }}
-              contentFit="contain"
+              maxZoomScale={4}
+              onSecureStateChange={(e) => {
+                if (!e.nativeEvent.secure) {
+                  console.warn('[SecureImageView] protection fell back to insecure for', item.uri);
+                }
+              }}
             />
           </TouchableOpacity>
         ))}
