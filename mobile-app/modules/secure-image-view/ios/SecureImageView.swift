@@ -14,6 +14,7 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
   private weak var secureCanvas: UIView?    // the capture-excluded layer host, if found
   private var isSecure = false
   private var didReportState = false
+  private var reportedSecure = false        // last value emitted to JS (for flip-guarded re-emit)
 
   // Capture-lifecycle observers. iOS tears down / rebuilds the secure field's
   // private canvas across a screenshot or screen-capture toggle, orphaning our
@@ -80,16 +81,20 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
     layoutIfNeeded()
 
     if findSecureCanvas() != nil {
-      // Secure path. Host our content INSIDE the secure canvas via the shared
-      // attach routine (re-used on capture lifecycle events to re-host).
+      // Secure path. Host our content INSIDE the secure canvas via the shared heal
+      // core (scrollView has no superview yet → unhealthy → it hosts). First mount
+      // behaves exactly as before when the canvas IS present.
       isSecure = true
-      reattachSecureContent()
+      healSecureHostingIfNeeded()
     } else {
-      // Fallback: render normally (NOT capture-protected). Report to JS.
-      secureField.removeFromSuperview()
+      // Canvas not ready yet — common at off-window init, since UITextField only
+      // vends its secure canvas once laid out in a window. Render normally for now
+      // (NOT capture-protected) and re-derive secure state in didMoveToWindow when
+      // the canvas first appears (de-latch). Keep secureField in the hierarchy so
+      // that canvas can be created — do NOT remove it.
       scrollView.frame = bounds
       scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      addSubview(scrollView)
+      addSubview(scrollView)            // on top of the (still-empty) secureField
       contentHost = self
       isSecure = false
     }
@@ -104,50 +109,124 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
     }
   }
 
-  // Host (or re-host) our scrollView inside the secure field's canvas. Idempotent:
-  // the `superview !== canvas` guard makes it a no-op when nothing was torn down,
-  // and a re-attach when iOS swapped/cleared the canvas across a capture event.
+  // Relayout-free heal core. Acts ONLY when hosting is unhealthy; the healthy case
+  // short-circuits after a cheap subview scan + identity checks, so it is safe to call
+  // from layoutSubviews every pass. Returns whether it actually re-hosted (for logging).
+  //
+  // Unhealthy = ANY of: scrollView has no superview; scrollView's superview is not the
+  // current live canvas; the canvas is detached from the field; the scrollView is not in
+  // a window. In every healthy state none of these hold. Never calls
+  // setNeedsLayout()/layoutIfNeeded() — it is invoked from layout and must not loop.
   // Never reparents the canvas out of the field — the capture exclusion stays put.
-  private func reattachSecureContent() {
-    guard isSecure else { return }            // no-op on the insecure fallback path
-    guard let canvas = findSecureCanvas() else { return }
-    if scrollView.superview !== canvas {
-      canvas.subviews.forEach { $0.removeFromSuperview() }
-      canvas.isUserInteractionEnabled = true
-      scrollView.frame = canvas.bounds
-      scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      canvas.addSubview(scrollView)
-      secureCanvas = canvas
-      contentHost = canvas
+  @discardableResult
+  private func healSecureHostingIfNeeded() -> Bool {
+    guard isSecure else { return false }       // no-op on the insecure fallback path
+    guard let canvas = findSecureCanvas() else {
+      NSLog("[SecureImageView] heal: no canvas found (cannot host)")
+      return false
     }
-    setNeedsLayout()
-    layoutIfNeeded()
+
+    let healthy = scrollView.superview === canvas
+      && canvas.superview === secureField
+      && scrollView.window != nil
+    if healthy { return false }                // short-circuit: no per-frame churn/log
+
+    // Classify the unhealthy reason for diagnosis (logged only when we actually heal).
+    if scrollView.superview == nil {
+      NSLog("[SecureImageView] heal: orphaned (superview==nil) -> re-hosting")
+    } else if scrollView.superview !== canvas {
+      NSLog("[SecureImageView] heal: orphaned (superview!==canvas) -> re-hosting")
+    } else {
+      NSLog("[SecureImageView] heal: same-canvas-unhealthy (canvas detached / window==nil) -> re-hosting")
+    }
+
+    canvas.subviews.forEach { $0.removeFromSuperview() }
+    canvas.isUserInteractionEnabled = true
+    scrollView.frame = canvas.bounds
+    scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    canvas.addSubview(scrollView)              // auto-removes scrollView from any prior superview
+    secureCanvas = canvas
+    contentHost = canvas
+    return true
   }
 
   // iOS tears down / rebuilds the secure field's canvas across a screenshot or a
-  // screen-capture (record / AirPlay) toggle, orphaning our hosted scrollView so
-  // the live image goes black. Re-host on the next runloop turn (after iOS has
-  // finished rebuilding). The async defer is deliberate; if the canvas is re-found
-  // too early on-device, the documented fallback is asyncAfter ~0.1s.
+  // screen-capture (record / AirPlay) toggle — possibly more than once, with variable
+  // timing — orphaning our hosted scrollView so the live image goes black. We heal on
+  // a short ladder rather than a single turn, and force a repaint each step to cover
+  // the "same canvas, render suppressed" case where re-hosting alone is a no-op.
   private func registerCaptureObservers() {
     screenshotObserver = NotificationCenter.default.addObserver(
       forName: UIApplication.userDidTakeScreenshotNotification,
       object: nil, queue: .main
-    ) { _ in
-      DispatchQueue.main.async { [weak self] in self?.reattachSecureContent() }
+    ) { [weak self] _ in
+      NSLog("[SecureImageView] observer: userDidTakeScreenshot -> heal ladder")
+      self?.scheduleCaptureHealLadder()
     }
     capturedObserver = NotificationCenter.default.addObserver(
       forName: UIScreen.capturedDidChangeNotification,
       object: nil, queue: .main
-    ) { _ in
-      DispatchQueue.main.async { [weak self] in self?.reattachSecureContent() }
+    ) { [weak self] _ in
+      NSLog("[SecureImageView] observer: capturedDidChange (isCaptured=\(UIScreen.main.isCaptured)) -> heal ladder")
+      self?.scheduleCaptureHealLadder()
     }
+  }
+
+  // Variable + possibly-repeated canvas rebuild → heal at a few offsets after the event.
+  private func scheduleCaptureHealLadder() {
+    for delay in [0.1, 0.3, 0.6] {
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        self?.healAndRepaintForCapture()
+      }
+    }
+  }
+
+  // Capture path only: heal, then force a repaint regardless of whether we re-hosted.
+  // The repaint handles Theory B (same canvas instance, rendering suppressed by the
+  // capture) where the heal guard correctly no-ops but the layer still needs a redraw.
+  // setNeedsDisplay is a display invalidation, not a layout pass — safe to call here.
+  //
+  // NOTE (fallback, intentionally NOT wired): if this redraw nudge proves insufficient
+  // on-device for the same-canvas-suppressed case, the heavier deterministic option is
+  // to force a clean canvas rebuild by toggling the secure flag —
+  //   secureField.isSecureTextEntry = false; secureField.isSecureTextEntry = true
+  // then re-host into the fresh canvas. That MUST be gated by `!UIScreen.main.isCaptured`
+  // (never toggle during an active recording — it would open a one-frame protection gap).
+  // Left as documentation only; do not enable without that guard.
+  private func healAndRepaintForCapture() {
+    let healed = healSecureHostingIfNeeded()
+    imageView.image = imageView.image          // bounce the image to force a repaint
+    secureCanvas?.setNeedsDisplay()
+    scrollView.setNeedsDisplay()
+    NSLog("[SecureImageView] capture heal: healed=\(healed)")
   }
 
   // MARK: - Layout
 
+  public override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard window != nil else { return }
+    // De-latch: if the initial off-window setup found no canvas (isSecure == false),
+    // re-derive now that we're in a window and the field can vend its canvas. This is
+    // the common init-race path (blank during plain browsing, no capture involved).
+    if !isSecure, findSecureCanvas() != nil {
+      isSecure = true
+      let healed = healSecureHostingIfNeeded()   // moves content off the insecure self-host
+      emitSecureStateIfChanged()                  // flip-guarded re-emit: false -> true
+      NSLog("[SecureImageView] didMoveToWindow: de-latched to secure (healed=\(healed))")
+      return
+    }
+    let healed = healSecureHostingIfNeeded()
+    NSLog("[SecureImageView] didMoveToWindow: secure=\(isSecure) healed=\(healed)")
+  }
+
   public override func layoutSubviews() {
     super.layoutSubviews()
+    // Self-heal any orphaned hosting on layout passes (rotation, zoom reset, forced
+    // relayout). Guarded + relayout-free; logs only when it actually heals (no spam).
+    if healSecureHostingIfNeeded() {
+      NSLog("[SecureImageView] layoutSubviews: healed orphaned hosting")
+    }
     // Keep the field (and thus its canvas) filling our bounds.
     secureField.frame = bounds
     if let host = contentHost {
@@ -158,12 +237,16 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
       imageView.frame = scrollView.bounds
       scrollView.contentSize = scrollView.bounds.size
     }
-    reportStateIfNeeded()
+    emitSecureStateIfChanged()
   }
 
-  private func reportStateIfNeeded() {
-    guard !didReportState, bounds.width > 0 else { return }
+  // Emit the secure state to JS the first time bounds are ready, and again only if the
+  // value actually flips (e.g. de-latch false -> true). Flip-guarded against spam.
+  private func emitSecureStateIfChanged() {
+    guard bounds.width > 0 else { return }
+    if didReportState && reportedSecure == isSecure { return }
     didReportState = true
+    reportedSecure = isSecure
     onSecureStateChange(["secure": isSecure])
   }
 
