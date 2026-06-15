@@ -15,6 +15,12 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
   private var isSecure = false
   private var didReportState = false
 
+  // Capture-lifecycle observers. iOS tears down / rebuilds the secure field's
+  // private canvas across a screenshot or screen-capture toggle, orphaning our
+  // hosted scrollView (live image goes black). We re-host on these.
+  private var screenshotObserver: NSObjectProtocol?
+  private var capturedObserver: NSObjectProtocol?
+
   // ── Content ──────────────────────────────────────────────────────────
   private let scrollView = UIScrollView()
   private let imageView = UIImageView()
@@ -30,10 +36,17 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
     clipsToBounds = true
     setupScrollView()
     setupSecureContainer()
+    registerCaptureObservers()
   }
 
   deinit {
     loadTask?.cancel()
+    if let screenshotObserver = screenshotObserver {
+      NotificationCenter.default.removeObserver(screenshotObserver)
+    }
+    if let capturedObserver = capturedObserver {
+      NotificationCenter.default.removeObserver(capturedObserver)
+    }
   }
 
   // MARK: - Setup
@@ -66,25 +79,11 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
     addSubview(secureField)
     layoutIfNeeded()
 
-    // Defensively locate the private secure canvas subview. iOS 13–15 names it
-    // `_UITextLayoutCanvasView`; match by class-name substring so we don't bind a
-    // private symbol and tolerate renames. Fall back to normal rendering if absent.
-    let canvas = secureField.subviews.first { subview in
-      String(describing: type(of: subview)).contains("CanvasView")
-    }
-
-    if let canvas = canvas {
-      // Host our content INSIDE the secure canvas (do not reparent the canvas out
-      // of the field — that would drop the capture exclusion). Strip its default
-      // content and add the scrollView.
-      canvas.subviews.forEach { $0.removeFromSuperview() }
-      canvas.isUserInteractionEnabled = true
-      scrollView.frame = canvas.bounds
-      scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      canvas.addSubview(scrollView)
-      secureCanvas = canvas
-      contentHost = canvas
+    if findSecureCanvas() != nil {
+      // Secure path. Host our content INSIDE the secure canvas via the shared
+      // attach routine (re-used on capture lifecycle events to re-host).
       isSecure = true
+      reattachSecureContent()
     } else {
       // Fallback: render normally (NOT capture-protected). Report to JS.
       secureField.removeFromSuperview()
@@ -93,6 +92,55 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
       addSubview(scrollView)
       contentHost = self
       isSecure = false
+    }
+  }
+
+  // Defensively locate the private secure canvas subview. iOS 13–15 names it
+  // `_UITextLayoutCanvasView`; match by class-name substring so we don't bind a
+  // private symbol and tolerate renames.
+  private func findSecureCanvas() -> UIView? {
+    return secureField.subviews.first { subview in
+      String(describing: type(of: subview)).contains("CanvasView")
+    }
+  }
+
+  // Host (or re-host) our scrollView inside the secure field's canvas. Idempotent:
+  // the `superview !== canvas` guard makes it a no-op when nothing was torn down,
+  // and a re-attach when iOS swapped/cleared the canvas across a capture event.
+  // Never reparents the canvas out of the field — the capture exclusion stays put.
+  private func reattachSecureContent() {
+    guard isSecure else { return }            // no-op on the insecure fallback path
+    guard let canvas = findSecureCanvas() else { return }
+    if scrollView.superview !== canvas {
+      canvas.subviews.forEach { $0.removeFromSuperview() }
+      canvas.isUserInteractionEnabled = true
+      scrollView.frame = canvas.bounds
+      scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      canvas.addSubview(scrollView)
+      secureCanvas = canvas
+      contentHost = canvas
+    }
+    setNeedsLayout()
+    layoutIfNeeded()
+  }
+
+  // iOS tears down / rebuilds the secure field's canvas across a screenshot or a
+  // screen-capture (record / AirPlay) toggle, orphaning our hosted scrollView so
+  // the live image goes black. Re-host on the next runloop turn (after iOS has
+  // finished rebuilding). The async defer is deliberate; if the canvas is re-found
+  // too early on-device, the documented fallback is asyncAfter ~0.1s.
+  private func registerCaptureObservers() {
+    screenshotObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.userDidTakeScreenshotNotification,
+      object: nil, queue: .main
+    ) { _ in
+      DispatchQueue.main.async { [weak self] in self?.reattachSecureContent() }
+    }
+    capturedObserver = NotificationCenter.default.addObserver(
+      forName: UIScreen.capturedDidChangeNotification,
+      object: nil, queue: .main
+    ) { _ in
+      DispatchQueue.main.async { [weak self] in self?.reattachSecureContent() }
     }
   }
 
