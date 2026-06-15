@@ -128,7 +128,6 @@ public final class SecureImageView: ExpoView, UIScrollViewDelegate, UITextFieldD
 
     let healthy = scrollView.superview === canvas
       && canvas.superview === secureField
-      && scrollView.window != nil
     if healthy { return false }                // short-circuit: no per-frame churn/log
 
     // Classify the unhealthy reason for diagnosis (logged only when we actually heal).
