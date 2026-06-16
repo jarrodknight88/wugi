@@ -648,7 +648,7 @@ function SearchBody({
     const matchAmen = (as: string[] | undefined) =>
       wantAmen.length === 0 || (as || []).some(a => wantAmen.includes(a.toLowerCase()));
     const matchSearch = (name: string, sub: string) =>
-      q === '' || name.toLowerCase().includes(q) || sub.toLowerCase().includes(q);
+      q === '' || name?.toLowerCase().includes(q) || sub?.toLowerCase().includes(q);
 
     // Galleries carry no vibes/amenities of their own — they inherit them
     // (and their venue name) from the parent venue. Index the loaded venues

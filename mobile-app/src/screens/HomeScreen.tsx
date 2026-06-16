@@ -72,7 +72,7 @@ type BannerItem = {
 // ── Firestore → local type converters ────────────────────────────────
 function toEventData(e: FSEvent): EventData {
   return {
-    id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+    id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', venueId: e.venueId,
     seriesId: e.seriesId ?? null,
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
@@ -492,8 +492,8 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   // Brunch banner always uses the brunch copy regardless of heroEvent.
   // CTA routes to first event with a brunch/morning vibe or the first event.
   const brunchEvent = eventList.find(e =>
-    e.title.toLowerCase().includes('brunch') ||
-    e.venue.toLowerCase().includes('brunch')
+    e.title?.toLowerCase().includes('brunch') ||
+    e.venue?.toLowerCase().includes('brunch')
   ) || eventList[0];
 
   // For the time-aware first banner:
@@ -566,8 +566,8 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
     // Fallback: fuzzy match on venue name
     return venueList.find(v =>
       v.name === deal.venueName ||
-      v.name.includes(deal.venueName) ||
-      deal.venueName.includes(v.name.split(' ')[0])
+      v.name?.includes(deal.venueName) ||
+      deal.venueName?.includes((v.name || '').split(' ')[0])
     ) || null;
   }
 
