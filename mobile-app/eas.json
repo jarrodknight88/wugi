@@ -30,17 +30,14 @@
       "ios": {
         "appleId": "rodk.music@gmail.com",
         "ascAppId": "6760943066",
-        "appleTeamId": "D9438V88S5",
-        "ascApiKeyIssuerId": "69a6de7f-7e3a-47e3-e053-5b8c7c11a4d1",
-        "ascApiKeyId": "P6V6TMN3G9",
-        "ascApiKeyPath": "/Users/jarrod/Downloads/AuthKey_P6V6TMN3G9.p8"
+        "appleTeamId": "D9438V88S5"
       }
     },
     "production": {
       "ios": {
         "appleId": "rodk.music@gmail.com",
         "ascAppId": "829564750",
-        "appleTeamId": "D9438V8855"
+        "appleTeamId": "D9438V88S5"
       }
     }
   }
