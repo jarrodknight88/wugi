@@ -398,6 +398,78 @@ export type TicketType = {
   updatedAt: FSTimestamp;
 };
 
+// ── Deal v2 ───────────────────────────────────────────────────────────
+// Path: deals/{dealId}
+//
+// Canonical doc shape for the `deals` collection. Existing consumer code
+// reads the runtime `FSDeal` type (firestoreService.ts / types/index.ts);
+// this is the authoring/source-of-truth shape that supersedes the original
+// thin { title, venueName, detail, image, vibes, expiresAt } deal.
+//
+// IMPORTANT (canonical-status footgun): consumer queries DO NOT hard-filter
+// on `status` in Firestore — a missing/legacy value must never silently
+// drop a deal from a feed. Eligibility + "active now" are computed
+// client-side (src/utils/deals.ts). Always write the defaults below so a
+// deal surfaces predictably.
+
+export type DealType =
+  | 'happyHour'
+  | 'luckyHour'      // Afro District's branded happy-hour term
+  | 'flash'          // one-off / single-date special
+  | 'drinkSpecial'
+  | 'foodSpecial'
+  | 'bogo'
+  | 'other';
+
+export type DealStatus =
+  | 'active'         // surfaced
+  | 'paused'         // temporarily hidden by operator
+  | 'expired';       // past its run; retained for history
+
+export type DealV2 = {
+  // Identity + ownership
+  id: string;
+  venueId: string;
+  venueName: string;          // denormalized for card render without a join
+
+  // Content
+  title: string;
+  description: string;        // longer copy; `detail` is the short offer line
+  detail: string;             // short offer line shown on the card (legacy field, kept)
+  dealType: DealType;
+  image?: string;             // optional — falls back to the venue hero on render
+
+  // Timing — recurrence-lite.
+  //   Recurring: daysOfWeek (0=Sun..6=Sat) + startTime/endTime ("HH:MM", 24h).
+  //     A window where endTime < startTime crosses midnight (nightlife).
+  //   One-off (flash): a single `date` display string (e.g. "SAT JUN 21"),
+  //     optionally narrowed by startTime/endTime.
+  //   Both honor an optional validFrom/validUntil run window.
+  daysOfWeek?: number[];
+  startTime?: string;
+  endTime?: string;
+  date?: string;              // one-off / flash single date
+  validFrom?: FSTimestamp | null;
+  validUntil?: FSTimestamp | null;
+
+  // Discovery
+  vibes: string[];            // array-contains-any matching; never write []-as-undefined
+  status: DealStatus;         // default 'active'
+  isFeatured: boolean;        // default false — featured-first ordering
+  isActive: boolean;          // default true — legacy boolean kept for back-compat
+
+  // Voucher-ready hook for the post-launch SweetDeals model. ALWAYS false
+  // now — there is no purchase path. Do not build one off this flag.
+  requiresPurchase: boolean;  // default false
+
+  // Test/seed marker — true for replaceable DEV seed data (never launch data).
+  isTest?: boolean;
+  note?: string;
+
+  createdAt: FSTimestamp;
+  updatedAt: FSTimestamp;
+};
+
 // ── Type guards / helpers ─────────────────────────────────────────────
 
 export function isVibe(v: string): v is Vibe {

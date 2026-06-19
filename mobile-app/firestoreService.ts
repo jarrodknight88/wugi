@@ -171,6 +171,21 @@ export type FSDeal = {
   image: string;
   vibes: string[];
   expiresAt: any;
+  // Deal v2 (additive — all optional so existing/mock deals keep working).
+  // Canonical authoring shape lives in src/types/firestore-v2.ts (DealV2).
+  description?: string;
+  dealType?: string;
+  daysOfWeek?: number[];
+  startTime?: string;
+  endTime?: string;
+  date?: string;
+  validFrom?: any;
+  validUntil?: any;
+  status?: string;
+  isFeatured?: boolean;
+  isActive?: boolean;
+  requiresPurchase?: boolean;
+  isTest?: boolean;
 };
 
 // ── User ──────────────────────────────────────────────────────────────
@@ -717,9 +732,41 @@ export async function getActiveDeals(
       q = query(collection(db, 'deals'), limit(max));
     }
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as FSDeal));
+    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
   } catch (e) {
     console.log('getActiveDeals error:', e);
+    return [];
+  }
+}
+
+// Deals for a single venue's profile. Single-field equality on venueId (no
+// composite index needed). No status filter in the query — eligibility /
+// "active now" is computed client-side (src/utils/deals.ts) so a missing
+// status never silently drops a deal (canonical-status footgun).
+export async function getDealsForVenue(
+  venueId: string,
+  max: number = 20
+): Promise<FSDeal[]> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'deals'), where('venueId', '==', venueId), limit(max))
+    );
+    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
+  } catch (e) {
+    console.log('getDealsForVenue error:', e);
+    return [];
+  }
+}
+
+// Broad deal fetch for browsable surfaces (Discover, For You). Intentionally
+// unfiltered in Firestore (just a limit) to avoid the missing-field footgun;
+// callers filter/sort via src/utils/deals.ts (orderDealsForDisplay).
+export async function getDealsBrowse(max: number = 50): Promise<FSDeal[]> {
+  try {
+    const snap = await getDocs(query(collection(db, 'deals'), limit(max)));
+    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
+  } catch (e) {
+    console.log('getDealsBrowse error:', e);
     return [];
   }
 }
