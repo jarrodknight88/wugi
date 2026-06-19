@@ -50,11 +50,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type {
-  EventData, VenueData, GalleryData, FSEvent, FSVenue, GalleryDoc,
+  EventData, VenueData, GalleryData, FSEvent, FSVenue, GalleryDoc, FSDeal,
   EditorialShelf, EditorialCard,
 } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon } from '../components/icons';
+import { DealCard } from '../components/DealCard';
+import { dealTypeLabel, orderDealsForDisplay } from '../utils/deals';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -403,11 +405,41 @@ function Shelf({ kicker, title, subtitle, cards, theme, onCardPress, venueNameBy
 }
 
 // ── Editorial body (existing shelf experience) ─────────────────────────
-function EditorialBody({ shelves, loading, theme, onCard, venueNameById, galleryFallback }: {
+// Browsable "Deals & Specials" section for the editorial body — shared
+// DealCard, active-now first. Renders an empty state when there are none.
+function DealsSection({ deals, theme, onDealPress }: {
+  deals: FSDeal[]; theme: Theme; onDealPress: (d: FSDeal) => void;
+}) {
+  return (
+    <View>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
+        <Text style={{ color: theme.accent, fontSize: 11, fontFamily: MONO, letterSpacing: 0.5, marginBottom: 4 }}>LIMITED TIME</Text>
+        <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>Deals &amp; Specials</Text>
+      </View>
+      {deals.length === 0 ? (
+        <View style={{ marginHorizontal: 16, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 20, marginBottom: 8 }}>
+          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 20 }}>
+            No deals running right now. Check back soon.
+          </Text>
+        </View>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 18 }}>
+          {deals.map(d => (
+            <DealCard key={d.id} deal={d} theme={theme} onPress={() => onDealPress(d)}/>
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function EditorialBody({ shelves, loading, theme, onCard, venueNameById, galleryFallback, deals, onDealPress }: {
   shelves: EditorialShelf[]; loading: boolean; theme: Theme;
   onCard: (shelf: EditorialShelf, c: EditorialCard) => void;
   venueNameById: Record<string, string>;
   galleryFallback: Record<string, { venueName: string; date: string }>;
+  deals: FSDeal[];
+  onDealPress: (d: FSDeal) => void;
 }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false}>
@@ -416,16 +448,20 @@ function EditorialBody({ shelves, loading, theme, onCard, venueNameById, gallery
           <ActivityIndicator color={theme.accent} size="large"/>
         </View>
       ) : shelves.length === 0 ? (
-        <View style={{ paddingTop: 80, paddingHorizontal: 32, alignItems: 'center' }}>
-          <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>
-            No guides yet
-          </Text>
-          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>
-            Tap the search bar to explore venues, events, and vibes.
-          </Text>
-        </View>
+        <>
+          <DealsSection deals={deals} theme={theme} onDealPress={onDealPress}/>
+          <View style={{ paddingTop: 40, paddingHorizontal: 32, alignItems: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>
+              No guides yet
+            </Text>
+            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>
+              Tap the search bar to explore venues, events, and vibes.
+            </Text>
+          </View>
+        </>
       ) : (
         <>
+          <DealsSection deals={deals} theme={theme} onDealPress={onDealPress}/>
           {shelves.map(shelf => (
             <Shelf
               key={`${shelf.type}-${shelf.doc.id}`}
@@ -570,7 +606,7 @@ function venueFirstImage(v: FSVenue): string {
   return '';
 }
 
-type SearchDeal = { id: string; title: string; venueName: string; detail: string; image: string };
+type SearchDeal = { id: string; title: string; venueName: string; detail: string; image: string; dealType?: string };
 
 function SearchBody({
   theme, query, picked, onOpenFilters, onChipRemove, onEvent, onVenue, onGallery,
@@ -645,7 +681,8 @@ function SearchBody({
       // Deals have no vibes/amenities — if either is required, exclude them.
       if (wantVibe.length === 0 && wantAmen.length === 0) {
         deals.forEach(d => {
-          if (!matchSearch(d.title, d.venueName)) return;
+          // Searchable by title, venue name, and deal type (e.g. "happy hour").
+          if (!matchSearch(d.title, `${d.venueName} ${dealTypeLabel(d.dealType)} ${d.detail}`)) return;
           out.push({ kind: 'deal', id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image });
         });
       }
@@ -839,6 +876,8 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
   // Editorial-state data (always loaded, even when searching, so cancel is instant).
   const [shelves, setShelves] = useState<EditorialShelf[]>([]);
   const [editorialLoading, setEditorialLoading] = useState(true);
+  // Browsable deals for the editorial body (active-now first).
+  const [browseDeals, setBrowseDeals] = useState<FSDeal[]>([]);
 
   // Gallery-card 3-line render fallback hydration. Two indices:
   //   • venueNameById   — venueId → venueName (used when card carries venueId
@@ -893,7 +932,7 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         setSearchEvents(evs);
         setSearchVenues(vns);
         setSearchDeals((ds as any[]).map(d => ({
-          id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image || '',
+          id: d.id, title: d.title, venueName: d.venueName, detail: d.detail, image: d.image || '', dealType: d.dealType,
         })));
         setSearchGalleries(gls);
         setSearchDataLoaded(true);
@@ -947,6 +986,12 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         const svc = await import('../../firestoreService');
         const data = await svc.getEditorialShelves();
         if (!cancelled) setShelves(data);
+
+        // Browsable deals — independent of shelves; ordered active-now first.
+        try {
+          const ds = await svc.getDealsBrowse(50);
+          if (!cancelled) setBrowseDeals(orderDealsForDisplay(ds));
+        } catch { /* deals section renders its empty state */ }
 
         // Fallback hydration for gallery cards that DON'T already carry the
         // denormalized `venueName` / `date` (older seed output). Resolve
@@ -1039,6 +1084,22 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
   const handleSearchEvent = (e: FSEvent) => onEventPress(toEventData(e));
   const handleSearchVenue = (v: FSVenue) => onVenuePress(toVenueData(v));
 
+  // Deal tap → open its venue (resolve venueId → VenueData). Non-navigating
+  // if the deal carries no venueId or the lookup misses.
+  const handleDealPress = async (d: FSDeal) => {
+    if (!d.venueId || navigatingRef.current) return;
+    navigatingRef.current = true;
+    try {
+      const svc = await import('../../firestoreService');
+      const v = await svc.getVenueById(d.venueId);
+      if (v) onVenuePress(toVenueData(v));
+    } catch (e) {
+      console.log('DiscoverEditorialScreen: deal nav failed', e);
+    } finally {
+      setTimeout(() => { navigatingRef.current = false; }, 350);
+    }
+  };
+
   const removeChip = (dim: FilterDim, opt: string) => {
     setPicked(p => ({ ...p, [dim]: p[dim].filter(o => o !== opt) }));
   };
@@ -1083,6 +1144,8 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
           onCard={handleEditorialCard}
           venueNameById={venueNameById}
           galleryFallback={galleryFallback}
+          deals={browseDeals}
+          onDealPress={handleDealPress}
         />
       )}
       <FilterSheet

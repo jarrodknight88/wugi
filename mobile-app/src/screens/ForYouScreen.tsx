@@ -7,10 +7,12 @@ import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, ForYouCard, FavoriteItem } from '../types';
+import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal } from '../types';
 import { FOR_YOU_CARDS } from '../constants/mockData';
-import { getForYouFeed, type FSEvent, type FSVenue } from '../../firestoreService';
+import { getForYouFeed, getDealsBrowse, type FSEvent, type FSVenue } from '../../firestoreService';
 import { FONTS, MONO } from '../constants/fonts';
+import { DEAL_COLOR } from '../components/DealCard';
+import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
 
 function fsEventToCard(e: FSEvent): ForYouCard {
   return {
@@ -50,6 +52,20 @@ function fsVenueToCard(v: FSVenue): ForYouCard {
       media: normalizedMedia, rating: v.rating || null, priceLevel: v.priceLevel || '',
       isClaimed: v.isClaimed || false, isFeatured: (v as any).isFeatured || false,
     } as VenueData,
+  };
+}
+
+// Deals render as swipe cards (NOT the DealCard) — deal type as the tag,
+// venue + offer as title/subtitle. Non-navigating (data:null) like a teaser.
+function fsDealToCard(d: FSDeal): ForYouCard {
+  const offer = dealOffer(d);
+  return {
+    id: `deal_${d.id}`, type: 'deal',
+    title: d.title,
+    subtitle: offer ? `${d.venueName} · ${offer}` : d.venueName,
+    image: d.image || `https://picsum.photos/seed/deal-${d.id}/600/900`,
+    tag: dealTypeLabel(d.dealType), tagColor: DEAL_COLOR,
+    data: null,
   };
 }
 
@@ -142,6 +158,13 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
             </View>
           </View>
         )}
+        {card.type === 'deal' && (
+          <View style={{ marginTop: 10 }}>
+            <View style={{ alignSelf: 'flex-start', backgroundColor: DEAL_COLOR, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: '#fff', fontSize: 12, fontFamily: FONTS.medium }}>🔥 Limited-time deal</Text>
+            </View>
+          </View>
+        )}
       </View>
     </Animated.View>
   );
@@ -153,31 +176,54 @@ type Props = {
   onEventPress: (event: EventData) => void;
   onVenuePress: (venue: VenueData) => void;
   onFavoriteToggle: (item: FavoriteItem) => void;
+  // Light personalization for injected deal cards (no recommendation engine):
+  // prefer deals at saved venues or matching the user's vibes. Optional.
+  userVibes?: string[];
+  savedVenueIds?: string[];
 };
 
-export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteToggle }: Props) {
+export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteToggle, userVibes, savedVenueIds }: Props) {
   const [cards, setCards]           = useState<ForYouCard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDone, setIsDone]         = useState(false);
   const [loading, setLoading]       = useState(true);
 
   useEffect(() => {
-    getForYouFeed().then(({ events, venues }) => {
-      if (events.length === 0 && venues.length === 0) {
-        setCards([...FOR_YOU_CARDS]);
-      } else {
+    Promise.all([getForYouFeed(), getDealsBrowse(40).catch(() => [] as FSDeal[])])
+      .then(([{ events, venues }, rawDeals]) => {
         // Interleave events and venues for variety
-        const built: ForYouCard[] = [];
+        const base: ForYouCard[] = [];
         const maxLen = Math.max(events.length, venues.length);
         for (let i = 0; i < maxLen; i++) {
-          if (events[i])  built.push(fsEventToCard(events[i]));
-          if (venues[i])  built.push(fsVenueToCard(venues[i]));
+          if (events[i])  base.push(fsEventToCard(events[i]));
+          if (venues[i])  base.push(fsVenueToCard(venues[i]));
         }
-        setCards(built.length > 0 ? built : [...FOR_YOU_CARDS]);
-      }
-    }).catch(() => {
-      setCards([...FOR_YOU_CARDS]);
-    }).finally(() => setLoading(false));
+
+        // Light deal preference: saved venues OR matching vibes; if nothing
+        // matches, fall back to a few eligible deals so deals still appear.
+        const eligible = orderDealsForDisplay(rawDeals);
+        const savedSet = new Set(savedVenueIds || []);
+        const vibeSet  = new Set((userVibes || []).map(v => v.toLowerCase()));
+        const preferred = eligible.filter(d =>
+          (d.venueId && savedSet.has(d.venueId)) ||
+          (d.vibes || []).some(v => vibeSet.has(v.toLowerCase()))
+        );
+        const dealPool = (preferred.length > 0 ? preferred : eligible).slice(0, 5);
+
+        // Inject a deal card after every 3rd base card; append any remainder.
+        const built: ForYouCard[] = [];
+        let di = 0;
+        for (let i = 0; i < base.length; i++) {
+          built.push(base[i]);
+          if ((i + 1) % 3 === 0 && di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
+        }
+        while (di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
+
+        if (base.length === 0 && dealPool.length === 0) setCards([...FOR_YOU_CARDS]);
+        else setCards(built.length > 0 ? built : [...FOR_YOU_CARDS]);
+      })
+      .catch(() => { setCards([...FOR_YOU_CARDS]); })
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) {

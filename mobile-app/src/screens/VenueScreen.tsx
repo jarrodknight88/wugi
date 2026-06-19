@@ -39,9 +39,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem } from '../types';
+import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem, FSDeal } from '../types';
 import { BackIcon, ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
+import { DealCard } from '../components/DealCard';
+import { orderDealsForDisplay } from '../utils/deals';
 import { makeGallery } from '../constants/mockData';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
 // eligible, expired dropped) — do not reimplement. Exported from firestoreService.
@@ -275,6 +277,34 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
   );
 }
 
+// "DEALS · N" — this venue's deals, rendered with the shared DealCard
+// (active-now first). Empty state when the venue has no deals.
+function VenueDealsBlock({ deals, theme }: { deals: FSDeal[]; theme: Theme }) {
+  return (
+    <>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
+        <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
+          DEALS{deals.length > 0 ? ` · ${deals.length}` : ''}
+        </Text>
+        <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>Specials &amp; happy hours</Text>
+      </View>
+      {deals.length === 0 ? (
+        <View style={{ marginHorizontal: 16, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 20 }}>
+          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 20 }}>
+            No deals here right now. Check back soon.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+          renderItem={({ item }) => <DealCard deal={item} theme={theme}/>}
+        />
+      )}
+    </>
+  );
+}
+
 // "GALLERIES · N NIGHTS" — 2-col aspect-1 grid (first 4 inline). "All →"
 // only renders when there are >4 galleries AND onAllGalleries is wired.
 function VenueGalleriesGrid({ galleries, venueId, theme, onGalleryPress, onAllGalleries, toGalleryData }: {
@@ -329,6 +359,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   const [heroIndex, setHeroIndex] = useState(0);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
   const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
+  const [deals, setDeals] = useState<FSDeal[]>([]);
   const [activeTicketEvent, setActiveTicketEvent] = useState<ActiveTicketEvent | null>(null);
 
   // Map a top-level gallery doc to the GalleryData shape the gallery viewer
@@ -389,9 +420,17 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
           return tb - ta;
         });
 
+        // Deals for this venue — eligibility / active-now ordering client-side.
+        let venueDeals: FSDeal[] = [];
+        try {
+          const { getDealsForVenue } = await import('../../firestoreService');
+          venueDeals = orderDealsForDisplay(await getDealsForVenue(venue.id));
+        } catch { /* deals section just renders its empty state */ }
+
         if (!cancelled) {
           setUpcoming(evs);
           setGalleries(gdocs);
+          setDeals(venueDeals);
           if (ticketDoc) {
             const ev = ticketDoc.data();
             setActiveTicketEvent({ id: ticketDoc.id, name: ev.name ?? ev.title ?? venue.name, date: ev.date ?? '', time: ev.time ?? '' });
@@ -580,6 +619,9 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
 
         {/* 8. HAPPENING HERE — upcoming events */}
         <VenueUpcomingEventsBlock events={upcoming} venueId={venue.id} theme={theme} onEventPress={onEventPress} onAllEvents={onAllEvents}/>
+
+        {/* 8b. DEALS — this venue's specials (shared DealCard) */}
+        <VenueDealsBlock deals={deals} theme={theme}/>
 
         {/* 9. GALLERIES — 2-col grid + "All →" */}
         <VenueGalleriesGrid

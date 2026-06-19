@@ -51,6 +51,7 @@ import type { EventData, VenueData, FSEvent, FSVenue } from '../types';
 import { EVENTS, VENUES, makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon, ChevronRightIcon } from '../components/icons';
+import { dealTypeLabel } from '../utils/deals';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -94,7 +95,7 @@ function toVenueData(v: FSVenue): VenueData {
 type DiscoverItem =
   | { kind: 'event'; data: EventData; image: string }
   | { kind: 'venue'; data: VenueData; image: string }
-  | { kind: 'deal';  title: string; venueName: string; detail: string; image: string };
+  | { kind: 'deal';  title: string; venueName: string; detail: string; image: string; dealType?: string };
 
 const CATEGORIES = ['All', 'Events', 'Venues', 'Deals'] as const;
 type Category = typeof CATEGORIES[number];
@@ -347,6 +348,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
         venueName: d.venueName,
         detail: d.detail,
         image: d.image || `https://picsum.photos/seed/${d.id}/400/400`,
+        dealType: d.dealType,
       }));
 
       setAllResults(results);
@@ -386,8 +388,10 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
 
     const name = getItemName(item).toLowerCase();
     const sub  = getItemSub(item).toLowerCase();
+    // Deals are also searchable by their deal type (e.g. "happy hour").
+    const extra = item.kind === 'deal' ? dealTypeLabel(item.dealType).toLowerCase() : '';
     const q    = search.toLowerCase();
-    const matchSearch = search === '' || name.includes(q) || sub.includes(q);
+    const matchSearch = search === '' || name.includes(q) || sub.includes(q) || (extra !== '' && extra.includes(q));
 
     const matchVibe = !vibe || (() => {
       if (item.kind === 'event') return item.data.about?.toLowerCase().includes(vibe.toLowerCase());

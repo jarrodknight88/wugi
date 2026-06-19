@@ -383,6 +383,21 @@ export type FSDeal = {
   image: string;
   vibes: string[];
   expiresAt: any;
+  // Deal v2 (additive — all optional so existing/mock deals keep working).
+  // Canonical authoring shape lives in firestore-v2.ts (DealV2).
+  description?: string;
+  dealType?: string;            // DealType: happyHour | luckyHour | flash | …
+  daysOfWeek?: number[];        // 0=Sun..6=Sat (recurring)
+  startTime?: string;           // "HH:MM" 24h
+  endTime?: string;             // "HH:MM" 24h (endTime < startTime crosses midnight)
+  date?: string;                // one-off / flash single date (display string)
+  validFrom?: any;
+  validUntil?: any;
+  status?: string;              // DealStatus: active | paused | expired
+  isFeatured?: boolean;
+  isActive?: boolean;
+  requiresPurchase?: boolean;   // always false now (voucher-ready hook only)
+  isTest?: boolean;
 };
 
 // ── Ticketing ─────────────────────────────────────────────────────────
