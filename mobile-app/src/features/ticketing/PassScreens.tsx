@@ -10,7 +10,9 @@ import QRCode from 'react-native-qrcode-svg';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import type { PassData } from '../../types';
-import { getPassStyle, getScanStatus } from '../../utils/safeData';
+import { getPassStyle } from '../../utils/safeData';
+import { groupPassesByOrder, classifyPassGroup, mapPassDoc, isRenderablePassDoc } from '../../utils/passGrouping';
+import { PassGroupCard } from './PassGroupCard';
 import { BackIcon } from '../../components/icons';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -459,49 +461,6 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
   const [refreshing,   setRefreshing]   = useState(false);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
-  function docToPass(d: any): PassData {
-    const data = d.data();
-    const ticketTypeLower = (data.ticketTypeName || '').toLowerCase();
-    const typeKey = ticketTypeLower.includes('vip') ? 'vip'
-      : ticketTypeLower.includes('table') ? 'table'
-      : ticketTypeLower.includes('backstage') ? 'backstage'
-      : ticketTypeLower.includes('free') ? 'free'
-      : 'general';
-    return {
-      orderId:              data.orderId || d.id,
-      passId:               d.id,
-      passNumber:           1,
-      totalPasses:          1,
-      ticketType:           typeKey,
-      ticketTypeName:       data.ticketTypeName || 'General Admission',
-      eventTitle:           data.eventTitle || 'Event',
-      venueName:            data.venueName  || '',
-      date:                 data.eventDate  || '',
-      time:                 data.eventTime  || '',
-      holderName:           data.holderName || data.holderEmail || '',
-      status:               data.scanStatus === 'scanned' ? 'scanned' : 'valid',
-      qrValue:              d.id,
-      passUrl:              data.appleWalletPassUrl || data.passUrl || null,
-      passColor:            data.passColor   || null,
-      colorLabel:           data.colorLabel  || null,
-      tableNumber:          data.tableAssignment || null,
-      transferPending:      data.transferPending || false,
-      transferred:          data.isTransferred || false,
-      transferId:           data.transferId || null,
-      // Purchase + balance details
-      totalPaid:            data.totalPaid ?? null,
-      balanceDue:           data.balanceDue ?? null,
-      depositPaid:          data.depositPaid ?? null,
-      paymentMethodLast4:   data.paymentMethodLast4 || null,
-      purchasedAt:          data.createdAt || null,
-      source:               data.source || null,
-      // Transfer received details
-      transferredFromName:  data.transferredFromName  || null,
-      transferredFromEmail: data.transferredFromEmail || null,
-      transferredAt:        data.transferredAt || null,
-    } as PassData;
-  }
-
   // ── Live listener — updates instantly when dashboard changes color ──
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -522,13 +481,8 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
         ),
         snap => {
           const loaded = snap.docs
-            .filter(d => {
-              const data = d.data();
-              if (data.source === 'door') return false;
-              if (data.scanStatus === 'cancelled' || data.scanStatus === 'voided') return false;
-              return true;
-            })
-            .map(docToPass);
+            .filter((d: any) => isRenderablePassDoc(d.data()))
+            .map(mapPassDoc);
           setPasses(loaded);
           setLoading(false);
           setRefreshing(false);
@@ -593,148 +547,58 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
           </View>
         ) : (
           <>
-            {/* Group passes by orderId */}
+            {/* Group passes by orderId, then split into active vs archived.
+                Active groups stay on top, unchanged. Archived groups (event
+                date passed OR redeemed/scanned by Door) drop below a divider,
+                rendered muted with an EXPIRED / REDEEMED badge. */}
             {(() => {
-              // Build order groups
-              const groups: Map<string, PassData[]> = new Map();
-              passes.forEach(p => {
-                const key = p.orderId || p.passId;
-                if (!groups.has(key)) groups.set(key, []);
-                groups.get(key)!.push(p);
+              const groups   = groupPassesByOrder(passes);
+              const active:   PassData[][] = [];
+              const archived: { group: PassData[]; badge: 'EXPIRED' | 'REDEEMED' }[] = [];
+              groups.forEach(g => {
+                const c = classifyPassGroup(g);
+                if (c.archived) archived.push({ group: g, badge: c.badge! });
+                else active.push(g);
               });
 
-              return Array.from(groups.entries()).map(([orderId, groupPasses]) => {
-                const first         = groupPasses[0];
-                const count         = groupPasses.length;
+              const renderGroup = (group: PassData[], opts?: { archived: boolean; badge: 'EXPIRED' | 'REDEEMED' }) => {
+                const first         = group[0];
+                const orderId       = first.orderId || first.passId;
                 const isTransferred = first.transferred;
-                const style         = getPassStyle(first.ticketTypeName || first.ticketType, first.passColor);
-                const cardColor     = style.color;
-                const scanStyle     = getScanStatus(first.status);
-                const isPending     = first.transferPending;
+                const isMulti       = group.length > 1;
                 const isExpanded    = expandedOrder === orderId;
-                const isMulti       = count > 1;
-
-                // Purchaser pass = role:'purchaser' or first pass
-                // Guest passes = role:'guest' or passes 2..N
-                const purchaserPass = groupPasses.find(p => (p as any).role === 'purchaser') || first;
-                const guestPasses   = groupPasses.filter(p => p.passId !== purchaserPass.passId);
-
                 return (
-                  <View key={orderId} style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 0 }}>
-                    {/* Main card — tap to expand if multi-pass, view if single */}
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (isTransferred) return;
-                        if (isMulti) setExpandedOrder(isExpanded ? null : orderId);
-                        else setSelectedPass(first);
-                      }}
-                      activeOpacity={isTransferred ? 1 : 0.88}
-                      style={{
-                        borderRadius: isExpanded ? 0 : 16,
-                        borderTopLeftRadius: 16, borderTopRightRadius: 16,
-                        borderBottomLeftRadius: isExpanded ? 0 : 16,
-                        borderBottomRightRadius: isExpanded ? 0 : 16,
-                        backgroundColor: cardColor,
-                        shadowColor: isTransferred ? 'transparent' : cardColor,
-                        shadowOpacity: isTransferred ? 0 : 0.4,
-                        shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
-                        opacity: isTransferred ? 0.45 : 1,
-                      }}
-                    >
-                      <View style={{ padding: 16, paddingBottom: 12 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                          <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, fontWeight: '800', letterSpacing: 2 }}>
-                            {(first.colorLabel || first.ticketTypeName || style.abbrev || 'TICKET').toUpperCase()}
-                            {count > 1 ? ` × ${count}` : ''}
-                          </Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <View style={{ backgroundColor: isTransferred ? 'rgba(231,76,60,0.4)' : isPending ? 'rgba(230,150,0,0.3)' : scanStyle.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                              <Text style={{ color: isTransferred ? '#e74c3c' : isPending ? '#e6961e' : scanStyle.color, fontSize: 10, fontWeight: '700' }}>
-                                {isTransferred ? 'TRANSFERRED' : isPending ? 'PENDING' : scanStyle.label}
-                              </Text>
-                            </View>
-                            {isMulti && (
-                              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>
-                                {isExpanded ? '▲' : '▼'}
-                              </Text>
-                            )}
-                          </View>
-                        </View>
-                        <Text style={{ color: '#fff', fontSize: 20, fontWeight: '900', marginBottom: 4 }}>{first.eventTitle}</Text>
-                        <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>{first.venueName}{first.date ? ` · ${first.date}` : ''}</Text>
-                      </View>
-                      <View style={{ backgroundColor: 'rgba(255,255,255,0.12)', height: 1 }}/>
-                      <View style={{ backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600' }}>
-                          {isTransferred ? 'Ticket transferred' : first.holderName}
-                        </Text>
-                        <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600' }}>
-                          {isTransferred ? '' : isMulti ? (isExpanded ? 'Tap to collapse' : 'Tap to manage →') : 'Tap to view →'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-
-                    {/* Expanded inline pass list — shown for multi-pass orders */}
-                    {isExpanded && isMulti && (
-                      <View style={{ backgroundColor: 'rgba(0,0,0,0.35)', borderBottomLeftRadius: 16, borderBottomRightRadius: 16, overflow: 'hidden' }}>
-                        {/* Purchaser pass row */}
-                        <TouchableOpacity
-                          onPress={() => setSelectedPass(purchaserPass)}
-                          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' }}
-                        >
-                          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: cardColor, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                            <Text style={{ fontSize: 14 }}>🎟️</Text>
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Your Pass</Text>
-                            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{purchaserPass.holderName || 'Purchaser'}</Text>
-                          </View>
-                          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>View QR →</Text>
-                        </TouchableOpacity>
-
-                        {/* Guest pass rows */}
-                        {guestPasses.map((gp, i) => {
-                          const gpTransferred = gp.transferred;
-                          const gpPending     = gp.transferPending;
-                          const gpClaimed     = gpTransferred || gpPending;
-                          return (
-                            <View
-                              key={gp.passId}
-                              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: i < guestPasses.length - 1 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.1)' }}
-                            >
-                              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                                <Text style={{ fontSize: 14 }}>👤</Text>
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
-                                  Guest Pass {i + 1}
-                                </Text>
-                                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
-                                  {gpTransferred ? `Claimed by ${gp.holderName || 'recipient'}` : gpPending ? 'Pending acceptance' : 'Not yet shared'}
-                                </Text>
-                              </View>
-                              {gpClaimed ? (
-                                <View style={{ backgroundColor: gpTransferred ? 'rgba(46,204,113,0.3)' : 'rgba(230,150,0,0.3)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                                  <Text style={{ color: gpTransferred ? '#2ecc71' : '#e6961e', fontSize: 10, fontWeight: '700' }}>
-                                    {gpTransferred ? '✓ CLAIMED' : '⏳ PENDING'}
-                                  </Text>
-                                </View>
-                              ) : (
-                                <TouchableOpacity
-                                  onPress={() => setSelectedPass(gp)}
-                                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' }}
-                                >
-                                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Share →</Text>
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          );
-                        })}
-                      </View>
-                    )}
-                  </View>
+                  <PassGroupCard
+                    key={orderId}
+                    group={group}
+                    expanded={isExpanded}
+                    showExpansion
+                    archived={opts?.archived}
+                    archivedBadge={opts?.badge ?? null}
+                    onPressCard={() => {
+                      if (isTransferred) return;
+                      if (isMulti) setExpandedOrder(isExpanded ? null : orderId);
+                      else setSelectedPass(first);
+                    }}
+                    onSelectPass={setSelectedPass}
+                  />
                 );
-              });
+              };
+
+              return (
+                <>
+                  {active.map(g => renderGroup(g))}
+                  {archived.length > 0 && (
+                    <>
+                      <View style={{ marginTop: 12, marginBottom: 2, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '800', letterSpacing: 1.5 }}>ARCHIVED</Text>
+                        <View style={{ flex: 1, height: 1, backgroundColor: theme.divider }}/>
+                      </View>
+                      {archived.map(a => renderGroup(a.group, { archived: true, badge: a.badge }))}
+                    </>
+                  )}
+                </>
+              );
             })()}
           </>
         )}
