@@ -23,6 +23,11 @@ import type { EventData, VenueData, FavoriteItem, PassData } from '../types';
 import { ChevronRightIcon } from '../components/icons';
 import { HeartIconBordered } from '../components/HeartIconBordered';
 import { FONTS, MONO } from '../constants/fonts';
+import { PassGroupCard } from '../features/ticketing/PassGroupCard';
+import { groupPassesByOrder, classifyPassGroup, mapPassDoc, isRenderablePassDoc } from '../utils/passGrouping';
+
+// Top-N active pass groups shown in the Saved preview before "View All Passes".
+const PASS_PREVIEW_LIMIT = 2;
 
 // Undo window for unsave actions — within this delay the SavedCard is
 // hidden locally but the parent's onRemove() (Firestore mutation + in-
@@ -41,7 +46,9 @@ type Props = {
   onVenuePress: (venue: VenueData) => void;
   onRemove: (id: string) => void;
   onMarkRead: (id: string) => void;
-  onPassPress?: (pass: PassData) => void;
+  // Tap a pass preview or "View All Passes" → open the My Passes screen.
+  // When omitted the link doesn't render.
+  onViewAllPasses?: () => void;
   // UAT-V3 (additive): tap "View All" on a Saved section to open the
   // corresponding full-list view. When omitted the link doesn't render.
   onViewAllSaved?: (kind: 'event' | 'venue') => void;
@@ -165,41 +172,6 @@ function SavedCard({
   );
 }
 
-// ── Pass row ──────────────────────────────────────────────────────────
-function PassRow({ pass, theme, onPress }: { pass: PassData; theme: Theme; onPress: () => void }) {
-  const ticketLabel = pass.ticketTypeName || pass.ticketType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.82}
-      style={{
-        flexDirection: 'row', alignItems: 'stretch',
-        backgroundColor: theme.card, borderRadius: 14, overflow: 'hidden',
-        borderWidth: 1, borderColor: theme.accent,
-        shadowColor: theme.accent, shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
-        elevation: 3,
-      }}
-    >
-      <View style={{ width: 6, backgroundColor: theme.accent }}/>
-      <View style={{ flex: 1, padding: 14, paddingRight: 12, gap: 3 }}>
-        <Text style={{ color: theme.accent, fontSize: 10, fontFamily: MONO, letterSpacing: 0.8 }}>
-          YOUR PASS · {ticketLabel.toUpperCase()}
-        </Text>
-        <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, lineHeight: 18 }} numberOfLines={1}>
-          {pass.eventTitle}
-        </Text>
-        <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body }}>{pass.venueName}</Text>
-        <Text style={{ color: theme.text, fontSize: 11, fontFamily: MONO, letterSpacing: 0.4, marginTop: 2 }}>
-          {pass.date}{pass.time ? ` · ${pass.time}` : ''}
-        </Text>
-      </View>
-      <View style={{ alignSelf: 'center', paddingRight: 14 }}>
-        <ChevronRightIcon color={theme.subtext}/>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 // ── Saved item row (event or venue) ───────────────────────────────────
 // Exported for the SavedListScreen full-list view, which renders the same row.
 export function SavedItemRow({ item, theme, onPress, onRemove }: { item: FavoriteItem; theme: Theme; onPress: () => void; onRemove: () => void }) {
@@ -256,7 +228,7 @@ export function EmptySection({ label, theme }: { label: string; theme: Theme }) 
 
 // ── FavoritesScreen ───────────────────────────────────────────────────
 export function FavoritesScreen({
-  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onPassPress, onViewAllSaved, onPhotoPress,
+  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onViewAllPasses, onViewAllSaved, onPhotoPress,
 }: Props) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [passesLoading, setPassesLoading] = useState(true);
@@ -357,30 +329,11 @@ export function FavoritesScreen({
           ),
           snap => {
             if (!mounted) return;
+            // Same mapping/filter as My Passes (shared helpers) so the two
+            // surfaces never diverge on field names or grouping again.
             const loaded: PassData[] = snap.docs
-              .filter(d => {
-                const data = d.data();
-                if (data.source === 'door') return false;
-                if (data.scanStatus === 'cancelled' || data.scanStatus === 'voided') return false;
-                return true;
-              })
-              .map(d => {
-                const data = d.data();
-                return {
-                  passId:          d.id,
-                  eventTitle:      data.eventTitle  || data.event  || '',
-                  venueName:       data.venueName   || data.venue  || '',
-                  date:            data.date         || '',
-                  time:            data.time         || '',
-                  ticketType:      data.ticketType   || 'general_admission',
-                  ticketTypeName:  data.ticketTypeName || null,
-                  holderName:      data.holderName   || '',
-                  orderId:         data.orderId      || '',
-                  status:          data.status       || 'valid',
-                  passColor:       data.passColor    || null,
-                  qrValue:         data.qrValue      || null,
-                } as PassData;
-              });
+              .filter((d: any) => isRenderablePassDoc(d.data()))
+              .map(mapPassDoc);
             setPasses(loaded);
             setPassesLoading(false);
           },
@@ -411,31 +364,49 @@ export function FavoritesScreen({
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* ── Passes ── */}
-        <SectionHeader
-          kicker="YOUR PASSES"
-          title="Tickets in your pocket"
-          count={passes.length > 0 ? passes.length : undefined}
-          theme={theme}
-        />
-        {passesLoading ? (
-          <View style={{ paddingHorizontal: 16 }}>
-            <ActivityIndicator color={theme.accent} size="small" style={{ alignSelf: 'flex-start', marginLeft: 4 }}/>
-          </View>
-        ) : passes.length === 0 ? (
-          <EmptySection label="No passes yet. Purchase a ticket to an event and it'll appear here." theme={theme}/>
-        ) : (
-          <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {passes.map(p => (
-              <PassRow
-                key={p.passId}
-                pass={p}
+        {/* ── Passes — preview of the top active groups, "View All Passes"
+            → My Passes. Grouped + color-resolved with the SAME canonical
+            card My Passes uses (shared PassGroupCard), so a multi-guest
+            table shows as one card instead of N flattened rows. ── */}
+        {(() => {
+          const activeGroups = passesLoading
+            ? []
+            : groupPassesByOrder(passes).filter(g => !classifyPassGroup(g).archived);
+          const previewGroups = activeGroups.slice(0, PASS_PREVIEW_LIMIT);
+          return (
+            <>
+              <SectionHeader
+                kicker="YOUR PASSES"
+                title="Tickets in your pocket"
+                count={activeGroups.length > 0 ? activeGroups.length : undefined}
                 theme={theme}
-                onPress={() => onPassPress?.(p)}
+                onViewAll={activeGroups.length > 0 && onViewAllPasses ? onViewAllPasses : undefined}
               />
-            ))}
-          </View>
-        )}
+              {passesLoading ? (
+                <View style={{ paddingHorizontal: 16 }}>
+                  <ActivityIndicator color={theme.accent} size="small" style={{ alignSelf: 'flex-start', marginLeft: 4 }}/>
+                </View>
+              ) : previewGroups.length === 0 ? (
+                <EmptySection label="No active passes. Purchase a ticket to an event and it'll appear here." theme={theme}/>
+              ) : (
+                <View style={{ paddingHorizontal: 16, gap: 12 }}>
+                  {previewGroups.map(g => {
+                    const first = g[0];
+                    return (
+                      <PassGroupCard
+                        key={first.orderId || first.passId}
+                        group={g}
+                        showExpansion={false}
+                        onPressCard={() => onViewAllPasses?.()}
+                        onSelectPass={() => onViewAllPasses?.()}
+                      />
+                    );
+                  })}
+                </View>
+              )}
+            </>
+          );
+        })()}
 
         {/* ── Saved Events — preview carousel, "View All" → SavedListScreen ── */}
         <SectionHeader
