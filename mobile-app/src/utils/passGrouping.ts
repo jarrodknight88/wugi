@@ -87,21 +87,43 @@ export function groupPassesByOrder(passes: PassData[]): PassData[][] {
 }
 
 /**
- * Best-effort "has the event date already passed?" for the yearless
- * display strings stored on passes (e.g. "WED JUN 18"). Mirrors the
- * weekday-stripping parse used in EventScreen, but does NOT roll the
- * date forward a year — a past date should read as past. Returns false
- * when the string is missing or unparseable (treat as not-expired).
+ * Parse a yearless display date string (e.g. "WED JUN 18") to a Date.
+ * Mirrors the weekday-stripping parse used in EventScreen, but does NOT
+ * roll the date forward a year — a past date should read as past.
+ * Returns null when the string is missing or unparseable.
+ */
+function parseEventDate(dateStr: string | undefined | null, now: Date): Date | null {
+  if (!dateStr) return null;
+  const withoutWeekday = String(dateStr).replace(/^[A-Z]{2,3}\s+/i, '').trim();
+  if (!withoutWeekday) return null;
+  const parsed = new Date(`${withoutWeekday} ${now.getFullYear()}`);
+  if (isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+/**
+ * Best-effort "has the event date already passed?". Treats an event as
+ * past only once its day has fully ended (end-of-day of eventDate), so a
+ * pass for tonight — including nightlife events running past midnight —
+ * stays ACTIVE through the event day. Returns false when the date is
+ * missing or unparseable (treat as not-expired).
  */
 export function eventDateHasPassed(dateStr: string | undefined | null, now: Date = new Date()): boolean {
-  if (!dateStr) return false;
-  const withoutWeekday = String(dateStr).replace(/^[A-Z]{2,3}\s+/i, '').trim();
-  if (!withoutWeekday) return false;
-  const parsed = new Date(`${withoutWeekday} ${now.getFullYear()}`);
-  if (isNaN(parsed.getTime())) return false;
+  const parsed = parseEventDate(dateStr, now);
+  if (!parsed) return false;
   // Day granularity — an event is "past" only once its day has fully ended.
   const endOfEventDay = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 23, 59, 59);
   return endOfEventDay.getTime() < now.getTime();
+}
+
+/**
+ * Sortable timestamp for a group's event date — used to order the Saved
+ * preview by soonest-upcoming (ascending). Unparseable/missing dates sort
+ * last so they never crowd out a known upcoming pass.
+ */
+export function eventDateSortValue(dateStr: string | undefined | null, now: Date = new Date()): number {
+  const parsed = parseEventDate(dateStr, now);
+  return parsed ? parsed.getTime() : Number.POSITIVE_INFINITY;
 }
 
 export type PassGroupArchive = {
@@ -110,14 +132,16 @@ export type PassGroupArchive = {
 };
 
 /**
- * A pass group is archived when its event date has passed OR its ticket
- * was redeemed/scanned by Door. REDEEMED takes precedence over EXPIRED.
- * Status is read off the representative (first) pass, matching how the
- * colorful card already derives its status badge.
+ * A pass group (passes sharing an orderId) is ARCHIVED when its event
+ * date has passed OR every pass in the group is redeemed/scanned by Door.
+ * Partial redemption keeps the group ACTIVE — e.g. a VIP table where the
+ * host's pass is scanned but guest passes are still unshared/unscanned.
+ * The "all redeemed" rule generalizes to single-pass groups (GA / RSVP).
+ * Badge precedence: REDEEMED when every pass is scanned, otherwise EXPIRED.
  */
 export function classifyPassGroup(group: PassData[], now: Date = new Date()): PassGroupArchive {
-  const first = group[0];
-  if (first?.status === REDEEMED_STATUS) return { archived: true, badge: 'REDEEMED' };
-  if (eventDateHasPassed(first?.date, now)) return { archived: true, badge: 'EXPIRED' };
-  return { archived: false, badge: null };
+  const allRedeemed = group.length > 0 && group.every(p => p.status === REDEEMED_STATUS);
+  const expired     = eventDateHasPassed(group[0]?.date, now);
+  if (!allRedeemed && !expired) return { archived: false, badge: null };
+  return { archived: true, badge: allRedeemed ? 'REDEEMED' : 'EXPIRED' };
 }

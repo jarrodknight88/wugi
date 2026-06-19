@@ -24,7 +24,7 @@ import { ChevronRightIcon } from '../components/icons';
 import { HeartIconBordered } from '../components/HeartIconBordered';
 import { FONTS, MONO } from '../constants/fonts';
 import { PassGroupCard } from '../features/ticketing/PassGroupCard';
-import { groupPassesByOrder, classifyPassGroup, mapPassDoc, isRenderablePassDoc } from '../utils/passGrouping';
+import { groupPassesByOrder, classifyPassGroup, eventDateSortValue, mapPassDoc, isRenderablePassDoc } from '../utils/passGrouping';
 
 // Top-N active pass groups shown in the Saved preview before "View All Passes".
 const PASS_PREVIEW_LIMIT = 2;
@@ -369,9 +369,13 @@ export function FavoritesScreen({
             card My Passes uses (shared PassGroupCard), so a multi-guest
             table shows as one card instead of N flattened rows. ── */}
         {(() => {
+          // Order by soonest-upcoming event date (the pass you'll use next),
+          // not purchase recency, before taking the top N for the preview.
           const activeGroups = passesLoading
             ? []
-            : groupPassesByOrder(passes).filter(g => !classifyPassGroup(g).archived);
+            : groupPassesByOrder(passes)
+                .filter(g => !classifyPassGroup(g).archived)
+                .sort((a, b) => eventDateSortValue(a[0].date) - eventDateSortValue(b[0].date));
           const previewGroups = activeGroups.slice(0, PASS_PREVIEW_LIMIT);
           return (
             <>
