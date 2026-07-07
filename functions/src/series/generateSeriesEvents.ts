@@ -78,6 +78,31 @@ function buildInstanceDoc(s: FirebaseFirestore.DocumentData, seriesId: string, i
   };
 }
 
+// Roles permitted to trigger generation from the dashboard. Mirrors the
+// dashboard's write-access definition (AuthContext `canWrite` =
+// super_admin | moderator | support | venue_admin | event_admin) so every
+// caller the dashboard exposes the Create/Generate buttons to still passes,
+// while consumers, staff-only roles, and other authenticated users are rejected.
+// Role source is the `users/{uid}.role` doc — the SAME mechanism the existing
+// createDashboardUser callable gates on.
+const SERIES_WRITE_ROLES = new Set([
+  'super_admin', 'moderator', 'support', 'venue_admin', 'event_admin',
+]);
+
+// Assert the caller is signed in AND holds a series-write role, else throw the
+// codebase's standard permission error. Read-only — performs no writes.
+async function assertSeriesWriteAccess(
+  context: functions.https.CallableContext
+): Promise<void> {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+  const callerDoc = await db.collection('users').doc(context.auth.uid).get();
+  if (!callerDoc.exists) throw new functions.https.HttpsError('permission-denied', 'No user document');
+  const callerRole: string = callerDoc.data()?.role || '';
+  if (!SERIES_WRITE_ROLES.has(callerRole)) {
+    throw new functions.https.HttpsError('permission-denied', `${callerRole || 'role'} cannot generate series events`);
+  }
+}
+
 type GenResult = { seriesId: string; generated: number; ids: string[]; skipped?: string };
 
 type PlanInstance = { id: string; dateISO: string; doc: ReturnType<typeof buildInstanceDoc> };
@@ -202,6 +227,9 @@ export const generateSeriesEvents = functions.https.onCall(async (data, context)
       })),
     };
   }
+
+  // ── Write path: admin/role gate (dryRun above is read-only preview) ──
+  await assertSeriesWriteAccess(context);
 
   if (!seriesId) throw new functions.https.HttpsError('invalid-argument', 'seriesId required');
   return generateForSeries(seriesId, weeksAhead);
