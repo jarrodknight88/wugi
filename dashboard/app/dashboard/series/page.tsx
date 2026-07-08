@@ -18,6 +18,11 @@ type Series = {
   about: string; vibes: string[]; status: string; coverImage: string
   startDate: string; endDate: string; promoterId: string
   totalGenerated: number; lastGenerated: any
+  // Fields the generator (generateSeriesEvents) actually reads. Script-seeded
+  // docs carry these but not name/day/frequency; docs saved here carry both.
+  title?: string
+  seriesSlug?: string
+  recurrence?: { dayOfWeek: number; frequency: string; timezone: string }
 }
 type SF = Omit<Series, 'id' | 'totalGenerated' | 'lastGenerated'>
 
@@ -29,6 +34,15 @@ const EMPTY: SF = {
 
 const DAYS    = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
 const FREQS   = ["weekly","biweekly","monthly"]
+const TIMEZONE = "America/New_York"
+const DOW_TO_DAY = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"]
+const DAY_TO_DOW: Record<string, number> = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 }
+function toSlug(s: string) {
+  return s.toLowerCase().replace(/['’]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+}
+// Day/frequency for display + edit, reading whichever schema the doc has.
+function dayOf(s: Series)  { return s.day || (s.recurrence ? DOW_TO_DAY[s.recurrence.dayOfWeek] : "") }
+function freqOf(s: Series) { return s.frequency || s.recurrence?.frequency || "" }
 const VIBES   = ["High Energy","Boujee","Divey","Rooftop","Speakeasy","Late Night","Hip-Hop","R&B","Live Music","Brunch","LGBTQ+"]
 const INPUT: React.CSSProperties = { padding:"9px 12px", borderRadius:8, border:"1px solid #e5e7eb", fontSize:14, outline:"none", width:"100%", boxSizing:"border-box" }
 const CARD: React.CSSProperties  = { background:"#fff", borderRadius:12, border:"1px solid #e5e7eb", boxShadow:"0 1px 3px rgba(0,0,0,0.06)", overflow:"hidden" }
@@ -68,7 +82,7 @@ export default function SeriesPage() {
 
   function openCreate() { setForm(EMPTY); setEditId(null); setModal(true); setError("") }
   function openEdit(s: Series) {
-    setForm({ name:s.name, venueId:s.venueId, venueName:s.venueName, day:s.day, frequency:s.frequency, time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:s.coverImage||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"" })
+    setForm({ name:s.name||s.title||"", venueId:s.venueId, venueName:s.venueName, day:dayOf(s)||"friday", frequency:freqOf(s)||"weekly", time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:s.coverImage||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"" })
     setEditId(s.id); setModal(true); setError("")
   }
 
@@ -77,7 +91,19 @@ export default function SeriesPage() {
     if (!form.venueId)     { setError("Venue required"); return }
     setSaving(true); setError("")
     try {
-      const data = { ...form, updatedAt: serverTimestamp() }
+      // The generator requires recurrence + seriesSlug — without them the series
+      // is skipped as invalid-recurrence and never produces events. Keep an
+      // existing slug on edit: instance ids are `${seriesSlug}-YYYY-MM-DD`, so
+      // changing it would break idempotent dedupe against already-generated docs.
+      const existing = editId ? series.find(x => x.id === editId) : null
+      const seriesSlug = existing?.seriesSlug || toSlug(`${form.name}-${form.venueName}`)
+      const data = {
+        ...form,
+        title: form.name,   // generator instance docs read title || name
+        seriesSlug,
+        recurrence: { dayOfWeek: DAY_TO_DOW[form.day] ?? 5, frequency: form.frequency, timezone: TIMEZONE },
+        updatedAt: serverTimestamp(),
+      }
       if (editId) {
         await updateDoc(doc(db, "eventSeries", editId), data)
       } else {
@@ -136,7 +162,7 @@ export default function SeriesPage() {
                   <div style={{ background:"#064e3b", padding:"16px 18px" }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                       <div>
-                        <p style={{ margin:0, fontSize:15, fontWeight:700, color:"#fff" }}>{s.name}</p>
+                        <p style={{ margin:0, fontSize:15, fontWeight:700, color:"#fff" }}>{s.name || s.title}</p>
                         <p style={{ margin:"2px 0 0", fontSize:12, color:"rgba(255,255,255,0.6)" }}>{s.venueName}</p>
                       </div>
                       <span style={{ padding:"2px 8px", borderRadius:20, fontSize:11, fontWeight:600, background:sc.bg, color:sc.color }}>{s.status}</span>
@@ -146,11 +172,11 @@ export default function SeriesPage() {
                   <div style={{ padding:"14px 18px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                     <div>
                       <p style={{ fontSize:11, fontWeight:600, color:"#9ca3af", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 2px" }}>Day</p>
-                      <p style={{ fontSize:14, fontWeight:600, color:"#111827", margin:0, textTransform:"capitalize" as const }}>{s.day}</p>
+                      <p style={{ fontSize:14, fontWeight:600, color:"#111827", margin:0, textTransform:"capitalize" as const }}>{dayOf(s) || "—"}</p>
                     </div>
                     <div>
                       <p style={{ fontSize:11, fontWeight:600, color:"#9ca3af", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 2px" }}>Frequency</p>
-                      <p style={{ fontSize:14, fontWeight:600, color:"#111827", margin:0, textTransform:"capitalize" as const }}>{s.frequency}</p>
+                      <p style={{ fontSize:14, fontWeight:600, color:"#111827", margin:0, textTransform:"capitalize" as const }}>{freqOf(s) || "—"}</p>
                     </div>
                     <div>
                       <p style={{ fontSize:11, fontWeight:600, color:"#9ca3af", textTransform:"uppercase" as const, letterSpacing:1, margin:"0 0 2px" }}>Time</p>
