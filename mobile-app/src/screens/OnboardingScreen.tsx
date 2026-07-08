@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — OnboardingScreen
-// 3-slide marketing carousel — big emoji glow well, vibe-colored CTA.
-// Pixel-matched to Claude Design handoff (consumer-app/OnboardingScreen.jsx)
-// Static marketing copy — no Firestore data.
+// 3-slide first-launch intro shown BEFORE the app (not after signup —
+// the pitch belongs to people who haven't converted yet). Skippable on
+// every slide; finishing or skipping lands directly on the Home feed.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef } from 'react';
 import {
@@ -41,9 +41,12 @@ const SLIDES = [
 
 type Props = {
   onFinish: () => void;
+  // "Already have an account?" — lands on Home with the auth sheet open
+  // in sign-in mode. Optional so the intro also works standalone.
+  onSignIn?: () => void;
 };
 
-export function OnboardingScreen({ onFinish }: Props) {
+export function OnboardingScreen({ onFinish, onSignIn }: Props) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const slide = SLIDES[currentIndex];
@@ -61,10 +64,15 @@ export function OnboardingScreen({ onFinish }: Props) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0e0c08' }}>
-      {/* Skip button */}
+      {/* Skip button — visible on every slide; the content is one tap away */}
       <SafeAreaView style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 20, paddingTop: 8 }}>
         {!isLast && (
-          <TouchableOpacity onPress={onFinish} style={{ paddingVertical: 8, paddingHorizontal: 4 }}>
+          <TouchableOpacity
+            onPress={onFinish}
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ paddingVertical: 8, paddingHorizontal: 4 }}
+          >
             <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, fontFamily: FONTS.medium }}>Skip</Text>
           </TouchableOpacity>
         )}
@@ -158,11 +166,11 @@ export function OnboardingScreen({ onFinish }: Props) {
           </Text>
         </TouchableOpacity>
 
-        {/* Last-slide sign-in link */}
-        {isLast && (
-          <TouchableOpacity onPress={onFinish} style={{ alignItems: 'center', paddingVertical: 14 }}>
-            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontFamily: FONTS.body }}>
-              Already have an account? Sign in
+        {/* Last-slide sign-in link — opens the auth sheet over Home */}
+        {isLast && onSignIn && (
+          <TouchableOpacity onPress={onSignIn} accessibilityRole="button" style={{ alignItems: 'center', paddingVertical: 14 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, fontFamily: FONTS.body }}>
+              Already have an account? <Text style={{ color: slide.accent }}>Sign in</Text>
             </Text>
           </TouchableOpacity>
         )}

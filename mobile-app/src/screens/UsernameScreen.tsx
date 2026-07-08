@@ -157,9 +157,9 @@ export function UsernameScreen({ onComplete }: Props) {
             }
           </TouchableOpacity>
 
-          {/* Skip — allows bypassing username for now */}
-          <TouchableOpacity onPress={onComplete} style={{ alignItems: 'center', paddingVertical: 16 }}>
-            <Text style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Skip for now</Text>
+          {/* Skip — clearly visible; a username is never worth losing a signup over */}
+          <TouchableOpacity onPress={onComplete} accessibilityRole="button" style={{ alignItems: 'center', paddingVertical: 16 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Skip for now</Text>
           </TouchableOpacity>
         </View>
 

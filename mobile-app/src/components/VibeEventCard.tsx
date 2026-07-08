@@ -28,18 +28,25 @@ type Props = {
 };
 
 export function VibeEventCard({ event, theme, onPress, label, width = 170, height = 240 }: Props) {
+  // No stock-photo fallback — an event without media gets a neutral
+  // card-colored block instead of a random picsum image.
+  const imageUri = (event.media || [])[0]?.uri;
   return (
     <TouchableOpacity
       style={{ width, height, borderRadius: 14, overflow: 'hidden' }}
       activeOpacity={0.9}
       onPress={onPress}
     >
-      <Image
-        cachePolicy="memory-disk"
-        source={{ uri: (event.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }}
-        style={StyleSheet.absoluteFillObject}
-        contentFit="cover"
-      />
+      {imageUri ? (
+        <Image
+          cachePolicy="memory-disk"
+          source={{ uri: imageUri }}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: theme.card }]}/>
+      )}
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
       {!!label && (
         <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>

@@ -31,6 +31,13 @@
     },
     "plugins": [
       "expo-av",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.226519294074-71ht8u7olk6cquie53f9vev60rsk2b8e"
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       [
@@ -80,7 +87,8 @@
     "extra": {
       "eas": {
         "projectId": "02118aa1-ca85-4fed-87a2-be67c8e6255b"
-      }
+      },
+      "googleWebClientId": ""
     },
     "android": {
       "permissions": [

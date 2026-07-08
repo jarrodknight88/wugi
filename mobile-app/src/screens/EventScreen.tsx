@@ -21,7 +21,7 @@
 //
 // DO NOT touch VenueIdentityBlock or useVenueById — they stay as-is.
 // ─────────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
   SafeAreaView, Dimensions, ActivityIndicator, StyleSheet,
@@ -35,7 +35,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, FavoriteItem } from '../types';
-import { EVENTS } from '../constants/mockData';
+import { getApprovedEvents, type FSEvent } from '../../firestoreService';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, KebabVerticalIcon, ChevronRightIcon } from '../components/icons';
 import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
@@ -51,6 +51,29 @@ const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 0.95);
 
 // Purple used for the GALLERIES eyebrow (matches design --tag-photos)
 const GALLERY_PURPLE = '#9b59b6';
+
+// FSEvent → EventData for the related-events rail. Gallery is a bare stub —
+// the rail cards never render it, and tapping through re-resolves galleries
+// via the EventScreen hooks.
+function toRelatedEventData(e: FSEvent): EventData {
+  return {
+    id: e.id,
+    title: e.title || '',
+    venue: e.venue || (e as any).venueName || '',
+    venueId: e.venueId,
+    seriesId: e.seriesId ?? null,
+    date: e.date,
+    time: e.time,
+    age: e.age,
+    about: e.about || '',
+    media: e.media || [],
+    hasTickets: (e as any).hasTickets === true,
+    gallery: {
+      id: e.id, title: e.title || '', venue: e.venue || '',
+      date: e.date, coverImage: '', photos: [],
+    },
+  };
+}
 
 type Props = {
   event: EventData;
@@ -98,10 +121,34 @@ function EventScreenInner({
   // Defensive: media may be missing/empty on incomplete docs
   const media = Array.isArray(event.media) ? event.media : [];
 
-  // Related events — non-empty media, capped at 3
-  const relatedEvents = EVENTS
-    .filter(e => e.id !== event.id && Array.isArray(e.media) && e.media.length > 0)
-    .slice(0, 3);
+  // Related events — real approved events on the SAME date as this one
+  // (excluding this event), non-empty media, capped at 6. While loading, on
+  // error, or when nothing matches, the section is hidden entirely — it's
+  // below the fold, so no skeleton and no mock fallback.
+  const [relatedEvents, setRelatedEvents] = useState<EventData[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setRelatedEvents([]);
+    (async () => {
+      try {
+        const live = await getApprovedEvents(undefined, 100);
+        if (cancelled) return;
+        setRelatedEvents(
+          live
+            .filter(e =>
+              e.id !== event.id &&
+              !!e.date && e.date === event.date &&
+              Array.isArray(e.media) && e.media.length > 0
+            )
+            .slice(0, 6)
+            .map(toRelatedEventData)
+        );
+      } catch (_) {
+        // Leave empty — the rail stays hidden.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [event.id, event.date]);
 
   // Real-or-nothing display rule across THREE real sources (no mock/empty
   // fallback — when none resolve we render nothing for the photos section):
@@ -594,12 +641,12 @@ function EventScreenInner({
           </>
         )}
 
-        {/* ── Related events — "ALSO TONIGHT" ─────────────────────────── */}
+        {/* ── Related events — "MORE ON THIS NIGHT" (same-date, real data) ── */}
         {relatedEvents.length > 0 && (
           <>
             <View style={{ paddingHorizontal: 16, paddingTop: 28, paddingBottom: 12 }}>
               <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
-                ALSO TONIGHT
+                MORE ON THIS NIGHT
               </Text>
               <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
                 If this is your vibe

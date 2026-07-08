@@ -291,7 +291,14 @@ export type NavEntry =
   | { screen: 'camera' }
   | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }
-  | { screen: 'pass'; orderId: string; isGuest?: boolean }
+  | { screen: 'pass'; orderId: string; isGuest?: boolean; guestEmail?: string }
+  // Auth sheet — pushed at the moment of intent (save / passes / general),
+  // never as an up-front gate. Dismissible; pop returns to prior context.
+  | { screen: 'auth'; intent?: 'save' | 'passes' | 'general' }
+  // Username selection — pushed after a NEW account is created (email or
+  // social). Skippable; thenPasses continues to My Passes afterwards.
+  | { screen: 'username'; thenPasses?: boolean }
+  | { screen: 'forgotPassword'; email: string }
   | { screen: 'scan'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'menu'; venueId: string; venueName: string }
   | { screen: 'menuItem'; venueId: string; venueName: string; item: MenuItem }

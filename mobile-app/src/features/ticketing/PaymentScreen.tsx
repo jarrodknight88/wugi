@@ -25,8 +25,10 @@ type Props = {
   userName:   string;
   theme:      Theme;
   onBack:     () => void;
-  onSuccess:  (orderId: string, isGuest: boolean) => void;
+  onSuccess:  (orderId: string, isGuest: boolean, guestEmail?: string) => void;
 };
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
 function centsToDisplay(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -44,18 +46,23 @@ export function PaymentScreen({
 }: Props) {
   const { initPaymentSheet, presentPaymentSheet, resetPaymentSheetCustomer } = useStripe();
   const hasSavedCardRef = useRef(false); // tracks whether customerId came back from server
+  const paymentIntentIdRef = useRef<string | null>(null); // "pi_..." — derived from clientSecret in confirmHandler
   const [phone,        setPhone]        = useState('');
   const [guestName,    setGuestName]    = useState(userName || '');
   const [guestEmail,   setGuestEmail]   = useState(userEmail || '');
+  const [nameError,    setNameError]    = useState<string | null>(null);
+  const [emailError,   setEmailError]   = useState<string | null>(null);
   const [loading,      setLoading]      = useState(false);
-  const [loadingMsg,   setLoadingMsg]   = useState('Processing...');
   const [feeExpanded,  setFeeExpanded]  = useState(false);
   const isGuest = !userId;
 
   const handlePay = async () => {
-    if (isGuest && (!guestName.trim() || !guestEmail.trim())) {
-      Alert.alert('Info required', 'Please enter your name and email to continue.');
-      return;
+    if (isGuest) {
+      const nErr = !guestName.trim() ? 'Please enter your full name' : null;
+      const eErr = !EMAIL_RE.test(guestEmail.trim()) ? 'Please enter a valid email address' : null;
+      setNameError(nErr);
+      setEmailError(eErr);
+      if (nErr || eErr) return;
     }
     setLoading(true);
     try {
@@ -81,7 +88,7 @@ export function PaymentScreen({
 
       // ── Free ticket — skip Payment Sheet entirely ──────────────────
       if (isFree) {
-        onSuccess(freeOrderId || `free_${Date.now()}`, isGuest);
+        onSuccess(freeOrderId || `free_${Date.now()}`, isGuest, isGuest ? guestEmail.trim() : undefined);
         setLoading(false);
         return;
       }
@@ -164,6 +171,9 @@ export function PaymentScreen({
               }
               const data = await json.json();
               const { clientSecret } = data.result ?? data;
+              // clientSecret is "pi_..._secret_..." — capture the PaymentIntent id
+              // so PassScreen can resolve pi_ → order → passes after the webhook lands.
+              paymentIntentIdRef.current = clientSecret.split('_secret')[0];
               intentCreationCallback({ clientSecret });
             } catch (e: any) {
               intentCreationCallback({
@@ -190,33 +200,14 @@ export function PaymentScreen({
         return;
       }
 
-      // ── Step 4: Success — poll passes collection for orderId ─────────
-      setLoadingMsg('Getting your passes...');
-      const startTime = Date.now();
-      let foundOrderId: string | null = null;
-
-      while (Date.now() - startTime < 10000 && !foundOrderId) {
-        await new Promise(r => setTimeout(r, 1500));
-        try {
-          const { getFirestore, collection, getDocs, query, where, orderBy, limit } =
-            await import('@react-native-firebase/firestore');
-          const db = getFirestore();
-          const snap = await getDocs(
-            query(
-              collection(db, 'passes'),
-              where('userId', '==', userId),
-              where('eventId', '==', selection.eventId),
-              orderBy('createdAt', 'desc'),
-              limit(1)
-            )
-          );
-          if (!snap.empty) {
-            foundOrderId = snap.docs[0].data().orderId;
-          }
-        } catch {}
-      }
-
-      onSuccess(foundOrderId || `payment_${Date.now()}`, isGuest);
+      // ── Step 4: Success — hand off immediately with the PaymentIntent id.
+      // PassScreen resolves pi_ → orders → passes (with retries) for signed-in
+      // users; guests get an email-confirmation state (no Firestore access).
+      onSuccess(
+        paymentIntentIdRef.current ?? `payment_${Date.now()}`,
+        isGuest,
+        isGuest ? guestEmail.trim() : undefined,
+      );
 
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Something went wrong. Please try again.');
@@ -307,13 +298,19 @@ export function PaymentScreen({
         <View style={{ backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginBottom: 20, overflow: 'hidden' }}>
           {isGuest ? (
             <>
-              <View style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+              <View style={{ padding: 14, borderWidth: 1, borderColor: nameError ? theme.statusDanger : 'transparent', borderBottomWidth: 1, borderBottomColor: nameError ? theme.statusDanger : theme.divider, borderRadius: nameError ? 12 : 0 }}>
                 <Text style={{ color: theme.subtext, fontSize: 11, marginBottom: 4 }}>Full name *</Text>
-                <TextInput value={guestName} onChangeText={setGuestName} placeholder="Your full name" placeholderTextColor={theme.subtext} style={{ color: theme.text, fontSize: 14, padding: 0 }}/>
+                <TextInput value={guestName} onChangeText={t => { setGuestName(t); if (nameError) setNameError(null); }} placeholder="Your full name" placeholderTextColor={theme.subtext} style={{ color: theme.text, fontSize: 14, padding: 0 }}/>
+                {nameError && (
+                  <Text style={{ color: theme.statusDanger, fontSize: 11, marginTop: 6 }}>{nameError}</Text>
+                )}
               </View>
-              <View style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+              <View style={{ padding: 14, borderWidth: 1, borderColor: emailError ? theme.statusDanger : 'transparent', borderBottomWidth: 1, borderBottomColor: emailError ? theme.statusDanger : theme.divider, borderRadius: emailError ? 12 : 0 }}>
                 <Text style={{ color: theme.subtext, fontSize: 11, marginBottom: 4 }}>Email *</Text>
-                <TextInput value={guestEmail} onChangeText={setGuestEmail} placeholder="your@email.com" placeholderTextColor={theme.subtext} keyboardType="email-address" autoCapitalize="none" style={{ color: theme.text, fontSize: 14, padding: 0 }}/>
+                <TextInput value={guestEmail} onChangeText={t => { setGuestEmail(t); if (emailError) setEmailError(null); }} placeholder="your@email.com" placeholderTextColor={theme.subtext} keyboardType="email-address" autoCapitalize="none" style={{ color: theme.text, fontSize: 14, padding: 0 }}/>
+                {emailError && (
+                  <Text style={{ color: theme.statusDanger, fontSize: 11, marginTop: 6 }}>{emailError}</Text>
+                )}
               </View>
             </>
           ) : (
@@ -346,7 +343,7 @@ export function PaymentScreen({
           {loading
             ? <>
                 <ActivityIndicator color="#fff" size="small"/>
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{loadingMsg}</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Processing...</Text>
               </>
             : <>
                 <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -358,11 +355,11 @@ export function PaymentScreen({
               </>
           }
         </TouchableOpacity>
-        {!isGuest && (
-          <Text style={{ color: theme.subtext, fontSize: 10, textAlign: 'center', marginTop: 8 }}>
-            Apple Pay · Saved cards · Face ID available at checkout
-          </Text>
-        )}
+        <Text style={{ color: theme.subtext, fontSize: 10, textAlign: 'center', marginTop: 8 }}>
+          {isGuest
+            ? 'Apple Pay available at checkout'
+            : 'Apple Pay · Saved cards · Face ID available at checkout'}
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );

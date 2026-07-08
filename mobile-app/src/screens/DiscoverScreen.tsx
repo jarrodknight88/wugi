@@ -22,9 +22,10 @@
 //       (b) list view → ResultListCard (88px square thumb + type chip + name + sub + chevron)
 //       (c) grid view → 2-col ResultGridCard (aspect-1 photo with type chip overlay + name + sub)
 //   • Empty state: "Nothing matches that" / "Try a different search or filter."
+//     with a "Clear filters" action when a search/category/vibe is active
 //   • Recent searches dropdown (kept from existing implementation)
 //   • Pull-to-refresh
-//   • Firestore fetch → mock fallback (unchanged logic)
+//   • Firestore fetch only — error/timeout → retryable ErrorState (no mock fallback)
 //
 // DROPPED (no backing data — real-data-only rule):
 //   • Neighborhood guide shelf (no Firestore collection)
@@ -48,9 +49,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FSEvent, FSVenue } from '../types';
-import { EVENTS, VENUES, makeGallery } from '../constants/mockData';
+import { makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon, ChevronRightIcon } from '../components/icons';
+import { ErrorState, EmptyState } from '../components/StateViews';
 import { dealTypeLabel } from '../utils/deals';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -262,7 +264,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
   const [view,           setView]           = useState<'list' | 'grid'>('list');
   const [mapOn,          setMapOn]          = useState(initialMapOn ?? false);
   const [allResults,     setAllResults]     = useState<DiscoverItem[]>([]);
-  const [loading,        setLoading]        = useState(true);
+  const [status,         setStatus]         = useState<'loading' | 'ready' | 'error'>('loading');
   const [refreshing,     setRefreshing]     = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
@@ -299,46 +301,40 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
   };
 
   // ── Fetch from Firestore ──────────────────────────────────────────
-  const loadData = async () => {
+  // Real data only — a failed or hung fetch surfaces the error state (with
+  // retry) instead of silently substituting stale mock content.
+  const loadData = async (): Promise<'ready' | 'error'> => {
     try {
       const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
         await import('../../firestoreService');
 
-      const [liveEvents, liveVenues, liveDeals] = await Promise.all([
+      const fetchAll = Promise.all([
         getApprovedEvents([], 100),
         getApprovedVenues([], 100),
         getActiveDeals([], 10),
       ]);
+      // 8000ms guard — a stalled fetch becomes an error, not an endless spinner.
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 8000)
+      );
+      const [liveEvents, liveVenues, liveDeals] = await Promise.race([fetchAll, timeout]);
 
       const results: DiscoverItem[] = [];
 
-      const events = liveEvents.length > 0 ? liveEvents : EVENTS.map(e => ({
-        id: e.id, title: e.title, venue: e.venue, venueId: '',
-        date: e.date, time: e.time, age: e.age, about: e.about,
-        vibes: ['Boujee'], media: e.media || [], status: 'approved', createdAt: null,
-      }));
-
-      const venues = liveVenues.length > 0 ? liveVenues : VENUES.map(v => ({
-        id: v.id, name: v.name, category: v.category, address: v.address,
-        phone: v.phone, website: v.website, instagram: v.instagram,
-        attributes: v.attributes || [], vibes: ['Boujee'], about: v.about,
-        media: v.media || [], status: 'approved', createdAt: null,
-      }));
-
-      events.forEach(e => results.push({
+      liveEvents.forEach(e => results.push({
         kind: 'event',
         data: toEventData(e),
-        image: (e.media || [])[0]?.uri || `https://picsum.photos/seed/${e.id}/400/400`,
+        image: (e.media || [])[0]?.uri || '',
       }));
 
-      venues.forEach(v => results.push({
+      liveVenues.forEach(v => results.push({
         kind: 'venue',
         data: toVenueData(v),
         image: (() => {
           const first = (v.media || [])[0] as any;
-          if (!first) return `https://picsum.photos/seed/${v.id}/400/400`;
+          if (!first) return '';
           if (typeof first === 'string') return first;
-          return first?.uri || `https://picsum.photos/seed/${v.id}/400/400`;
+          return first?.uri || '';
         })(),
       }));
 
@@ -347,34 +343,34 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
         title: d.title,
         venueName: d.venueName,
         detail: d.detail,
-        image: d.image || `https://picsum.photos/seed/${d.id}/400/400`,
+        image: d.image || '',
         dealType: d.dealType,
       }));
 
       setAllResults(results);
+      return 'ready';
     } catch (e) {
-      console.log('DiscoverScreen: fetch failed, using mock', e);
-      const results: DiscoverItem[] = [];
-      EVENTS.forEach(ev => results.push({ kind: 'event', data: ev, image: (ev.media || [])[0]?.uri || 'https://picsum.photos/seed/ev/400/400' }));
-      VENUES.forEach(v  => results.push({ kind: 'venue', data: v,  image: (v.media  || [])[0]?.uri || 'https://picsum.photos/seed/vn/400/400' }));
-      setAllResults(results);
+      console.log('DiscoverScreen: fetch failed', e);
+      return 'error';
     }
   };
 
   useEffect(() => {
     let cancelled = false;
-    const run = async () => {
-      await loadData();
-      if (!cancelled) setLoading(false);
-    };
-    const timeout = setTimeout(() => { if (!cancelled) setLoading(false); }, 8000);
-    run();
-    return () => { cancelled = true; clearTimeout(timeout); };
+    loadData().then(result => { if (!cancelled) setStatus(result); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const retry = () => {
+    setStatus('loading');
+    loadData().then(setStatus);
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    const result = await loadData();
+    setStatus(result);
     setRefreshing(false);
   };
 
@@ -511,7 +507,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
   };
 
   // ── Loading ───────────────────────────────────────────────────────
-  if (loading) {
+  if (status === 'loading') {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={theme.accent} size="large"/>
@@ -522,22 +518,30 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────────
-  const EmptyState = () => (
-    <View style={{ alignItems: 'center', paddingTop: 64, paddingBottom: 40, paddingHorizontal: 32 }}>
-      <Text style={{
-        color: theme.subtext, fontSize: 15, fontFamily: FONTS.display,
-        letterSpacing: -0.2, marginBottom: 6, textAlign: 'center',
-      }}>
-        Nothing matches that
-      </Text>
-      <Text style={{
-        color: theme.subtext, fontSize: 13, fontFamily: FONTS.body,
-        textAlign: 'center', opacity: 0.7,
-      }}>
-        Try a different search or filter.
-      </Text>
-    </View>
+  // ── Error ─────────────────────────────────────────────────────────
+  if (status === 'error') {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
+        <ErrorState theme={theme} onRetry={retry}/>
+      </View>
+    );
+  }
+
+  // ── Empty results — "Nothing matches" + clear-filters action ───────
+  const hasActiveFilters = search !== '' || cat !== 'All' || vibe !== null;
+  const clearFilters = () => {
+    setSearch('');
+    setCat('All');
+    setVibe(null);
+  };
+  const renderEmpty = () => (
+    <EmptyState
+      theme={theme}
+      title="Nothing matches that"
+      message="Try a different search or filter."
+      actionLabel={hasActiveFilters ? 'Clear filters' : undefined}
+      onAction={hasActiveFilters ? clearFilters : undefined}
+    />
   );
 
   // ── Render ────────────────────────────────────────────────────────
@@ -834,14 +838,14 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
         ) : view === 'list' ? (
           <View style={{ paddingHorizontal: 16 }}>
             {filtered.length === 0
-              ? <EmptyState/>
+              ? renderEmpty()
               : filtered.map((item, i) => renderListItem(item, i))
             }
           </View>
         ) : (
           <View style={{ paddingHorizontal: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
             {filtered.length === 0
-              ? <View style={{ width: '100%' }}><EmptyState/></View>
+              ? <View style={{ width: '100%' }}>{renderEmpty()}</View>
               : filtered.map((item, i) => renderGridItem(item, i))
             }
           </View>

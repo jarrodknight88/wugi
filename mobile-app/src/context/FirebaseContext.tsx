@@ -10,11 +10,16 @@ import React, {
   useCallback,
   type ReactNode,
 } from 'react';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInWithCredential,
+  AppleAuthProvider,
+  GoogleAuthProvider,
   signOut as firebaseSignOut,
   updateProfile,
   sendEmailVerification,
@@ -30,6 +35,8 @@ import {
 const auth = getAuth();
 
 // ── Types ─────────────────────────────────────────────────────────────
+export type SocialSignInResult = { isNewUser: boolean };
+
 type FirebaseContextValue = {
   user:                     FirebaseAuthTypes.User | null;
   authLoading:              boolean;
@@ -37,6 +44,13 @@ type FirebaseContextValue = {
   saveVibes:                (vibes: string[]) => Promise<void>;
   signIn:                   (email: string, password: string) => Promise<void>;
   signUp:                   (email: string, password: string, displayName: string) => Promise<void>;
+  // Social sign-in. Resolves with isNewUser so the caller can route new
+  // accounts to username selection. Rejects with a friendly Error on
+  // failure; resolves never on user-cancel (throws { cancelled: true }).
+  signInWithApple:          () => Promise<SocialSignInResult>;
+  signInWithGoogle:         () => Promise<SocialSignInResult>;
+  appleAuthAvailable:       boolean;
+  googleAuthAvailable:      boolean;
   signOut:                  () => Promise<void>;
   authError:                string | null;
   clearAuthError:           () => void;
@@ -45,6 +59,19 @@ type FirebaseContextValue = {
 };
 
 const FirebaseContext = createContext<FirebaseContextValue | null>(null);
+
+// Web client ID for Google Sign-In (Firebase console → Authentication →
+// Sign-in method → Google → Web SDK configuration). Required for the
+// idToken exchange. When unset, the Google button hides itself.
+const GOOGLE_WEB_CLIENT_ID: string =
+  (Constants.expoConfig?.extra as any)?.googleWebClientId ?? '';
+
+// Thrown when the user dismisses a social sign-in sheet — callers should
+// swallow this silently rather than show an error banner.
+export class AuthCancelledError extends Error {
+  cancelled = true as const;
+  constructor() { super('cancelled'); }
+}
 
 export function useFirebase(): FirebaseContextValue {
   const ctx = useContext(FirebaseContext);
@@ -58,6 +85,31 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [userVibes,   setUserVibes]   = useState<string[]>([]);
   const [authError,   setAuthError]   = useState<string | null>(null);
+  const [appleAuthAvailable,  setAppleAuthAvailable]  = useState(false);
+  const [googleAuthAvailable, setGoogleAuthAvailable] = useState(false);
+
+  // Probe social sign-in availability once. Dynamic imports so a build
+  // without the native modules degrades to email auth instead of crashing.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (Platform.OS === 'ios') {
+        try {
+          const Apple = await import('expo-apple-authentication');
+          const ok = await Apple.isAvailableAsync();
+          if (mounted) setAppleAuthAvailable(ok);
+        } catch { /* module not in this build — keep hidden */ }
+      }
+      if (GOOGLE_WEB_CLIENT_ID) {
+        try {
+          const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+          GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
+          if (mounted) setGoogleAuthAvailable(true);
+        } catch { /* module not in this build — keep hidden */ }
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -119,6 +171,79 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ── Sign in with Apple ─────────────────────────────────────────────
+  // expo-apple-authentication + nonce → Firebase credential. Apple only
+  // returns fullName on the FIRST authorization, so persist it then.
+  const signInWithApple = useCallback(async (): Promise<SocialSignInResult> => {
+    setAuthError(null);
+    try {
+      const Apple  = await import('expo-apple-authentication');
+      const Crypto = await import('expo-crypto');
+
+      const rawNonce = Array.from({ length: 32 }, () =>
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]
+      ).join('');
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256, rawNonce
+      );
+
+      const appleCred = await Apple.signInAsync({
+        requestedScopes: [
+          Apple.AppleAuthenticationScope.FULL_NAME,
+          Apple.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+      if (!appleCred.identityToken) throw new Error('No identity token');
+
+      const credential = AppleAuthProvider.credential(appleCred.identityToken, rawNonce);
+      const result     = await signInWithCredential(auth, credential);
+      const isNewUser  = result.additionalUserInfo?.isNewUser === true;
+
+      // First-authorization name capture (Apple never sends it again)
+      const fullName = [appleCred.fullName?.givenName, appleCred.fullName?.familyName]
+        .filter(Boolean).join(' ');
+      if (fullName && !result.user.displayName) {
+        try {
+          await updateProfile(result.user, { displayName: fullName });
+          await upsertUserProfile(result.user.uid, result.user.email || '', fullName, true);
+        } catch { /* non-blocking */ }
+      }
+      return { isNewUser };
+    } catch (e: any) {
+      if (e?.code === 'ERR_REQUEST_CANCELED' || e?.code === 'ERR_CANCELED') {
+        throw new AuthCancelledError();
+      }
+      const msg = e?.code ? friendlyAuthError(e.code) : 'Apple sign-in failed. Please try again.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+  }, []);
+
+  // ── Sign in with Google ────────────────────────────────────────────
+  const signInWithGoogle = useCallback(async (): Promise<SocialSignInResult> => {
+    setAuthError(null);
+    try {
+      const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const response = await GoogleSignin.signIn();
+      const idToken  = (response as any)?.data?.idToken ?? (response as any)?.idToken;
+      if (!idToken) throw new AuthCancelledError(); // dismissed sheet returns no token
+
+      const credential = GoogleAuthProvider.credential(idToken);
+      const result     = await signInWithCredential(auth, credential);
+      return { isNewUser: result.additionalUserInfo?.isNewUser === true };
+    } catch (e: any) {
+      if (e instanceof AuthCancelledError) throw e;
+      if (e?.code === 'SIGN_IN_CANCELLED' || e?.code === '12501') {
+        throw new AuthCancelledError();
+      }
+      const msg = e?.code ? friendlyAuthError(e.code) : 'Google sign-in failed. Please try again.';
+      setAuthError(msg);
+      throw new Error(msg);
+    }
+  }, []);
+
   const resendVerificationEmail = useCallback(async () => {
     const current = auth.currentUser;
     if (!current) throw new Error('Not signed in');
@@ -166,6 +291,8 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
     <FirebaseContext.Provider value={{
       user, authLoading, userVibes, saveVibes,
       signIn, signUp, signOut,
+      signInWithApple, signInWithGoogle,
+      appleAuthAvailable, googleAuthAvailable,
       authError, clearAuthError,
       resendVerificationEmail, refreshEmailVerified,
     }}>
