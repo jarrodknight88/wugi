@@ -7,7 +7,7 @@ import type { SelectOption } from "@/components/SearchSelect"
 import { useAuthContext } from "@/context/AuthContext"
 import { useVenueFilter } from "@/hooks/useVenueFilter"
 import { useEffect, useState } from "react"
-import { collection, doc, onSnapshot, addDoc, updateDoc, serverTimestamp } from "firebase/firestore"
+import { collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, query, where, writeBatch, serverTimestamp } from "firebase/firestore"
 import { getFunctions, httpsCallable } from "firebase/functions"
 import { db } from "@/lib/firebase"
 import { useRouter } from "next/navigation"
@@ -23,6 +23,7 @@ type Series = {
   title?: string
   seriesSlug?: string
   recurrence?: { dayOfWeek: number; frequency: string; timezone: string }
+  media?: { type?: string; uri?: string }[]
 }
 type SF = Omit<Series, 'id' | 'totalGenerated' | 'lastGenerated'>
 
@@ -58,6 +59,7 @@ export default function SeriesPage() {
   const [form, setForm]           = useState<SF>(EMPTY)
   const [saving, setSaving]       = useState(false)
   const [generating, setGenerating] = useState<string|null>(null)
+  const [deleting, setDeleting]   = useState<string|null>(null)
   const [error, setError]         = useState("")
 
   useEffect(() => {
@@ -82,7 +84,7 @@ export default function SeriesPage() {
 
   function openCreate() { setForm(EMPTY); setEditId(null); setModal(true); setError("") }
   function openEdit(s: Series) {
-    setForm({ name:s.name||s.title||"", venueId:s.venueId, venueName:s.venueName, day:dayOf(s)||"friday", frequency:freqOf(s)||"weekly", time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:s.coverImage||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"" })
+    setForm({ name:s.name||s.title||"", venueId:s.venueId, venueName:s.venueName, day:dayOf(s)||"friday", frequency:freqOf(s)||"weekly", time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:s.coverImage||s.media?.[0]?.uri||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"" })
     setEditId(s.id); setModal(true); setError("")
   }
 
@@ -97,15 +99,40 @@ export default function SeriesPage() {
       // changing it would break idempotent dedupe against already-generated docs.
       const existing = editId ? series.find(x => x.id === editId) : null
       const seriesSlug = existing?.seriesSlug || toSlug(`${form.name}-${form.venueName}`)
+      // Series media: the generator copies `media` onto every occurrence it
+      // creates. Keep a multi-image array intact when the cover URL is
+      // unchanged; otherwise the entered URL becomes the media.
+      const prevUri = existing?.coverImage || existing?.media?.[0]?.uri || ""
+      const media = form.coverImage
+        ? (form.coverImage === prevUri && existing?.media?.length ? existing.media : [{ type: "image", uri: form.coverImage }])
+        : []
       const data = {
         ...form,
         title: form.name,   // generator instance docs read title || name
         seriesSlug,
+        media,
         recurrence: { dayOfWeek: DAY_TO_DOW[form.day] ?? 5, frequency: form.frequency, timezone: TIMEZONE },
         updatedAt: serverTimestamp(),
       }
       if (editId) {
         await updateDoc(doc(db, "eventSeries", editId), data)
+        // Push a changed image to UPCOMING occurrences that still carry the old
+        // series image (or none). Occurrences with their own custom media keep it.
+        if (form.coverImage && form.coverImage !== prevUri) {
+          const todayISO = new Date().toISOString().slice(0, 10)
+          const snap = await getDocs(query(collection(db, "events"), where("seriesId", "==", editId)))
+          const batch = writeBatch(db)
+          let n = 0
+          snap.docs.forEach(d => {
+            const ev = d.data()
+            if (typeof ev.dateISO !== "string" || ev.dateISO < todayISO) return
+            const evUri = Array.isArray(ev.media) ? ev.media[0]?.uri : undefined
+            if (evUri && evUri !== prevUri) return   // per-occurrence override — keep it
+            batch.update(d.ref, { media, updatedAt: serverTimestamp() })
+            n++
+          })
+          if (n > 0) await batch.commit()
+        }
       } else {
         const ref = await addDoc(collection(db, "eventSeries"), { ...data, totalGenerated:0, createdAt: serverTimestamp() })
         // Auto-generate first 8 weeks on create
@@ -123,6 +150,31 @@ export default function SeriesPage() {
       const res: any = await fn({ seriesId, weeksAhead: 8 })
       alert(`Generated ${res.data.generated} new event${res.data.generated !== 1 ? "s" : ""}`)
     } catch(e:any) { setError(e.message) } finally { setGenerating(null) }
+  }
+
+  async function toggleArchive(s: Series) {
+    setError("")
+    try {
+      await updateDoc(doc(db, "eventSeries", s.id), { status: s.status === "archived" ? "active" : "archived", updatedAt: serverTimestamp() })
+    } catch(e:any) { setError(e.message) }
+  }
+
+  // Deletes the series AND its upcoming occurrences (dateISO >= today).
+  // Past occurrences are kept for history/galleries.
+  async function deleteSeries(s: Series) {
+    setError("")
+    try {
+      const todayISO = new Date().toISOString().slice(0, 10)
+      const snap = await getDocs(query(collection(db, "events"), where("seriesId", "==", s.id)))
+      const upcoming = snap.docs.filter(d => typeof d.data().dateISO === "string" && d.data().dateISO >= todayISO)
+      const label = s.name || s.title || s.id
+      if (!confirm(`Delete "${label}"?\n\nThis also deletes ${upcoming.length} upcoming event${upcoming.length === 1 ? "" : "s"}. Past events are kept.`)) return
+      setDeleting(s.id)
+      const batch = writeBatch(db)
+      upcoming.forEach(d => batch.delete(d.ref))
+      await batch.commit()
+      await deleteDoc(doc(db, "eventSeries", s.id))
+    } catch(e:any) { setError(e.message) } finally { setDeleting(null) }
   }
 
   const SC: Record<string,{bg:string;color:string}> = {
@@ -189,10 +241,22 @@ export default function SeriesPage() {
                   </div>
                   {/* Actions */}
                   {canWrite && (
-                    <div style={{ padding:"10px 18px", borderTop:"1px solid #f3f4f6", display:"flex", gap:8 }}>
+                    <div style={{ padding:"10px 18px 0", borderTop:"1px solid #f3f4f6", display:"flex", gap:8 }}>
                       <button onClick={() => openEdit(s)} style={{ flex:1, padding:"7px 0", borderRadius:7, background:"#f3f4f6", border:"none", cursor:"pointer", fontSize:13, fontWeight:500, color:"#374151" }}>Edit</button>
-                      <button onClick={() => generateEvents(s.id)} disabled={generating === s.id} style={{ flex:1, padding:"7px 0", borderRadius:7, background:"#064e3b", border:"none", cursor:"pointer", fontSize:13, fontWeight:600, color:"#fff", opacity:generating===s.id?0.7:1 }}>
-                        {generating===s.id ? "Generating..." : "+ Generate"}
+                      {s.status !== "archived" && (
+                        <button onClick={() => generateEvents(s.id)} disabled={generating === s.id} style={{ flex:1, padding:"7px 0", borderRadius:7, background:"#064e3b", border:"none", cursor:"pointer", fontSize:13, fontWeight:600, color:"#fff", opacity:generating===s.id?0.7:1 }}>
+                          {generating===s.id ? "Generating..." : "+ Generate"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {canWrite && (
+                    <div style={{ padding:"8px 18px 12px", display:"flex", gap:8 }}>
+                      <button onClick={() => toggleArchive(s)} style={{ flex:1, padding:"6px 0", borderRadius:7, background:"#fff", border:"1px solid #e5e7eb", cursor:"pointer", fontSize:12, fontWeight:500, color:"#6b7280" }}>
+                        {s.status === "archived" ? "Unarchive" : "Archive"}
+                      </button>
+                      <button onClick={() => deleteSeries(s)} disabled={deleting === s.id} style={{ flex:1, padding:"6px 0", borderRadius:7, background:"#fff", border:"1px solid #fecaca", cursor:"pointer", fontSize:12, fontWeight:500, color:"#b91c1c", opacity:deleting===s.id?0.6:1 }}>
+                        {deleting===s.id ? "Deleting..." : "Delete"}
                       </button>
                     </div>
                   )}
@@ -261,6 +325,16 @@ export default function SeriesPage() {
               <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
                 <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>About</label>
                 <textarea style={{ ...INPUT, minHeight:70, resize:"vertical" as const }} value={form.about} onChange={e=>setForm(f=>({...f,about:e.target.value}))} placeholder="What's this series about?"/>
+              </div>
+
+              <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Cover Image URL</label>
+                <input style={INPUT} value={form.coverImage} onChange={e=>setForm(f=>({...f,coverImage:e.target.value}))} placeholder="https://..."/>
+                <p style={{ fontSize:12, color:"#9ca3af", margin:0 }}>Applies to upcoming and future occurrences. Edit an individual event to override just that date.</p>
+                {form.coverImage && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={form.coverImage} alt="Cover preview" style={{ maxWidth:180, borderRadius:8, border:"1px solid #e5e7eb" }} onError={e=>{(e.target as HTMLImageElement).style.display="none"}} onLoad={e=>{(e.target as HTMLImageElement).style.display="block"}}/>
+                )}
               </div>
 
               <div>

@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 export const dynamic = 'force-dynamic'
-import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, getDocs } from "firebase/firestore"
+import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, getDocs, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
 import { useAuthContext } from "@/context/AuthContext"
@@ -36,6 +36,7 @@ function EventsPageInner() {
   const [modal, setModal] = useState<"create"|"edit"|null>(null)
   const [editId, setEditId] = useState<string|null>(null)
   const [form, setForm] = useState<EF>(EMPTY)
+  const [origMedia, setOrigMedia] = useState<{type?:string; uri?:string}[]>([])
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -66,10 +67,22 @@ function EventsPageInner() {
 
   useEffect(() => { if (params.get("new")==="1") openCreate() }, [params])
 
-  function openCreate() { setForm(EMPTY); setTicketTypes([]); setEditId(null); setModal("create"); setError("") }
+  function openCreate() { setForm(EMPTY); setOrigMedia([]); setTicketTypes([]); setEditId(null); setModal("create"); setError("") }
   async function openEdit(ev: EventItem) {
     setEditId(ev.id)
-    setForm({ title:ev.title, venue:ev.venue, venueId:"", date:ev.date, time:ev.time, age:"21+", about:"", status:ev.status, vibes:[], media:"" })
+    // Load the FULL doc — the list only carries a thin projection. Filling the
+    // form with blanks here made every edit wipe venueId/age/about/vibes/media
+    // on save (and detach the event from its venue).
+    const full = await getDoc(doc(db, "events", ev.id))
+    const d: any = full.exists() ? full.data() : {}
+    const mediaArr = Array.isArray(d.media) ? d.media : []
+    setOrigMedia(mediaArr)
+    setForm({
+      title: d.title ?? ev.title, venue: d.venue ?? ev.venue, venueId: d.venueId || "",
+      date: d.date ?? ev.date, time: d.time ?? ev.time, age: d.age || "21+",
+      about: d.about || "", status: d.status ?? ev.status, vibes: d.vibes || [],
+      media: mediaArr[0]?.uri || "",
+    })
     const snap = await getDocs(collection(db,"events",ev.id,"ticketTypes"))
     setTicketTypes(snap.docs.map(d => ({ id:d.id, name:d.data().name, price:d.data().price, capacity:d.data().capacity, tableCapacity:d.data().tableCapacity||null, isFree:d.data().isFree||false, maxPerOrder:d.data().maxPerOrder||null, status:d.data().status||"on_sale" })))
     setModal("edit"); setError("")
@@ -79,7 +92,11 @@ function EventsPageInner() {
     if (!form.title.trim()) { setError("Title is required"); return }
     setSaving(true); setError("")
     try {
-      const data = { title:form.title, venue:form.venue, venueId:form.venueId, date:form.date, time:form.time, age:form.age, about:form.about, status:form.status, vibes:form.vibes, media:form.media?[{type:"image",uri:form.media}]:[], updatedAt:serverTimestamp() }
+      // Keep a multi-image media array intact when the cover URL is unchanged.
+      const media = form.media
+        ? (form.media === origMedia[0]?.uri && origMedia.length ? origMedia : [{ type:"image", uri:form.media }])
+        : []
+      const data = { title:form.title, venue:form.venue, venueId:form.venueId, date:form.date, time:form.time, age:form.age, about:form.about, status:form.status, vibes:form.vibes, media, updatedAt:serverTimestamp() }
       let evId = editId
       if (modal==="create") {
         const ref = await addDoc(collection(db,"events"), { ...data, createdAt:serverTimestamp() })
