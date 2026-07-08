@@ -6,10 +6,11 @@ import TimePicker from "@/components/TimePicker"
 import type { SelectOption } from "@/components/SearchSelect"
 import { useAuthContext } from "@/context/AuthContext"
 import { useVenueFilter } from "@/hooks/useVenueFilter"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, query, where, writeBatch, serverTimestamp } from "firebase/firestore"
 import { getFunctions, httpsCallable } from "firebase/functions"
-import { db } from "@/lib/firebase"
+import { ref as sRef, uploadBytesResumable, getDownloadURL } from "firebase/storage"
+import { db, storage } from "@/lib/firebase"
 import { useRouter } from "next/navigation"
 
 type Series = {
@@ -47,6 +48,39 @@ function freqOf(s: Series) { return s.frequency || s.recurrence?.frequency || ""
 const VIBES   = ["High Energy","Boujee","Divey","Rooftop","Speakeasy","Late Night","Hip-Hop","R&B","Live Music","Brunch","LGBTQ+"]
 const INPUT: React.CSSProperties = { padding:"9px 12px", borderRadius:8, border:"1px solid #e5e7eb", fontSize:14, outline:"none", width:"100%", boxSizing:"border-box" }
 const CARD: React.CSSProperties  = { background:"#fff", borderRadius:12, border:"1px solid #e5e7eb", boxShadow:"0 1px 3px rgba(0,0,0,0.06)", overflow:"hidden" }
+const LABEL: React.CSSProperties = { fontSize:13, fontWeight:600, color:"#374151" }
+const HINT: React.CSSProperties  = { fontSize:12, color:"#9ca3af", margin:0, lineHeight:1.5 }
+const PILL: React.CSSProperties  = { padding:"6px 12px", borderRadius:8, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, background:"rgba(17,24,39,0.75)", color:"#fff" }
+const PILL_DANGER: React.CSSProperties = { ...PILL, background:"rgba(185,28,28,0.85)" }
+
+function Section({ title, hint, children }: { title:string; hint?:string; children:React.ReactNode }) {
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+      <div>
+        <p style={{ margin:0, fontSize:11, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase" as const, color:"#6b7280" }}>{title}</p>
+        {hint && <p style={{ ...HINT, marginTop:3 }}>{hint}</p>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Segmented({ options, value, onChange, format }: { options:string[]; value:string; onChange:(v:string)=>void; format?:(v:string)=>string }) {
+  return (
+    <div style={{ display:"flex", background:"#f3f4f6", borderRadius:9, padding:3, gap:2 }}>
+      {options.map(o => {
+        const sel = o === value
+        return (
+          <button key={o} type="button" onClick={() => onChange(o)}
+            style={{ flex:1, padding:"7px 0", borderRadius:7, border:"none", cursor:"pointer", fontSize:13, fontWeight:sel?600:500,
+              background:sel?"#fff":"transparent", color:sel?"#111827":"#6b7280", boxShadow:sel?"0 1px 2px rgba(0,0,0,0.08)":"none", transition:"all .15s" }}>
+            {format ? format(o) : o}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function SeriesPage() {
   const router = useRouter()
@@ -60,6 +94,11 @@ export default function SeriesPage() {
   const [saving, setSaving]       = useState(false)
   const [generating, setGenerating] = useState<string|null>(null)
   const [deleting, setDeleting]   = useState<string|null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadPct, setUploadPct] = useState(0)
+  const [dragOver, setDragOver]   = useState(false)
+  const [showUrl, setShowUrl]     = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError]         = useState("")
 
   useEffect(() => {
@@ -82,8 +121,29 @@ export default function SeriesPage() {
     return () => { u1(); u2() }
   }, [user, venueIds])
 
-  function openCreate() { setForm(EMPTY); setEditId(null); setModal(true); setError("") }
+  function openCreate() { setForm(EMPTY); setEditId(null); setShowUrl(false); setModal(true); setError("") }
+
+  // Upload a cover image to Storage (public-read per storage.rules) and put
+  // the download URL into the form. save() turns it into the series media.
+  async function handleFile(file: File) {
+    if (!file.type.startsWith("image/")) { setError("Please choose an image file (PNG or JPG)."); return }
+    if (file.size > 10 * 1024 * 1024)    { setError("Image must be under 10 MB."); return }
+    setUploading(true); setUploadPct(0); setError("")
+    try {
+      const path = `series-covers/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`
+      const task = uploadBytesResumable(sRef(storage, path), file, { contentType: file.type })
+      await new Promise<void>((resolve, reject) => {
+        task.on("state_changed",
+          snap => setUploadPct(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+          reject, () => resolve())
+      })
+      const url = await getDownloadURL(task.snapshot.ref)
+      setForm(f => ({ ...f, coverImage: url }))
+    } catch(e:any) { setError(e.message) } finally { setUploading(false) }
+  }
+
   function openEdit(s: Series) {
+    setShowUrl(false)
     setForm({ name:s.name||s.title||"", venueId:s.venueId, venueName:s.venueName, day:dayOf(s)||"friday", frequency:freqOf(s)||"weekly", time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:s.coverImage||s.media?.[0]?.uri||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"" })
     setEditId(s.id); setModal(true); setError("")
   }
@@ -269,95 +329,141 @@ export default function SeriesPage() {
 
       {/* Create / Edit modal */}
       {modal && (
-        <div style={{ position:"fixed" as const, inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={() => setModal(false)}>
-          <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:600, maxHeight:"92vh", overflowY:"auto" as const, boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }} onClick={e=>e.stopPropagation()}>
-            <div style={{ padding:"22px 28px", borderBottom:"1px solid #f3f4f6", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <h2 style={{ margin:0, fontSize:18, fontWeight:700 }}>{editId ? "Edit Series" : "New Event Series"}</h2>
-              <button onClick={() => setModal(false)} style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#9ca3af" }}>×</button>
-            </div>
-            <div style={{ padding:"22px 28px", display:"flex", flexDirection:"column" as const, gap:16 }}>
-              {error && <div style={{ padding:"10px 14px", background:"#fee2e2", borderRadius:8, color:"#b91c1c", fontSize:13 }}>{error}</div>}
+        <div style={{ position:"fixed" as const, inset:0, background:"rgba(15,23,42,0.55)", backdropFilter:"blur(2px)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={() => setModal(false)}>
+          <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:680, maxHeight:"92vh", display:"flex", flexDirection:"column" as const, boxShadow:"0 24px 70px rgba(0,0,0,0.25)" }} onClick={e=>e.stopPropagation()}>
 
-              <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Series Name *</label>
-                <input style={INPUT} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Fridayz ATL 🔥"/>
-              </div>
-
-              <SearchSelect label="Venue *" value={form.venueId} options={venueOpts} placeholder="Search venues..."
-                onChange={(id,label) => setForm(f=>({...f,venueId:id,venueName:label}))}/>
-
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
-                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                  <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Day of Week</label>
-                  <select style={INPUT} value={form.day} onChange={e=>setForm(f=>({...f,day:e.target.value}))}>
-                    {DAYS.map(d=><option key={d} value={d} style={{ textTransform:"capitalize" }}>{d.charAt(0).toUpperCase()+d.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                  <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Frequency</label>
-                  <select style={INPUT} value={form.frequency} onChange={e=>setForm(f=>({...f,frequency:e.target.value}))}>
-                    {FREQS.map(f=><option key={f} value={f} style={{ textTransform:"capitalize" }}>{f.charAt(0).toUpperCase()+f.slice(1)}</option>)}
-                  </select>
-                </div>
-                <TimePicker label="Start Time" value={form.time} onChange={v=>setForm(f=>({...f,time:v}))}/>
-              </div>
-
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <DatePicker label="Start Date" value={form.startDate} onChange={v=>setForm(f=>({...f,startDate:v}))} placeholder="Series begins"/>
-                <DatePicker label="End Date (optional)" value={form.endDate} onChange={v=>setForm(f=>({...f,endDate:v}))} placeholder="Leave blank for ongoing"/>
-              </div>
-
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                  <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Age</label>
-                  <select style={INPUT} value={form.age} onChange={e=>setForm(f=>({...f,age:e.target.value}))}>
-                    {["18+","21+","All Ages"].map(a=><option key={a} value={a}>{a}</option>)}
-                  </select>
-                </div>
-                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                  <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Status</label>
-                  <select style={INPUT} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
-                    {["active","paused","archived"].map(s=><option key={s} value={s} style={{ textTransform:"capitalize" }}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>About</label>
-                <textarea style={{ ...INPUT, minHeight:70, resize:"vertical" as const }} value={form.about} onChange={e=>setForm(f=>({...f,about:e.target.value}))} placeholder="What's this series about?"/>
-              </div>
-
-              <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
-                <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Cover Image URL</label>
-                <input style={INPUT} value={form.coverImage} onChange={e=>setForm(f=>({...f,coverImage:e.target.value}))} placeholder="https://..."/>
-                <p style={{ fontSize:12, color:"#9ca3af", margin:0 }}>Applies to upcoming and future occurrences. Edit an individual event to override just that date.</p>
-                {form.coverImage && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={form.coverImage} alt="Cover preview" style={{ maxWidth:180, borderRadius:8, border:"1px solid #e5e7eb" }} onError={e=>{(e.target as HTMLImageElement).style.display="none"}} onLoad={e=>{(e.target as HTMLImageElement).style.display="block"}}/>
-                )}
-              </div>
-
+            {/* Header */}
+            <div style={{ padding:"20px 28px", borderBottom:"1px solid #f3f4f6", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <label style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Vibes</label>
-                <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginTop:8 }}>
-                  {VIBES.map(v => {
-                    const sel = form.vibes.includes(v)
-                    return <button key={v} type="button" onClick={()=>setForm(f=>({...f,vibes:sel?f.vibes.filter(x=>x!==v):[...f.vibes,v]}))}
-                      style={{ padding:"5px 12px", borderRadius:20, fontSize:13, cursor:"pointer", fontWeight:sel?600:400, background:sel?"#111827":"#f3f4f6", color:sel?"#fff":"#374151", border:"1px solid "+(sel?"#111827":"#e5e7eb") }}>{v}</button>
-                  })}
-                </div>
+                <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:"#111827" }}>{editId ? "Edit Series" : "New Event Series"}</h2>
+                <p style={{ ...HINT, marginTop:3 }}>
+                  {editId ? "Changes apply to this series and its upcoming occurrences." : "Define the template once — occurrences are generated automatically."}
+                </p>
               </div>
+              <button onClick={() => setModal(false)} aria-label="Close" style={{ background:"#f3f4f6", border:"none", width:30, height:30, borderRadius:8, fontSize:16, cursor:"pointer", color:"#6b7280", lineHeight:1 }}>×</button>
+            </div>
 
-              {!editId && (
-                <div style={{ padding:"10px 14px", background:"#f0fdf4", borderRadius:8, fontSize:13, color:"#15803d" }}>
-                  ✓ Creating this series will automatically generate the next 8 weeks of events.
+            {/* Body */}
+            <div style={{ padding:"24px 28px", display:"flex", flexDirection:"column" as const, gap:24, overflowY:"auto" as const }}>
+              {error && (
+                <div style={{ padding:"10px 14px", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, color:"#b91c1c", fontSize:13, display:"flex", gap:8 }}>
+                  <span>⚠</span><span>{error}</span>
                 </div>
               )}
+
+              <Section title="Basics">
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                  <label style={LABEL}>Series name <span style={{ color:"#b91c1c" }}>*</span></label>
+                  <input style={INPUT} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Fridayz ATL 🔥"/>
+                </div>
+                <SearchSelect label="Venue *" value={form.venueId} options={venueOpts} placeholder="Search venues..."
+                  onChange={(id,label) => setForm(f=>({...f,venueId:id,venueName:label}))}/>
+              </Section>
+
+              <div style={{ height:1, background:"#f3f4f6" }}/>
+
+              <Section title="Schedule" hint="Occurrences are generated on this cadence for a rolling 8-week window.">
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                  <label style={LABEL}>Day of week</label>
+                  <Segmented options={DAYS} value={form.day} onChange={v=>setForm(f=>({...f,day:v}))} format={d=>d.slice(0,3).toUpperCase()}/>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                    <label style={LABEL}>Frequency</label>
+                    <Segmented options={FREQS} value={form.frequency} onChange={v=>setForm(f=>({...f,frequency:v}))} format={x=>x.charAt(0).toUpperCase()+x.slice(1)}/>
+                  </div>
+                  <TimePicker label="Start Time" value={form.time} onChange={v=>setForm(f=>({...f,time:v}))}/>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                  <DatePicker label="Start Date" value={form.startDate} onChange={v=>setForm(f=>({...f,startDate:v}))} placeholder="Series begins"/>
+                  <DatePicker label="End Date (optional)" value={form.endDate} onChange={v=>setForm(f=>({...f,endDate:v}))} placeholder="Leave blank for ongoing"/>
+                </div>
+              </Section>
+
+              <div style={{ height:1, background:"#f3f4f6" }}/>
+
+              <Section title="Cover Image" hint="Shown on the marquee for every upcoming occurrence. Edit an individual event to override a single date.">
+                {form.coverImage ? (
+                  <div style={{ position:"relative" as const, borderRadius:12, overflow:"hidden", border:"1px solid #e5e7eb" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={form.coverImage} alt="Cover" style={{ width:"100%", maxHeight:220, objectFit:"cover" as const, display:"block" }}/>
+                    <div style={{ position:"absolute" as const, top:10, right:10, display:"flex", gap:8 }}>
+                      <button type="button" onClick={()=>fileInputRef.current?.click()} style={PILL}>Replace</button>
+                      <button type="button" onClick={()=>setForm(f=>({...f,coverImage:""}))} style={PILL_DANGER}>Remove</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={()=>!uploading && fileInputRef.current?.click()}
+                    onDragOver={e=>{e.preventDefault(); setDragOver(true)}}
+                    onDragLeave={()=>setDragOver(false)}
+                    onDrop={e=>{e.preventDefault(); setDragOver(false); const f=e.dataTransfer.files?.[0]; if(f) handleFile(f)}}
+                    style={{ border:`2px dashed ${dragOver?"#064e3b":"#d1d5db"}`, background:dragOver?"#f0fdf4":"#fafafa", borderRadius:12, padding:"28px 20px", textAlign:"center" as const, cursor:uploading?"default":"pointer", transition:"all .15s" }}>
+                    {uploading ? (
+                      <>
+                        <p style={{ margin:0, fontSize:14, fontWeight:600, color:"#111827" }}>Uploading… {uploadPct}%</p>
+                        <div style={{ height:6, background:"#e5e7eb", borderRadius:3, marginTop:12, overflow:"hidden" }}>
+                          <div style={{ height:"100%", width:`${uploadPct}%`, background:"#064e3b", transition:"width .2s" }}/>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize:26, marginBottom:6 }}>🖼️</div>
+                        <p style={{ margin:0, fontSize:14, fontWeight:600, color:"#111827" }}>Drop an image here, or click to browse</p>
+                        <p style={{ ...HINT, marginTop:4 }}>PNG or JPG, up to 10 MB. Portrait (4:5) looks best on the marquee.</p>
+                      </>
+                    )}
+                  </div>
+                )}
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display:"none" }}
+                  onChange={e=>{ const f=e.target.files?.[0]; if(f) handleFile(f); e.target.value="" }}/>
+                {!form.coverImage && !uploading && (showUrl ? (
+                  <input style={INPUT} autoFocus value={form.coverImage} onChange={e=>setForm(f=>({...f,coverImage:e.target.value}))} placeholder="https://... (paste an image URL)"/>
+                ) : (
+                  <button type="button" onClick={()=>setShowUrl(true)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:12, color:"#6b7280", textAlign:"left" as const, textDecoration:"underline" }}>
+                    Paste an image URL instead
+                  </button>
+                ))}
+              </Section>
+
+              <div style={{ height:1, background:"#f3f4f6" }}/>
+
+              <Section title="Details">
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                    <label style={LABEL}>Age requirement</label>
+                    <Segmented options={["18+","21+","All Ages"]} value={form.age} onChange={v=>setForm(f=>({...f,age:v}))}/>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                    <label style={LABEL}>Status</label>
+                    <Segmented options={["active","paused","archived"]} value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} format={x=>x.charAt(0).toUpperCase()+x.slice(1)}/>
+                  </div>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column" as const, gap:6 }}>
+                  <label style={LABEL}>About</label>
+                  <textarea style={{ ...INPUT, minHeight:70, resize:"vertical" as const }} value={form.about} onChange={e=>setForm(f=>({...f,about:e.target.value}))} placeholder="What should guests expect? This appears on every occurrence."/>
+                </div>
+                <div>
+                  <label style={LABEL}>Vibes</label>
+                  <div style={{ display:"flex", flexWrap:"wrap" as const, gap:8, marginTop:8 }}>
+                    {VIBES.map(v => {
+                      const sel = form.vibes.includes(v)
+                      return <button key={v} type="button" onClick={()=>setForm(f=>({...f,vibes:sel?f.vibes.filter(x=>x!==v):[...f.vibes,v]}))}
+                        style={{ padding:"5px 12px", borderRadius:20, fontSize:13, cursor:"pointer", fontWeight:sel?600:400, background:sel?"#111827":"#f3f4f6", color:sel?"#fff":"#374151", border:"1px solid "+(sel?"#111827":"#e5e7eb") }}>{v}</button>
+                    })}
+                  </div>
+                </div>
+              </Section>
             </div>
-            <div style={{ padding:"16px 28px", borderTop:"1px solid #f3f4f6", display:"flex", justifyContent:"flex-end", gap:10 }}>
-              <button onClick={()=>setModal(false)} style={{ padding:"10px 20px", borderRadius:8, background:"#f3f4f6", border:"none", cursor:"pointer", fontSize:14 }}>Cancel</button>
-              <button onClick={save} disabled={saving} style={{ padding:"10px 24px", borderRadius:8, background:"#111827", color:"#fff", border:"none", cursor:"pointer", fontSize:14, fontWeight:600, opacity:saving?0.7:1 }}>
-                {saving ? (editId?"Saving...":"Creating & Generating...") : (editId?"Save Changes":"Create Series")}
+
+            {/* Footer */}
+            <div style={{ padding:"14px 28px", borderTop:"1px solid #f3f4f6", display:"flex", alignItems:"center", gap:10 }}>
+              <p style={{ ...HINT, flex:1 }}>
+                {editId ? "A changed cover image is applied to upcoming occurrences that haven't been customized." : "The next 8 weeks of events are generated on create."}
+              </p>
+              <button onClick={()=>setModal(false)} style={{ padding:"10px 20px", borderRadius:8, background:"#fff", border:"1px solid #e5e7eb", cursor:"pointer", fontSize:14, color:"#374151" }}>Cancel</button>
+              <button onClick={save} disabled={saving || uploading} style={{ padding:"10px 24px", borderRadius:8, background:"#111827", color:"#fff", border:"none", cursor:"pointer", fontSize:14, fontWeight:600, opacity:(saving||uploading)?0.6:1 }}>
+                {saving ? (editId?"Saving…":"Creating & Generating…") : (editId?"Save Changes":"Create Series")}
               </button>
             </div>
           </div>
