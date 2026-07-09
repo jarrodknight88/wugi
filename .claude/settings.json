@@ -1,0 +1,22 @@
+{
+  "env": {
+    "EXPO_ASC_KEY_ID": "ASTT7364WJ",
+    "EXPO_ASC_ISSUER_ID": "69a6de7f-7e3a-47e3-e053-5b8c7c11a4d1",
+    "EXPO_APPLE_TEAM_ID": "D9438V88S5",
+    "EXPO_APPLE_TEAM_TYPE": "COMPANY_OR_ORGANIZATION",
+    "EXPO_ASC_API_KEY_PATH": "/home/user/wugi/mobile-app/AuthKey_ASTT7364WJ.p8"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$ASC_API_KEY_P8_BASE64\" ] || printf '%s' \"$ASC_API_KEY_P8_BASE64\" | base64 -d > mobile-app/AuthKey_ASTT7364WJ.p8",
+            "statusMessage": "Materializing App Store Connect API key"
+          }
+        ]
+      }
+    ]
+  }
+}
