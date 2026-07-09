@@ -14,6 +14,11 @@
             "type": "command",
             "command": "[ -z \"$ASC_API_KEY_P8_BASE64\" ] || printf '%s' \"$ASC_API_KEY_P8_BASE64\" | base64 -d > mobile-app/AuthKey_ASTT7364WJ.p8",
             "statusMessage": "Materializing App Store Connect API key"
+          },
+          {
+            "type": "command",
+            "command": "[ -z \"$FIREBASE_SERVICE_ACCOUNT_B64\" ] || printf '%s' \"$FIREBASE_SERVICE_ACCOUNT_B64\" | base64 -d > mobile-app/scripts/serviceAccount.json",
+            "statusMessage": "Materializing Firebase service account key"
           }
         ]
       }
