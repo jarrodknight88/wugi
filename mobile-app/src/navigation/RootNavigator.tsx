@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
 import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
@@ -55,28 +56,40 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   const theme  = scheme === 'dark' ? COLORS.dark : COLORS.light;
   const { userVibes, user, authLoading } = useFirebase();
 
-  // Phases:
-  //   splash           → always shown first (brand moment)
-  //   signup           → auth gate for new/returning/guest
-  //   forgot-password  → password reset (entered from signup)
-  //   onboarding       → vibe selection slides (new users only)
-  //   username         → username picker (new users only, after vibe slides)
-  //   main             → main tab experience
-  const [appPhase,           setAppPhase]           = useState<'splash' | 'signup' | 'forgot-password' | 'onboarding' | 'username' | 'main'>('splash');
-  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  // Phases — value first, commitment later:
+  //   splash → always shown first (brand moment)
+  //   intro  → 3-slide pitch, FIRST LAUNCH ONLY, skippable on every slide
+  //   main   → the app. Everyone lands here — signed in or not.
+  // There is NO auth gate. Auth is a stack screen pushed at the moment of
+  // intent (saving, viewing passes) and always dismissible.
+  const [appPhase, setAppPhase] = useState<'splash' | 'intro' | 'main'>('splash');
+  const INTRO_SEEN_KEY = 'wugi:intro-seen';
   const splashDoneRef = useRef(false);
   const routedRef     = useRef(false);
-  const userRef       = useRef(user); // always holds latest user value
+  const userRef       = useRef(user);       // always holds latest user value
+  const introSeenRef  = useRef<boolean | null>(null); // null = still reading
 
   // Keep userRef current on every render
   useEffect(() => { userRef.current = user; }, [user]);
 
+  // Read the first-launch flag while the splash animation plays
+  useEffect(() => {
+    AsyncStorage.getItem(INTRO_SEEN_KEY)
+      .then(v => { introSeenRef.current = v === '1'; })
+      .catch(() => { introSeenRef.current = true; }) // storage error → skip intro
+      .finally(() => routeAfterSplash());
+  }, []);
+
   const routeAfterSplash = useCallback(() => {
     if (routedRef.current) return;
     if (!splashDoneRef.current) return;
+    if (introSeenRef.current === null) return; // flag still loading (sub-ms typically)
     routedRef.current = true;
-    // Use ref so we always read the current user, not the captured closure value
-    setAppPhase(userRef.current ? 'main' : 'signup');
+    // Returning users and anyone who has seen the intro go straight to
+    // content. Brand-new installs get the pitch once — before conversion,
+    // where a pitch belongs.
+    if (userRef.current || introSeenRef.current) setAppPhase('main');
+    else setAppPhase('intro');
   }, []); // no deps — reads from refs only
 
   // Fires when authLoading resolves — if splash done, route immediately
@@ -214,6 +227,11 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   // no uid → in-memory only, exactly as before.
   const uid = user?.uid ?? null;
 
+  // Soft auth prompt for guest saves: the save ALWAYS happens (in-memory)
+  // so the action is never punished — the sheet explains how to keep it.
+  // Shown at most once per session to avoid nagging.
+  const savePromptShownRef = useRef(false);
+
   const toggleFavorite = (item: FavoriteItem) => {
     let willAdd = false;
     setFavorites(prev => {
@@ -228,6 +246,9 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         if (willAdd) svc.addFavorite(uid, item.type, item.id);
         else         svc.removeFavorite(uid, item.type, item.id);
       }).catch(() => { /* non-blocking */ });
+    } else if (willAdd && !savePromptShownRef.current) {
+      savePromptShownRef.current = true;
+      push({ screen: 'auth', intent: 'save' });
     }
   };
 
@@ -271,12 +292,25 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   // id PhotoViewer likes against, so we parse the galleryId, fetch the gallery
   // (event-named title + date + image) and its venue name for the caption.
   // On logout (uid null) we clear the array.
+  // On LOGIN, any in-memory guest saves are written to Firestore FIRST so
+  // signing up at the "keep your saves" prompt actually keeps the saves.
+  const favoritesRef = useRef(favorites);
+  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
+
   useEffect(() => {
     let cancelled = false;
     if (!uid) { setFavorites([]); return; }
     (async () => {
       try {
         const svc = await import('../../firestoreService');
+        // Merge guest-session saves before hydrating (dedup is free: doc id
+        // is deterministic `${uid}_${type}_${id}`).
+        const pending = favoritesRef.current;
+        if (pending.length > 0) {
+          await Promise.all(pending.map(p =>
+            svc.addFavorite(uid, p.type, p.id).catch(() => { /* non-blocking */ })
+          ));
+        }
         const docs = await svc.listFavorites(uid);
         const resolved = await Promise.all(docs.map(async (d): Promise<FavoriteItem | null> => {
           if (d.itemType === 'event') {
@@ -359,32 +393,22 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     }}/>
   );
 
-  if (appPhase === 'signup') return (
-    <SignupScreen
-      onSignupComplete={() => setAppPhase('onboarding')}
-      onSignInComplete={() => setAppPhase('main')}
-      onGuest={() => setAppPhase('main')}
-      onForgotPassword={(currentEmail) => {
-        setForgotPasswordEmail(currentEmail);
-        setAppPhase('forgot-password');
-      }}
-    />
-  );
-
-  if (appPhase === 'forgot-password') return (
-    <ForgotPasswordScreen
-      initialEmail={forgotPasswordEmail}
-      onBack={() => setAppPhase('signup')}
-    />
-  );
-
-  if (appPhase === 'onboarding') return (
-    <OnboardingScreen onFinish={() => setAppPhase('username')}/>
-  );
-
-  if (appPhase === 'username') return (
-    <UsernameScreen onComplete={() => setAppPhase('main')}/>
-  );
+  if (appPhase === 'intro') {
+    const finishIntro = () => {
+      AsyncStorage.setItem(INTRO_SEEN_KEY, '1').catch(() => {});
+      setAppPhase('main');
+    };
+    return (
+      <OnboardingScreen
+        onFinish={finishIntro}
+        onSignIn={() => {
+          AsyncStorage.setItem(INTRO_SEEN_KEY, '1').catch(() => {});
+          setAppPhase('main');
+          setStack([{ screen: 'auth', intent: 'general' }]);
+        }}
+      />
+    );
+  }
 
   // ── Current stack screen ─────────────────────────────────────────────
   const current      = stack.length > 0 ? stack[stack.length - 1] : null;
@@ -393,6 +417,39 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   // ── Render the current stack screen ──────────────────────────────────
   const renderStackScreen = () => {
     if (!current) return null;
+
+    // ── Auth sheet — pushed at moment of intent, always dismissible ────
+    if (current.screen === 'auth') return (
+      <SignupScreen
+        intent={current.intent ?? 'general'}
+        onClose={pop}
+        onForgotPassword={(email) => push({ screen: 'forgotPassword', email })}
+        onDone={({ isNewUser }) => {
+          const wantsPasses = current.intent === 'passes';
+          setStack(prev => {
+            const next = prev.slice(0, -1); // dismiss the auth sheet
+            if (isNewUser)       next.push({ screen: 'username', thenPasses: wantsPasses });
+            else if (wantsPasses) next.push({ screen: 'passes' });
+            return next;
+          });
+        }}
+      />
+    );
+
+    if (current.screen === 'username') return (
+      <UsernameScreen onComplete={() => {
+        const thenPasses = current.thenPasses === true;
+        setStack(prev => {
+          const next = prev.slice(0, -1);
+          if (thenPasses) next.push({ screen: 'passes' });
+          return next;
+        });
+      }}/>
+    );
+
+    if (current.screen === 'forgotPassword') return (
+      <ForgotPasswordScreen initialEmail={current.email} onBack={pop}/>
+    );
 
     if (current.screen === 'camera')  return <CameraScreen   onClose={pop} theme={theme}/>;
     if (current.screen === 'passes')  return <MyPassesScreen onBack={pop}  theme={theme}/>;
@@ -432,8 +489,8 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         userName={user?.displayName ?? ''}
         theme={theme}
         onBack={pop}
-        onSuccess={(orderId: string, isGuest: boolean) => {
-          setStack(prev => [...prev.slice(0, -1), { screen: 'pass', orderId, isGuest }]);
+        onSuccess={(orderId: string, isGuest: boolean, guestEmail?: string) => {
+          setStack(prev => [...prev.slice(0, -1), { screen: 'pass', orderId, isGuest, guestEmail }]);
         }}
       />
     );
@@ -442,11 +499,12 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       <PassScreen
         orderId={current.orderId}
         isGuest={current.isGuest ?? false}
+        guestEmail={current.guestEmail}
         theme={theme}
         onSignUp={() => {
-          // Clear ticketing stack and go to account tab
-          setStack([]);
-          setActiveTab('account');
+          // Post-purchase account creation — highest-intent moment. Push
+          // the auth sheet over the confirmation; dismissing returns to it.
+          push({ screen: 'auth', intent: 'general' });
         }}
         onClose={() => {
           setStack(prev => prev.filter(e =>
@@ -574,7 +632,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
         {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite} userVibes={userVibes} savedVenueIds={favorites.filter(f => f.type === 'venue').map(f => f.id)}/>}
-        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllPasses={() => push({ screen: 'passes' })} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto}/>}
+        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllPasses={() => push(uid ? { screen: 'passes' } : { screen: 'auth', intent: 'passes' })} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}
         <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
       </View>

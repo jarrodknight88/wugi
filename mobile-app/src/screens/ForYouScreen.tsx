@@ -8,8 +8,8 @@ import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal } from '../types';
-import { FOR_YOU_CARDS } from '../constants/mockData';
 import { getForYouFeed, getDealsBrowse, type FSEvent, type FSVenue } from '../../firestoreService';
+import { ErrorState, EmptyState } from '../components/StateViews';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
@@ -186,9 +186,12 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   const [cards, setCards]           = useState<ForYouCard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDone, setIsDone]         = useState(false);
-  const [loading, setLoading]       = useState(true);
+  const [status, setStatus]         = useState<'loading' | 'ready' | 'error'>('loading');
 
-  useEffect(() => {
+  // Real data only — a failed fetch surfaces the error state (with retry)
+  // instead of silently substituting mock cards.
+  const loadFeed = () => {
+    setStatus('loading');
     Promise.all([getForYouFeed(), getDealsBrowse(40).catch(() => [] as FSDeal[])])
       .then(([{ events, venues }, rawDeals]) => {
         // Interleave events and venues for variety
@@ -219,18 +222,48 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
         }
         while (di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
 
-        if (base.length === 0 && dealPool.length === 0) setCards([...FOR_YOU_CARDS]);
-        else setCards(built.length > 0 ? built : [...FOR_YOU_CARDS]);
+        setCards(built);
+        setCurrentIndex(0);
+        setIsDone(false);
+        setStatus('ready');
       })
-      .catch(() => { setCards([...FOR_YOU_CARDS]); })
-      .finally(() => setLoading(false));
+      .catch(e => {
+        console.log('ForYouScreen: feed fetch failed', e);
+        setStatus('error');
+      });
+  };
+
+  useEffect(() => {
+    loadFeed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (loading) {
+  if (status === 'loading') {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={theme.accent} size="large"/>
         <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>Loading for you...</Text>
+      </View>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
+        <ErrorState theme={theme} onRetry={loadFeed}/>
+      </View>
+    );
+  }
+
+  // Successful fetch, but no cards to deal — honest empty state, no mock deck.
+  if (cards.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
+        <EmptyState
+          theme={theme}
+          title="You're early"
+          message="Your personalized picks will appear as Atlanta venues add events."
+        />
       </View>
     );
   }

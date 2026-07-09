@@ -31,7 +31,13 @@ export function DealCard({ deal, theme, onPress, width = 260 }: {
       onPress={onPress}
       disabled={!onPress}
     >
-      <Image cachePolicy="memory-disk" source={{ uri: deal.image || 'https://picsum.photos/seed/deal/400/300' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+      {/* No stock-photo fallback — a deal without an image gets a neutral
+          card-colored block instead of a random picsum image. */}
+      {deal.image ? (
+        <Image cachePolicy="memory-disk" source={{ uri: deal.image }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: theme.card }]}/>
+      )}
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
       <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: DEAL_COLOR, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
         <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.8 }}>DEAL</Text>

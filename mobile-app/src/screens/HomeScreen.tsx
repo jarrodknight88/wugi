@@ -24,7 +24,8 @@
 // don't have yet are omitted rather than mocked —
 //   • "Your Plan" (passes + saved)  → favorites/passes not wired here
 //   • "Recent Galleries" (Lens)     → only mock galleries exist today
-// Fetches live data from Firestore, falls back to mock if empty/error.
+// Fetches live data from Firestore only — errors surface a retryable
+// ErrorState and an empty feed surfaces an EmptyState (no mock fallback).
 //
 // Type: PP Neue Montreal via FONTS.* (the design's brand face); eyebrow
 // kickers use system mono (MONO) per the design. See constants/fonts.ts.
@@ -40,11 +41,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from '../types';
-import { EVENTS, VENUES, DEALS, makeGallery } from '../constants/mockData';
+import { makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
+import { ErrorState, EmptyState } from '../components/StateViews';
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
 // Buckets the current hour into morning / afternoon / evening / late-night.
@@ -109,11 +111,6 @@ function toVenueData(v: FSVenue): VenueData {
     ctaPrimary: v.ctaPrimary, ctaSecondary: v.ctaSecondary,
   };
 }
-
-// Mock → FS type helpers for fallback
-const mockToFSEvent = (e: EventData): FSEvent => ({ id:e.id, title:e.title, venue:e.venue, venueId:e.venueId ?? '', date:e.date, time:e.time, age:e.age, about:e.about, vibes:['Boujee'], media:e.media || [], status:'approved', createdAt:null });
-const mockToFSVenue = (v: VenueData): FSVenue => ({ id:v.id, name:v.name, category:v.category, address:v.address, phone:v.phone, website:v.website, instagram:v.instagram, attributes:v.attributes || [], vibes:['Boujee'], about:v.about, media:v.media || [], status:'approved', createdAt:null });
-const mockToFSDeal  = (d: typeof DEALS[0]): FSDeal => ({ id:d.id, title:d.title, venueName:d.venueName, venueId:'', detail:d.detail, image:d.image, vibes:['Boujee'], expiresAt:null });
 
 // ── Shelf header — mono kicker + bold title, optional "All →" ─────────
 function ShelfHeader({ kicker, title, theme, onSeeAll }: {
@@ -327,7 +324,9 @@ function StartHereShelf({
         contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
       >
         {starters.map(v => {
-          const imageUri = (v.media || [])[0]?.uri || `https://picsum.photos/seed/${v.id}/400/400`;
+          // No stock-photo fallback — a venue without media gets a neutral
+          // card-colored block instead of a random picsum image.
+          const imageUri = (v.media || [])[0]?.uri;
           const hours = v.openStatusHint || v.hoursText || undefined;
           const price = v.priceTier || undefined;
           return (
@@ -337,14 +336,16 @@ function StartHereShelf({
               onPress={() => onVenuePress(v)}
               style={[styles.startCard, { backgroundColor: theme.card, borderColor: theme.border }]}
             >
-              {/* Square photo */}
-              <View style={styles.startCardPhoto}>
-                <Image
-                  cachePolicy="memory-disk"
-                  source={{ uri: imageUri }}
-                  style={StyleSheet.absoluteFillObject}
-                  contentFit="cover"
-                />
+              {/* Square photo — neutral card-colored block when no media */}
+              <View style={[styles.startCardPhoto, { backgroundColor: theme.card }]}>
+                {imageUri && (
+                  <Image
+                    cachePolicy="memory-disk"
+                    source={{ uri: imageUri }}
+                    style={StyleSheet.absoluteFillObject}
+                    contentFit="cover"
+                  />
+                )}
                 {/* Hours chip — top-left, dark glass */}
                 {hours && (
                   <View style={styles.hoursChip}>
@@ -395,54 +396,63 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   const [events,     setEvents]     = useState<FSEvent[]>([]);
   const [venues,     setVenues]     = useState<FSVenue[]>([]);
   const [deals,      setDeals]      = useState<FSDeal[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const [status,     setStatus]     = useState<'loading' | 'ready' | 'error'>('loading');
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = async () => {
+  // Real data only — a failed or hung fetch surfaces the error state (with
+  // retry) instead of silently substituting stale mock content.
+  const loadData = async (): Promise<'ready' | 'error'> => {
     try {
       const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
         await import('../../firestoreService');
 
       // Larger pool (100) so the picks / weekend / where-to-start shelves
       // have room to slice from after vibe filtering. Deals stay capped at 5.
-      const [liveEvents, liveVenues, liveDeals] = await Promise.all([
+      const fetchAll = Promise.all([
         getApprovedEvents(userVibes, 100),
         getApprovedVenues(userVibes, 100),
         getActiveDeals(userVibes, 5),
       ]);
+      // 8000ms guard — a stalled fetch becomes an error, not an endless spinner.
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 8000)
+      );
+      const [liveEvents, liveVenues, liveDeals] = await Promise.race([fetchAll, timeout]);
 
-      setEvents(liveEvents.length > 0 ? liveEvents : EVENTS.map(mockToFSEvent));
-      setVenues(liveVenues.length > 0 ? liveVenues : VENUES.map(mockToFSVenue));
-      setDeals(liveDeals.length   > 0 ? liveDeals  : DEALS.map(mockToFSDeal));
+      setEvents(liveEvents);
+      setVenues(liveVenues);
+      setDeals(liveDeals);
+      return 'ready';
     } catch (e) {
-      console.log('HomeScreen: Firestore fetch failed, using mock data', e);
-      setEvents(EVENTS.map(mockToFSEvent));
-      setVenues(VENUES.map(mockToFSVenue));
-      setDeals(DEALS.map(mockToFSDeal));
+      console.log('HomeScreen: Firestore fetch failed', e);
+      return 'error';
     }
   };
 
   useEffect(() => {
     let cancelled = false;
-    const run = async () => {
-      await loadData();
-      if (!cancelled) setLoading(false);
-    };
-    const timeout = setTimeout(() => { if (!cancelled) setLoading(false); }, 8000);
-    run();
-    return () => { cancelled = true; clearTimeout(timeout); };
+    setStatus('loading');
+    loadData().then(result => { if (!cancelled) setStatus(result); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userVibes]);
+
+  const retry = () => {
+    setStatus('loading');
+    loadData().then(setStatus);
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    const result = await loadData();
+    setStatus(result);
     setRefreshing(false);
   };
 
   const eventList = events.map(toEventData);
 
-  // ── Featured selection (Home is NEVER empty) ───────────────────────────
-  // Preference chain so an editorial pick leads, but Home always has content:
+  // ── Featured selection ─────────────────────────────────────────────────
+  // Preference chain so an editorial pick leads when content exists:
   //   1. eventFeatured / venueFeatured  (new hand-promoted editorial flag)
   //   2. legacy isFeatured              (back-compat with pre-Batch-0 docs)
   //   3. soonest / first-N              (whatever the feed returned)
@@ -478,16 +488,15 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   // kicker so the chip never reads blank for a no-vibe user.
   const picksReason = userVibes[0] ? `BECAUSE · ${userVibes[0].toUpperCase()}` : bucket.toUpperCase();
 
-  // ── Build the 3-banner carousel data ──────────────────────────────────
-  // Banner 1: time-aware (morning = BRUNCH HOUR, else TONIGHT). Backed by the
-  // lead featured event image when available; brunch uses its own copy.
+  // ── Build the carousel data (real events only) ────────────────────────
+  // Banner 1: time-aware (morning = BRUNCH HOUR, else TONIGHT).
   // Banner 2: JUST OPENED — new venues/events this month.
   // Banner 3: WEEKEND HORIZON — itinerary teaser.
   //
-  // CTAs route to real featured items when present; otherwise non-navigating.
-  const heroBannerImage = heroEvent
-    ? (heroEvent.media || [])[0]?.uri || 'https://picsum.photos/seed/homehero1/800/600'
-    : 'https://picsum.photos/seed/homehero1/800/600';
+  // A banner only exists when a real event with real media backs it — no
+  // stock-photo placeholders, no non-navigating CTAs. With zero backing
+  // events the carousel section is hidden entirely.
+  const bannerImage = (e?: EventData): string | undefined => (e?.media || [])[0]?.uri;
 
   // Brunch banner always uses the brunch copy regardless of heroEvent.
   // CTA routes to first event with a brunch/morning vibe or the first event.
@@ -496,63 +505,67 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
     e.venue?.toLowerCase().includes('brunch')
   ) || eventList[0];
 
-  // For the time-aware first banner:
+  const banners: BannerItem[] = [];
+
+  // Time-aware first banner:
   const isMorning = bucket === 'morning';
-  const firstBanner: BannerItem = isMorning
-    ? {
-        id: 'b-morning',
-        image: brunchEvent
-          ? (brunchEvent.media || [])[0]?.uri || 'https://picsum.photos/seed/homehero-brunch/800/600'
-          : 'https://picsum.photos/seed/homehero-brunch/800/600',
-        kicker: 'BRUNCH HOUR',
-        hero: 'Brunch Nearby',
-        sub: 'Where to start your day in Atlanta',
-        cta: 'See brunch spots',
-        onCtaPress: brunchEvent ? () => onEventPress(brunchEvent) : undefined,
-      }
-    : {
-        id: 'b-tonight',
-        image: heroBannerImage,
-        kicker: bucket === 'lateNight' ? 'STILL OPEN' : 'TONIGHT',
-        hero: bucket === 'lateNight' ? 'Still open near you' : "Tonight's scene",
-        sub: bucket === 'afternoon'
-          ? 'Picked for your vibes'
-          : bucket === 'lateNight'
-            ? 'Late-night spots from your vibes'
-            : 'Venues, events, and dishes from your vibes',
-        cta: bucket === 'lateNight' ? 'See late-night' : 'Start exploring',
-        onCtaPress: heroEvent ? () => onEventPress(heroEvent) : undefined,
-      };
+  const firstBannerEvent = isMorning ? brunchEvent : heroEvent;
+  const firstBannerImage = bannerImage(firstBannerEvent);
+  if (firstBannerEvent && firstBannerImage) {
+    banners.push(isMorning
+      ? {
+          id: 'b-morning',
+          image: firstBannerImage,
+          kicker: 'BRUNCH HOUR',
+          hero: 'Brunch Nearby',
+          sub: 'Where to start your day in Atlanta',
+          cta: 'See brunch spots',
+          onCtaPress: () => onEventPress(firstBannerEvent),
+        }
+      : {
+          id: 'b-tonight',
+          image: firstBannerImage,
+          kicker: bucket === 'lateNight' ? 'STILL OPEN' : 'TONIGHT',
+          hero: bucket === 'lateNight' ? 'Still open near you' : "Tonight's scene",
+          sub: bucket === 'afternoon'
+            ? 'Picked for your vibes'
+            : bucket === 'lateNight'
+              ? 'Late-night spots from your vibes'
+              : 'Venues, events, and dishes from your vibes',
+          cta: bucket === 'lateNight' ? 'See late-night' : 'Start exploring',
+          onCtaPress: () => onEventPress(firstBannerEvent),
+        });
+  }
 
   // "JUST OPENED" banner — backed by the 2nd featured event (or 2nd event).
   const justOpenedEvent = heroSource[1] ? toEventData(heroSource[1]) : eventList[1];
-  const justOpenedBanner: BannerItem = {
-    id: 'b-just-opened',
-    image: justOpenedEvent
-      ? (justOpenedEvent.media || [])[0]?.uri || 'https://picsum.photos/seed/homehero2/800/600'
-      : 'https://picsum.photos/seed/homehero2/800/600',
-    kicker: 'JUST OPENED',
-    hero: 'New this month',
-    sub: 'Fresh spots and events in Atlanta',
-    cta: 'See what\'s new',
-    onCtaPress: justOpenedEvent ? () => onEventPress(justOpenedEvent) : undefined,
-  };
+  const justOpenedImage = bannerImage(justOpenedEvent);
+  if (justOpenedEvent && justOpenedImage) {
+    banners.push({
+      id: 'b-just-opened',
+      image: justOpenedImage,
+      kicker: 'JUST OPENED',
+      hero: 'New this month',
+      sub: 'Fresh spots and events in Atlanta',
+      cta: 'See what\'s new',
+      onCtaPress: () => onEventPress(justOpenedEvent),
+    });
+  }
 
   // "WEEKEND HORIZON" banner — backed by the 3rd featured event (or 3rd).
   const weekendEvent = heroSource[2] ? toEventData(heroSource[2]) : eventList[2];
-  const weekendBanner: BannerItem = {
-    id: 'b-weekend',
-    image: weekendEvent
-      ? (weekendEvent.media || [])[0]?.uri || 'https://picsum.photos/seed/homehero3/800/600'
-      : 'https://picsum.photos/seed/homehero3/800/600',
-    kicker: 'WEEKEND HORIZON',
-    hero: 'Plan your Saturday',
-    sub: 'Brunch → bar → late-night routes',
-    cta: 'See itineraries',
-    onCtaPress: weekendEvent ? () => onEventPress(weekendEvent) : undefined,
-  };
-
-  const banners: BannerItem[] = [firstBanner, justOpenedBanner, weekendBanner];
+  const weekendImage = bannerImage(weekendEvent);
+  if (weekendEvent && weekendImage) {
+    banners.push({
+      id: 'b-weekend',
+      image: weekendImage,
+      kicker: 'WEEKEND HORIZON',
+      hero: 'Plan your Saturday',
+      sub: 'Brunch → bar → late-night routes',
+      cta: 'See itineraries',
+      onCtaPress: () => onEventPress(weekendEvent),
+    });
+  }
 
   // ── Deals venue lookup (for onPress wiring) ───────────────────────────
   // Find the VenueData matching a deal's venueName for CTA routing.
@@ -571,11 +584,32 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
     ) || null;
   }
 
-  if (loading) {
+  if (status === 'loading') {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={theme.accent} size="large"/>
         <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>Loading your feed...</Text>
+      </View>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
+        <ErrorState theme={theme} onRetry={retry}/>
+      </View>
+    );
+  }
+
+  // Successful fetch, but nothing to show — honest empty state, no mock feed.
+  if (events.length === 0 && venues.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
+        <EmptyState
+          theme={theme}
+          title="Nothing on right now"
+          message="We're adding new Atlanta spots and events all the time. Check back soon."
+        />
       </View>
     );
   }
@@ -606,8 +640,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
           />
         }
       >
-        {/* Hero CAROUSEL — 3-banner auto-scroll, cross-fade, swipe, pagination */}
-        <HomeHeroCarousel banners={banners} theme={theme}/>
+        {/* Hero CAROUSEL — auto-scroll, swipe, pagination. Hidden when no
+            real event media backs any banner (no stock-photo fallback). */}
+        {banners.length > 0 && <HomeHeroCarousel banners={banners} theme={theme}/>}
 
         {/* Picks for you — vibe-matched events */}
         {picks.length > 0 && (
@@ -650,8 +685,10 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
               data={weekend} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <TouchableOpacity style={{ width: 140, height: 190, borderRadius: 12, overflow: 'hidden' }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
-                  <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri || 'https://picsum.photos/seed/fallback/400/600' }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+                <TouchableOpacity style={{ width: 140, height: 190, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
+                  {(item.media || [])[0]?.uri
+                    ? <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+                    : null}
                   <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
                   <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 12 }}>
                     <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 }} numberOfLines={1}>{item.date}</Text>
