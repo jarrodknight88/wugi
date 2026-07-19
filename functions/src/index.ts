@@ -29,4 +29,5 @@ export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/ge
 export { rollForwardSeriesAnchors } from './series/rollForwardSeriesAnchors';
 export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment, refundDoorSale, cancelDoorSale, autoSettlePendingDoorSales } from './terminal/terminalFunctions';
 export { onTicketColorChange } from './passes/ticketColorSync';
-export { asanaWebhook }       from './asana/asanaWebhook';
+export { asanaWebhook }       from './bridge/asanaWebhook';
+export { githubWebhook }      from './bridge/githubWebhook';
