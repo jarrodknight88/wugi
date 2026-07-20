@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions'
 import * as admin from 'firebase-admin'
-import { buildPassBuffer } from './generatePass'
+import { buildPassBuffer, getPrimaryPassId } from './generatePass'
 
 const db      = admin.firestore()
 const storage = admin.storage()
@@ -63,8 +63,10 @@ export const passWebService = functions.https.onRequest(async (req, res) => {
       if (!orderDoc.exists) { res.status(404).send(); return }
 
       const order = orderDoc.data()!
+      const passId = order.passId || await getPrimaryPassId(serial)
       const passBuffer = await buildPassBuffer({
         orderId:     serial,
+        passId:      passId || undefined,
         eventTitle:  order.eventTitle || '',
         venueName:   order.venueName  || '',
         eventDate:   order.eventDate  || '',
@@ -242,9 +244,11 @@ export const onTableColorChange = functions.firestore
 
         // Regenerate and re-store the pass file
         const order = orderDoc.data()
+        const passId = order.passId || await getPrimaryPassId(orderId)
         pushPromises.push(
           buildPassBuffer({
             orderId,
+            passId:      passId || undefined,
             eventTitle:  order.eventTitle || '',
             venueName:   order.venueName  || '',
             eventDate:   order.eventDate  || '',

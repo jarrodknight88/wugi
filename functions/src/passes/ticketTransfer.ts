@@ -212,7 +212,8 @@ export const claimTransfer = functions.https.onRequest(async (req, res) => {
     let passUrl: string | null = null
     try {
       const passBuffer = await buildPassBuffer({
-        orderId:     newPassRef.id,   // use passId as the QR value so Door scanner finds it
+        orderId:     newOrderRef.id,
+        passId:      newPassRef.id,   // QR value Door scanner looks up
         eventTitle:  order.eventTitle || '',
         venueName:   order.venueName || '',
         eventDate:   order.eventDate || '',

@@ -112,6 +112,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
           : null;
         const passBuffer = await buildPassBuffer({
           orderId,
+          passId:              passRef.id,
           eventTitle:          eventDoc.data()?.title || '',
           venueName:           venueDoc2?.data()?.name || '',
           eventDate:           eventDoc.data()?.date || '',
@@ -126,7 +127,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
         });
         freePassUrl = await storePass(orderId, passBuffer);
         await db.collection('walletPasses').doc(orderId).set({
-          orderId, authenticationToken: authToken,
+          orderId, passId: passRef.id, authenticationToken: authToken,
           lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
         });
         await passRef.update({ appleWalletPassUrl: freePassUrl, updatedAt: admin.firestore.FieldValue.serverTimestamp() });

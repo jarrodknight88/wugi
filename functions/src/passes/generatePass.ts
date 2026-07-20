@@ -20,6 +20,13 @@ const WEB_SERVICE_URL = 'https://us-central1-wugi-prod.cloudfunctions.net/passWe
 
 export interface PassData {
   orderId:             string
+  // Doc ID in the `passes` collection this wallet pass should check in as.
+  // Door (check-in-app/ScannerScreen) scans the QR and looks it up as
+  // `passes/{passId}` — this MUST be the value encoded in the barcode.
+  // `serialNumber` and the update-protocol stay keyed on orderId; passId
+  // only drives the barcode. Falls back to orderId for callers that only
+  // ever issue a single pass per order (kept 1:1 historically).
+  passId?:             string
   eventTitle:          string
   venueName:           string
   eventDate:           string
@@ -128,9 +135,11 @@ function buildPassJson(data: PassData): object {
       ],
     },
 
-    // ── QR code — encodes the passes doc ID for Door scanner ──────
+    // ── QR code — encodes the `passes` doc ID (passId) for Door scanner ──
+    // Must match what ScannerScreen looks up (`passes/{scannedValue}`), NOT
+    // the order-level serialNumber above.
     barcodes: [{
-      message:         data.orderId,
+      message:         data.passId || data.orderId,
       format:          'PKBarcodeFormatQR',
       messageEncoding: 'iso-8859-1',
       altText:         data.ticketType || 'Wugi Ticket',
@@ -181,6 +190,27 @@ export async function buildPassBuffer(data: PassData): Promise<Buffer> {
     signerKey:  fs.readFileSync(path.join(CERTS_DIR, 'signerKey.pem')),
   })
   return pass.getAsBuffer()
+}
+
+// ── getPrimaryPassId ────────────────────────────────────────────────
+// Resolves the `passes` doc that a wallet pass regenerated from just an
+// orderId (pass-update protocol refetch, table/ticket color sync) should
+// keep encoding in its barcode. Prefers the purchaser's pass — the only
+// one ever linked to a wallet-issued .pkpass — falling back to any pass
+// on the order for older docs written before the `role` field existed.
+export async function getPrimaryPassId(orderId: string): Promise<string | null> {
+  const purchaserSnap = await db.collection('passes')
+    .where('orderId', '==', orderId)
+    .where('role', '==', 'purchaser')
+    .limit(1)
+    .get()
+  if (!purchaserSnap.empty) return purchaserSnap.docs[0].id
+
+  const anySnap = await db.collection('passes')
+    .where('orderId', '==', orderId)
+    .limit(1)
+    .get()
+  return anySnap.empty ? null : anySnap.docs[0].id
 }
 
 export async function storePass(orderId: string, passBuffer: Buffer): Promise<string> {
