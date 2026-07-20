@@ -16,12 +16,16 @@ import { View, Text, TouchableOpacity, Keyboard, InputAccessoryView, Platform, A
 import type { TextInput } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { useFonts } from 'expo-font';
+import Constants from 'expo-constants';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useNotifications, setNotificationTapHandler } from './src/hooks/useNotifications';
 import { KB_ACCESSORY_ID, KBContext } from './src/constants/keyboard';
 import { queryKeys } from './src/hooks/useCatalogQueries';
 import { getApprovedVenues, getApprovedEvents } from './firestoreService';
+import { initRemoteConfig, getMinSupportedVersion } from './src/lib/remoteConfig';
+import { isVersionBelow } from './src/utils/version';
+import { ForceUpdateScreen } from './src/screens/ForceUpdateScreen';
 
 // React Query client — defaults tuned for mobile catalog reads.
 // staleTime 1h: most catalog data doesn't churn between sessions.
@@ -40,6 +44,11 @@ const queryClient = new QueryClient({
 });
 
 const FOREGROUND_INVALIDATE_AFTER_MS = 5 * 60 * 1000; // 5 min idle threshold
+
+// Cap how long the forced-update check can hold up boot — a slow/offline
+// network falls back to the (permissive) cached or default min version
+// rather than stalling app launch indefinitely.
+const REMOTE_CONFIG_BOOT_TIMEOUT_MS = 3000;
 
 const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TFpeBDdJ1ZAq3aIiX3I2pInGOK0BlYZI38eqkhQz5OAK6g9Dw1cjcu2iHEc6eQRrYxqKBHWsCkGOi7G9WaTCyaZ00gfpRKfzK';
 
@@ -62,6 +71,28 @@ export default function App() {
   const fieldRefsRef = useRef<React.RefObject<TextInput>[]>([]);
 
   setNotificationTapHandler((data) => { navigateRef.current?.(data); });
+
+  // ── Forced-update gate (min-version kill-switch) ───────────────────
+  // Resolves Remote Config (or times out to cached/default values) before
+  // the rest of the app mounts, then compares against the installed
+  // version. This is the safety mechanism that lets old Firestore fields
+  // be retired without stranding stragglers on ancient builds.
+  const [remoteConfigReady, setRemoteConfigReady] = useState(false);
+  const [updateRequired,    setUpdateRequired]    = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await Promise.race([
+        initRemoteConfig(),
+        new Promise<void>((resolve) => setTimeout(resolve, REMOTE_CONFIG_BOOT_TIMEOUT_MS)),
+      ]).catch(() => {});
+      if (cancelled) return;
+      const installedVersion = (Constants.expoConfig as any)?.version ?? '0.0.0';
+      setUpdateRequired(isVersionBelow(installedVersion, getMinSupportedVersion()));
+      setRemoteConfigReady(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Catalog warm-start (Deliverable E.4) ───────────────────────────
   // Kick off a non-blocking prefetch on mount. Falls into React Query
@@ -117,10 +148,15 @@ export default function App() {
     else if (refs.length > 0) refs[refs.length - 1].current?.focus();
   }, []);
 
-  // Hold the (dark) background until the brand font is ready so text doesn't
-  // flash in the system fallback first.
-  if (!fontsLoaded) {
+  // Hold the (dark) background until the brand font and the forced-update
+  // check are both ready so text doesn't flash in the system fallback and
+  // gated builds never get a frame of the real app before the blocker.
+  if (!fontsLoaded || !remoteConfigReady) {
     return <View style={{ flex: 1, backgroundColor: '#0e0c08' }} />;
+  }
+
+  if (updateRequired) {
+    return <ForceUpdateScreen />;
   }
 
   return (
