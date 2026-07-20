@@ -340,7 +340,14 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   logger.info(`Order ${orderId} created with ${passIds.length} passes`);
 
   // ── Generate Apple Wallet pass ──────────────────────────────────────
+  // One .pkpass is issued per ORDER, not per pass — its QR must encode the
+  // purchaser's own passId (passIds[0], see the issuance loop above) so
+  // Door's `passes/{scannedValue}` lookup resolves. Only the purchaser's
+  // pass doc gets the resulting appleWalletPassUrl; guest passes stay
+  // in-app-QR-only so a guest can never install a wallet pass that scans
+  // in as the purchaser.
   let passUrl: string | null = null;
+  const purchaserPassId = passIds[0];
   try {
     const { buildPassBuffer, storePass } = await import('../passes/generatePass');
     const crypto = await import('crypto');
@@ -348,6 +355,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     const firstItem = items[0];
     const passBuffer = await buildPassBuffer({
       orderId,
+      passId:              purchaserPassId,
       eventTitle:          eventData?.title      || '',
       venueName:           venueData.name         || '',
       eventDate:           eventData?.date         || '',
@@ -362,24 +370,21 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     });
     passUrl = await storePass(orderId, passBuffer);
     await db.collection('walletPasses').doc(orderId).set({
-      orderId, authenticationToken: authToken,
+      orderId, passId: purchaserPassId, authenticationToken: authToken,
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
     });
-    await orderRef.update({ passUrl, authenticationToken: authToken });
+    await orderRef.update({ passUrl, passId: purchaserPassId, authenticationToken: authToken });
 
-    // ── Write passUrl back to every passes doc for this order ─────────
+    // ── Write passUrl back to the purchaser's passes doc only ─────────
     // MyPassesScreen reads from passes/{passId}.appleWalletPassUrl
-    const passesSnap = await db.collection('passes').where('orderId', '==', orderId).get();
-    const passUpdateBatch = db.batch();
-    passesSnap.docs.forEach(doc => {
-      passUpdateBatch.update(doc.ref, {
+    if (purchaserPassId) {
+      await db.collection('passes').doc(purchaserPassId).update({
         appleWalletPassUrl: passUrl,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-    });
-    await passUpdateBatch.commit();
+    }
 
-    logger.info('Pass generated for order:', orderId);
+    logger.info('Pass generated for order:', orderId, 'passId:', purchaserPassId);
   } catch (passErr) {
     logger.error('Pass generation failed:', passErr);
   }

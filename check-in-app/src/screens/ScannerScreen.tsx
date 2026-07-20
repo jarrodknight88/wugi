@@ -71,16 +71,30 @@ export default function ScannerScreen() {
     setScanning(false);
     try {
       // QR encodes plain passId (no prefix) — look up in passes collection
-      const passId = data.replace('WUGI:', '').trim();
+      const scannedValue = data.replace('WUGI:', '').trim();
 
-      // Look up pass by doc ID
-      let passSnap = await firestore().collection('passes').doc(passId).get();
+      // Look up pass by doc ID (the normal case — QR encodes its own passId)
+      let passSnap = await firestore().collection('passes').doc(scannedValue).get();
+
+      // Fallback: some wallet passes encode the order ID rather than a
+      // specific passId (one .pkpass is issued per order). Resolve to the
+      // purchaser's pass on that order so those QR codes still scan.
+      if (!passSnap.exists) {
+        const byOrder = await firestore().collection('passes')
+          .where('orderId', '==', scannedValue)
+          .limit(5)
+          .get();
+        if (!byOrder.empty) {
+          passSnap = byOrder.docs.find(d => d.data().role === 'purchaser') || byOrder.docs[0];
+        }
+      }
 
       if (!passSnap.exists) {
         Vibration.vibrate([0, 100, 100, 100]); showResult('invalid'); return;
       }
 
-      const pass = passSnap.data()!;
+      const pass   = passSnap.data()!;
+      const passId = passSnap.id;
 
       // Enforce event match for non-super-admin
       if (!session.isSuperAdmin && pass.eventId && pass.eventId !== session.eventId) {

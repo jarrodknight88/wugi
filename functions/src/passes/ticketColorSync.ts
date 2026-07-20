@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { buildPassBuffer } from './generatePass';
+import { buildPassBuffer, getPrimaryPassId } from './generatePass';
 
 const db      = admin.firestore();
 const storage = admin.storage();
@@ -55,8 +55,10 @@ async function regenerateAndPush(orderId: string, orderData: any): Promise<void>
     if (!passDoc.exists) return;
 
     // Build updated pass with new color
+    const passId = orderData.passId || await getPrimaryPassId(orderId);
     const passBuffer = await buildPassBuffer({
       orderId,
+      passId:      passId || undefined,
       eventTitle:  orderData.eventTitle  || '',
       venueName:   orderData.venueName   || '',
       eventDate:   orderData.eventDate   || '',
