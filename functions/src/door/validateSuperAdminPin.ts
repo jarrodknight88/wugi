@@ -7,14 +7,14 @@
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
 
-const SUPER_ADMIN_SECRETS = ['SUPER_ADMIN_PIN', 'SUPER_ADMIN_PIN_RICH'];
+export const SUPER_ADMIN_SECRETS = ['SUPER_ADMIN_PIN', 'SUPER_ADMIN_PIN_RICH'];
 
-const SUPER_ADMIN_NAMES: Record<string, string> = {
+export const SUPER_ADMIN_NAMES: Record<string, string> = {
   SUPER_ADMIN_PIN:      'Jarrod',
   SUPER_ADMIN_PIN_RICH: 'Rich',
 };
 
-function constantTimeEqual(a: string, b: string): boolean {
+export function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return a.split('').every((c, i) => c === b[i]);
 }

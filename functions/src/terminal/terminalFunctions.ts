@@ -6,6 +6,9 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { stripe, calculateBookingFee } from '../stripe/stripeUtils';
 import { sendDoorSaleReceiptSMS, sendBalancePaidSMS } from '../sms/smsService';
+import { verifyStaffPin, isManagerOrAbove } from '../door/staffAuth';
+import { logDoorSecurityEvent } from '../door/auditLog';
+import { SUPER_ADMIN_SECRETS } from '../door/validateSuperAdminPin';
 
 const db = admin.firestore();
 
@@ -367,14 +370,35 @@ export const captureTerminalPayment = functions
 // ── refundDoorSale ────────────────────────────────────────────────────
 // Instant refund for door sales where ID verification fails/denied.
 // Stripe card_present refunds appear within minutes on most banks.
+// Moves real money that already settled to the venue — gated to
+// Manager/Super Admin, re-verified server-side via the staff PIN.
 export const refundDoorSale = functions
+  .runWith({ secrets: SUPER_ADMIN_SECRETS })
   .https.onCall(async (data: {
     paymentIntentId: string;
     reason: string; // 'id_mismatch' | 'venue_denied' | 'other'
     staffNote?: string;
+    pin: string;
   }, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth required');
-    const { paymentIntentId, reason, staffNote } = data;
+    const { paymentIntentId, reason, staffNote, pin } = data;
+
+    // Wugi Door signs in anonymously — context.auth proves nothing about
+    // role. Re-verify the staff PIN here; only Manager/Super Admin may refund.
+    const staff = await verifyStaffPin(pin);
+    if (!staff || !isManagerOrAbove(staff)) {
+      await logDoorSecurityEvent({
+        action: 'refund',
+        result: 'denied',
+        denyReason: staff ? 'insufficient_role' : 'invalid_pin',
+        paymentIntentId,
+        staffUid: context.auth.uid,
+        staffRole: staff?.role,
+        staffIdentity: staff?.identity,
+        ip: context.rawRequest?.ip,
+      });
+      throw new functions.https.HttpsError('permission-denied', 'Manager or Super Admin PIN required to issue a refund');
+    }
 
     // First check our Firestore record for the chargeId (faster and works if PI was test mode)
     const refundPaymentSnap = await db.collection('terminalPayments')
@@ -413,6 +437,8 @@ export const refundDoorSale = functions
         staffUid: context.auth.uid,
         staffNote: staffNote || '',
         source: 'wugi_door_id_verification',
+        approvedByRole: staff.role,
+        approvedByIdentity: staff.identity,
       },
     });
 
@@ -425,9 +451,21 @@ export const refundDoorSale = functions
       reason,
       staffNote: staffNote || null,
       staffUid: context.auth.uid,
+      approvedByRole: staff.role,
+      approvedByIdentity: staff.identity,
       status: refund.status,
       source: 'id_verification_failure',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await logDoorSecurityEvent({
+      action: 'refund',
+      result: 'allowed',
+      paymentIntentId,
+      staffUid: context.auth.uid,
+      staffRole: staff.role,
+      staffIdentity: staff.identity,
+      ip: context.rawRequest?.ip,
     });
 
     // Also update the terminalPayment doc if it exists
@@ -448,15 +486,37 @@ export const refundDoorSale = functions
 
 // ── cancelDoorSale ────────────────────────────────────────────────────
 // Voids a manual authorization — guest never sees a charge at all.
-// Use when ID verification fails and venue does not override.
+// Use when ID verification fails and venue does not override, or when
+// staff back out of a walk-up sale before it's captured.
+// No money has moved yet (Stripe status is enforced below, not trusted
+// from the client), so any verified staff PIN — not just Manager+ — may
+// void. Refunding money that already settled is refundDoorSale's job
+// and requires Manager/Super Admin.
 export const cancelDoorSale = functions
+  .runWith({ secrets: SUPER_ADMIN_SECRETS })
   .https.onCall(async (data: {
     paymentIntentId: string;
     reason: string;
     staffNote?: string;
+    pin: string;
   }, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth required');
-    const { paymentIntentId, reason, staffNote } = data;
+    const { paymentIntentId, reason, staffNote, pin } = data;
+
+    // Wugi Door signs in anonymously — context.auth proves nothing about
+    // identity. Re-verify the staff PIN; any real staff PIN may void.
+    const staff = await verifyStaffPin(pin);
+    if (!staff) {
+      await logDoorSecurityEvent({
+        action: 'void',
+        result: 'denied',
+        denyReason: 'invalid_pin',
+        paymentIntentId,
+        staffUid: context.auth.uid,
+        ip: context.rawRequest?.ip,
+      });
+      throw new functions.https.HttpsError('permission-denied', 'Valid staff PIN required to void a transaction');
+    }
 
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
 
@@ -479,8 +539,20 @@ export const cancelDoorSale = functions
       reason,
       staffNote: staffNote || null,
       staffUid: context.auth.uid,
+      approvedByRole: staff.role,
+      approvedByIdentity: staff.identity,
       source: 'id_verification_failure',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await logDoorSecurityEvent({
+      action: 'void',
+      result: 'allowed',
+      paymentIntentId,
+      staffUid: context.auth.uid,
+      staffRole: staff.role,
+      staffIdentity: staff.identity,
+      ip: context.rawRequest?.ip,
     });
 
     // Update pending auth record
