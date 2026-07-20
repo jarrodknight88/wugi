@@ -4,7 +4,7 @@
 import auth from '@react-native-firebase/auth'
 import firestore from '@react-native-firebase/firestore'
 import storage from '@react-native-firebase/storage'
-import type { LensEvent, PhotoItem } from '../types'
+import type { LensEvent, PendingPhoto, PhotoItem } from '../types'
 
 const db = firestore()
 
@@ -108,6 +108,101 @@ export async function uploadPhoto(
   })
 
   return { url, thumbUrl: url }
+}
+
+// ── Lens Phase 1 — pending pool ───────────────────────────────────────
+// Hardware-ingested photos land in eventGalleries/{galleryId}/photos with
+// status 'pending' (written by the ingestLensUpload Cloud Function). The
+// photographerId filter is required: the Firestore read rule only proves
+// list queries that either filter approved==true or photographerId==uid.
+
+export function subscribePendingPhotos(
+  galleryId: string,
+  onChange:  (photos: PendingPhoto[]) => void,
+  onError?:  (e: Error) => void,
+): () => void {
+  const uid = auth().currentUser?.uid
+  if (!uid) { onError?.(new Error('Not authenticated')); return () => {} }
+
+  return db.collection('eventGalleries').doc(galleryId)
+    .collection('photos')
+    .where('status', '==', 'pending')
+    .where('photographerId', '==', uid)
+    .onSnapshot(snap => {
+      const photos: PendingPhoto[] = snap.docs
+        .map(d => ({
+          id:         d.id,
+          url:        d.data().url      || '',
+          thumbUrl:   d.data().thumbUrl || d.data().url || '',
+          deviceId:   d.data().deviceId || undefined,
+          capturedAt: d.data().capturedAt?.toDate?.() || null,
+        }))
+        // Oldest first — review in capture order.
+        .sort((a, b) => (a.capturedAt?.getTime() || 0) - (b.capturedAt?.getTime() || 0))
+      onChange(photos)
+    }, e => onError?.(e as Error))
+}
+
+// Live pending/published counters from the gallery doc (badge on LiveFeed).
+export function subscribeGalleryCounts(
+  galleryId: string,
+  onChange:  (counts: { pendingCount: number; publishedCount: number }) => void,
+): () => void {
+  return db.collection('eventGalleries').doc(galleryId)
+    .onSnapshot(snap => {
+      const data = snap.data() || {}
+      onChange({
+        pendingCount:   data.pendingCount   || 0,
+        publishedCount: data.publishedCount || 0,
+      })
+    }, () => {})
+}
+
+// Approve or reject a set of pending photos. Batched (Firestore caps batched
+// writes at 500 ops — we chunk at 400 photo updates + 1 gallery counter
+// update per batch). Approve publishes into the existing consumer surfaces:
+// approved:true is what useEventGallery (mobile) and /gallery/[id] (web)
+// filter on; photoCount keeps the existing published-count convention.
+export async function moderatePhotos(
+  galleryId: string,
+  photoIds:  string[],
+  action:    'approve' | 'reject',
+): Promise<void> {
+  const galleryRef = db.collection('eventGalleries').doc(galleryId)
+  const CHUNK = 400
+
+  for (let i = 0; i < photoIds.length; i += CHUNK) {
+    const chunk = photoIds.slice(i, i + CHUNK)
+    const batch = db.batch()
+
+    for (const id of chunk) {
+      const ref = galleryRef.collection('photos').doc(id)
+      if (action === 'approve') {
+        batch.update(ref, {
+          status:      'published',
+          approved:    true,
+          publishedAt: firestore.FieldValue.serverTimestamp(),
+        })
+      } else {
+        batch.update(ref, {
+          status:     'rejected',
+          approved:   false,
+          rejectedAt: firestore.FieldValue.serverTimestamp(),
+        })
+      }
+    }
+
+    batch.set(galleryRef, {
+      pendingCount: firestore.FieldValue.increment(-chunk.length),
+      ...(action === 'approve' ? {
+        publishedCount: firestore.FieldValue.increment(chunk.length),
+        photoCount:     firestore.FieldValue.increment(chunk.length),
+      } : {}),
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    }, { merge: true })
+
+    await batch.commit()
+  }
 }
 
 // ── Get session photos from Firestore ────────────────────────────────

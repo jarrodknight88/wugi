@@ -31,3 +31,4 @@ export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerm
 export { onTicketColorChange } from './passes/ticketColorSync';
 export { asanaWebhook }       from './bridge/asanaWebhook';
 export { githubWebhook }      from './bridge/githubWebhook';
+export { ingestLensUpload }   from './lens/ingestLensUpload';
