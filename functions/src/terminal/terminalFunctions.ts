@@ -182,13 +182,29 @@ export const captureTerminalPayment = functions
     const batch = db.batch();
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // Existing ticket — decrement balanceDue by the amount actually captured.
+    // Guest passes are only treated as settled once balanceDue hits exactly 0
+    // (see ScannerScreen/ManualLookupScreen balance gating), so a partial
+    // payment must never zero out a larger remaining balance. Read+write is
+    // done in a transaction so two staff members collecting on the same
+    // ticket concurrently can't clobber each other's decrement.
+    let previousBalanceDue = 0;
+    let newTicketBalanceDue = 0;
     if (ticketId) {
-      // Existing ticket — clear balance due only (check-in happens on demand from the app)
       const ticketRef = db.collection('events').doc(eventId).collection('tickets').doc(ticketId);
-      batch.update(ticketRef, {
-        balanceDue: 0,
-        depositPaid: amountCents,
-        updatedAt: now,
+      newTicketBalanceDue = await db.runTransaction(async (tx) => {
+        const ticketSnap = await tx.get(ticketRef);
+        if (!ticketSnap.exists) {
+          throw new functions.https.HttpsError('not-found', `Ticket ${ticketId} not found`);
+        }
+        previousBalanceDue = ticketSnap.data()?.balanceDue ?? 0;
+        const updatedBalanceDue = Math.max(0, previousBalanceDue - amountCents);
+        tx.update(ticketRef, {
+          balanceDue: updatedBalanceDue,
+          depositPaid: admin.firestore.FieldValue.increment(amountCents),
+          updatedAt: now,
+        });
+        return updatedBalanceDue;
       });
 
       // Note: check-in is handled by the app after staff confirms guest is present
@@ -289,6 +305,17 @@ export const captureTerminalPayment = functions
     });
 
     await batch.commit();
+
+    await logDoorSecurityEvent({
+      action: 'capture',
+      result: 'allowed',
+      paymentIntentId,
+      staffUid: context.auth.uid,
+      amountCents,
+      ticketId: ticketId || undefined,
+      previousBalanceDue: ticketId ? previousBalanceDue : undefined,
+      newBalanceDue: ticketId ? newTicketBalanceDue : undefined,
+    });
 
     // Send receipt via email or SMS (non-blocking)
     const recipientEmail = newTicketData?.holderEmail;
