@@ -16,12 +16,16 @@ import { View, Text, TouchableOpacity, Keyboard, InputAccessoryView, Platform, A
 import type { TextInput } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { useFonts } from 'expo-font';
+import Constants from 'expo-constants';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useNotifications, setNotificationTapHandler } from './src/hooks/useNotifications';
 import { KB_ACCESSORY_ID, KBContext } from './src/constants/keyboard';
 import { queryKeys } from './src/hooks/useCatalogQueries';
 import { getApprovedVenues, getApprovedEvents } from './firestoreService';
+import { initRemoteConfig, getMinSupportedVersion } from './src/lib/remoteConfig';
+import { isVersionBelow } from './src/utils/version';
+import { ForceUpdateScreen } from './src/screens/ForceUpdateScreen';
 
 // React Query client — defaults tuned for mobile catalog reads.
 // staleTime 1h: most catalog data doesn't churn between sessions.
@@ -62,6 +66,23 @@ export default function App() {
   const fieldRefsRef = useRef<React.RefObject<TextInput>[]>([]);
 
   setNotificationTapHandler((data) => { navigateRef.current?.(data); });
+
+  // ── Min-version forced-update gate ──────────────────────────────────
+  // Races the config/appConfig Firestore fetch against a 3s timeout so a
+  // slow/offline network can never hang launch. min_supported_version
+  // defaults to "0.0.0" (no-op) until an admin publishes a real threshold,
+  // so this fails open rather than locking anyone out.
+  const [gateState, setGateState] = useState<'checking' | 'ok' | 'blocked'>('checking');
+  useEffect(() => {
+    let cancelled = false;
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 3000));
+    Promise.race([initRemoteConfig(), timeout]).then(() => {
+      if (cancelled) return;
+      const installedVersion = (Constants.expoConfig as any)?.version ?? '0.0.0';
+      setGateState(isVersionBelow(installedVersion, getMinSupportedVersion()) ? 'blocked' : 'ok');
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Catalog warm-start (Deliverable E.4) ───────────────────────────
   // Kick off a non-blocking prefetch on mount. Falls into React Query
@@ -117,10 +138,15 @@ export default function App() {
     else if (refs.length > 0) refs[refs.length - 1].current?.focus();
   }, []);
 
-  // Hold the (dark) background until the brand font is ready so text doesn't
-  // flash in the system fallback first.
-  if (!fontsLoaded) {
+  // Hold the (dark) background until the brand font is ready and the
+  // version gate has resolved, so text doesn't flash in the system
+  // fallback and the app tree never mounts ahead of a blocked launch.
+  if (!fontsLoaded || gateState === 'checking') {
     return <View style={{ flex: 1, backgroundColor: '#0e0c08' }} />;
+  }
+
+  if (gateState === 'blocked') {
+    return <ForceUpdateScreen />;
   }
 
   return (
