@@ -89,6 +89,65 @@ async function claimFirstReplySms(taskGid: string): Promise<boolean> {
   });
 }
 
+/**
+ * Claim the final-report relay for one issue. Returns true if this call
+ * won the claim (i.e. the report should be posted to Asana) — false if
+ * this issue's final report was already relayed. Scoped by issue number
+ * (not a bare flag) so re-dispatch to a fresh issue can relay again.
+ */
+async function claimFinalReport(taskGid: string, issueNumber: number): Promise<boolean> {
+  const ref = admin.firestore().doc(DISPATCHES_DOC);
+  return admin.firestore().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const record = ((snap.data() ?? {})[taskGid] ?? null) as DispatchRecord | null;
+    if (record?.finalReportRelayedIssue === issueNumber) return false;
+    tx.set(ref, { [taskGid]: { finalReportRelayedIssue: issueNumber } }, { merge: true });
+    return true;
+  });
+}
+
+// ── Claude final-report relay ───────────────────────────────────────
+
+/** Login of the Claude Code Action's GitHub App bot account. */
+const CLAUDE_BOT_LOGIN = 'claude[bot]';
+/** The header the Action's system prompt adds when a task is complete. */
+const TERMINAL_MARKER = /claude finished/i;
+/** Asana comment length is capped; truncate long final reports with a link back. */
+const FINAL_REPORT_MAX_CHARS = 60_000;
+
+/**
+ * The Claude Code Action delivers results by editing its own comment
+ * rather than posting a new one, so `issue_comment` `created` events
+ * never see the final report. Watch `edited` events from the bot and
+ * relay only once the edit lands on the terminal ("Claude finished")
+ * state, deduped per issue so a burst of trailing edits only relays once.
+ */
+async function handleIssueCommentEdited(payload: any): Promise<void> {
+  const issue = payload.issue;
+  const comment = payload.comment;
+  if (!issue || !comment) return;
+
+  if (comment.user?.login !== CLAUDE_BOT_LOGIN) return;
+
+  const body = (comment.body ?? '').trim();
+  if (!TERMINAL_MARKER.test(body)) return;
+
+  const gid = extractAsanaGid(issue.body ?? '');
+  if (!gid) return;
+
+  if (!(await claimFinalReport(gid, issue.number))) {
+    logger.info('Final report already relayed for this issue — skipping', { issue: issue.number });
+    return;
+  }
+
+  const excerpt = truncate(body, FINAL_REPORT_MAX_CHARS);
+  await postAsanaComment(
+    gid,
+    `Claude's final report on issue #${issue.number}:\n\n${excerpt}\n\n${comment.html_url}`,
+    asanaPat.value()
+  );
+}
+
 // ── Event handlers ───────────────────────────────────────────────────
 
 async function handleIssueComment(payload: any): Promise<void> {
@@ -194,6 +253,8 @@ export const githubWebhook = onRequest(
     try {
       if (event === 'issue_comment' && payload.action === 'created') {
         await handleIssueComment(payload);
+      } else if (event === 'issue_comment' && payload.action === 'edited') {
+        await handleIssueCommentEdited(payload);
       } else if (event === 'pull_request') {
         await handlePullRequest(payload);
       }
