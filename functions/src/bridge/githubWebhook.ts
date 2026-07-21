@@ -29,10 +29,12 @@ import {
   fetchAsanaTask,
   postAsanaComment,
   getGithubIssue,
+  getGithubComment,
   getDispatchRecord,
   sendSms,
   extractAsanaGid,
   truncate,
+  delay,
 } from './shared';
 
 const githubWebhookSecret = defineSecret('GITHUB_WEBHOOK_SECRET');
@@ -114,6 +116,14 @@ const CLAUDE_BOT_LOGIN = 'claude[bot]';
 const TERMINAL_MARKER = /claude finished/i;
 /** Asana comment length is capped; truncate long final reports with a link back. */
 const FINAL_REPORT_MAX_CHARS = 60_000;
+/**
+ * The Action often keeps editing this comment for a bit after the "Claude
+ * finished" header first lands (e.g. filling in a PR link, checking off the
+ * last todo) — see issue #54, where relaying on the first terminal edit
+ * captured a snapshot with the PR link still missing. Wait this long, then
+ * re-fetch the comment so we relay the settled body instead.
+ */
+const FINAL_REPORT_RELAY_DELAY_MS = 60_000;
 
 /**
  * The Claude Code Action delivers results by editing its own comment
@@ -135,15 +145,22 @@ async function handleIssueCommentEdited(payload: any): Promise<void> {
   const gid = extractAsanaGid(issue.body ?? '');
   if (!gid) return;
 
+  // Don't claim yet — wait for trailing edits to settle, then relay
+  // whatever the comment's *current* body is rather than this payload's.
+  await delay(FINAL_REPORT_RELAY_DELAY_MS);
+  const latest = await getGithubComment(comment.id, githubToken.value());
+  const finalBody = latest?.body?.trim() || body;
+  const finalUrl = latest?.html_url ?? comment.html_url;
+
   if (!(await claimFinalReport(gid, issue.number))) {
     logger.info('Final report already relayed for this issue — skipping', { issue: issue.number });
     return;
   }
 
-  const excerpt = truncate(body, FINAL_REPORT_MAX_CHARS);
+  const excerpt = truncate(finalBody, FINAL_REPORT_MAX_CHARS);
   await postAsanaComment(
     gid,
-    `Claude's final report on issue #${issue.number}:\n\n${excerpt}\n\n${comment.html_url}`,
+    `Claude's final report on issue #${issue.number}:\n\n${excerpt}\n\n${finalUrl}`,
     asanaPat.value()
   );
 }
@@ -229,7 +246,9 @@ async function handlePullRequest(payload: any): Promise<void> {
 export const githubWebhook = onRequest(
   {
     secrets: [githubWebhookSecret, githubToken, asanaPat, twilioSid, twilioAuthToken, twilioFrom],
-    timeoutSeconds: 60,
+    // The final-report relay waits ~60s before re-fetching and posting
+    // (see FINAL_REPORT_RELAY_DELAY_MS) — needs headroom beyond that delay.
+    timeoutSeconds: 120,
     memory: '256MiB',
   },
   async (req, res) => {

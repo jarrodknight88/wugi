@@ -29,10 +29,14 @@ import {
   DISPATCHES_DOC,
   DispatchRecord,
   fetchAsanaTask,
+  fetchAsanaStory,
+  fetchAsanaCurrentUserGid,
   postAsanaComment,
+  postGithubComment,
   resolveAsanaUserGid,
   createGithubIssue,
   getGithubIssue,
+  getDispatchRecord,
   deleteDispatchRecord,
   setDispatchRecord,
 } from './shared';
@@ -42,10 +46,13 @@ const githubToken = defineSecret('GITHUB_TOKEN');
 
 /** Dev agent GID, resolved once per instance and cached in memory. */
 let devAgentGidCache: string | null = null;
+/** GID of the Asana user the bridge's own PAT authenticates as. */
+let bridgeAsanaUserGidCache: string | null = null;
 
 interface AsanaEvent {
   action: string;
   resource?: { gid: string; resource_type: string };
+  parent?: { gid: string; resource_type: string };
   change?: { field: string; action: string };
 }
 
@@ -168,6 +175,51 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
   }
 }
 
+// ── Reverse lane: Asana task comment → GitHub issue comment ─────────
+
+/** Matches an @claude mention anywhere in an Asana comment's plain text. */
+const CLAUDE_MENTION = /@claude\b/i;
+
+/**
+ * A comment added directly on an already-dispatched Asana task (e.g. scope
+ * clarified after dispatch, per the v1.1 process gap) that mentions
+ * @claude gets relayed as a new GitHub issue comment, so the Claude Code
+ * Action's own `@claude`-in-comment trigger picks it up on the linked issue.
+ */
+async function handleTaskCommentAdded(
+  storyGid: string,
+  taskGid: string,
+  pat: string,
+  ghToken: string
+): Promise<void> {
+  const record = await getDispatchRecord(taskGid);
+  if (!record || record.status !== 'dispatched' || !record.issueNumber) return;
+
+  const story = await fetchAsanaStory(storyGid, pat);
+  if (story.resource_subtype !== 'comment_added') return;
+
+  if (!bridgeAsanaUserGidCache) {
+    bridgeAsanaUserGidCache = await fetchAsanaCurrentUserGid(pat);
+  }
+  // Comments the bridge itself posted (e.g. the GitHub-activity relay) must
+  // never be relayed back to GitHub, or a human @claude mention echoed from
+  // GitHub would bounce straight back and re-trigger the Action.
+  if (story.created_by?.gid === bridgeAsanaUserGidCache) return;
+
+  const text = (story.text ?? '').trim();
+  if (!CLAUDE_MENTION.test(text)) return;
+
+  await postGithubComment(
+    record.issueNumber,
+    `Comment from ${story.created_by?.name ?? 'someone'} on the Asana task:\n\n${text}`,
+    ghToken
+  );
+  logger.info('Relayed Asana task comment to GitHub issue', {
+    taskGid,
+    issueNumber: record.issueNumber,
+  });
+}
+
 // ── Main Cloud Function ──────────────────────────────────────────────
 
 export const asanaWebhook = onRequest(
@@ -207,16 +259,31 @@ export const asanaWebhook = onRequest(
       return;
     }
 
-    // Step 3: filter to task events where the assignee changed, then
-    // dispatch any task now assigned to the dev agent
+    // Step 3: dispatch task-assignee-change events, and relay task-comment
+    // events for the reverse lane (§ handleTaskCommentAdded)
     const events: AsanaEvent[] = (req.body?.events ?? []) as AsanaEvent[];
     for (const event of events) {
-      if (event.resource?.resource_type !== 'task') continue;
-      if (event.action !== 'changed' || event.change?.field !== 'assignee') continue;
       try {
-        await handleAssigneeChange(event.resource.gid, asanaPat.value(), githubToken.value());
+        if (
+          event.resource?.resource_type === 'task' &&
+          event.action === 'changed' &&
+          event.change?.field === 'assignee'
+        ) {
+          await handleAssigneeChange(event.resource.gid, asanaPat.value(), githubToken.value());
+        } else if (
+          event.resource?.resource_type === 'story' &&
+          event.action === 'added' &&
+          event.parent?.resource_type === 'task'
+        ) {
+          await handleTaskCommentAdded(
+            event.resource.gid,
+            event.parent.gid,
+            asanaPat.value(),
+            githubToken.value()
+          );
+        }
       } catch (err) {
-        logger.error('Dispatch failed', { taskGid: event.resource.gid, err: String(err) });
+        logger.error('Bridge event handling failed', { event, err: String(err) });
       }
     }
 
