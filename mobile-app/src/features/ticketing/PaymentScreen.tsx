@@ -137,27 +137,48 @@ export function PaymentScreen({
               // (shouldSavePaymentMethod=false + hasSavedCard = using existing card)
               const usingSavedCard = hasSavedCardRef.current && !shouldSavePaymentMethod;
               if (usingSavedCard) {
-                const hasHardware = await LocalAuthentication.hasHardwareAsync();
-                const isEnrolled  = await LocalAuthentication.isEnrolledAsync();
-                if (hasHardware && isEnrolled) {
-                  const result = await LocalAuthentication.authenticateAsync({
-                    promptMessage:         'Confirm payment with Face ID',
-                    fallbackLabel:         'Use Passcode',
-                    cancelLabel:           'Cancel',
-                    disableDeviceFallback: false,
+                // getEnrolledLevelAsync distinguishes "no biometrics enrolled" from
+                // "no device auth at all" — isEnrolledAsync alone can't, which is why
+                // the old check (hasHardware && isEnrolled) silently let saved-card
+                // charges through with zero auth challenge on devices with Face ID/
+                // Touch ID never set up (S1-08/S1-29 audit finding).
+                const enrolledLevel = await LocalAuthentication.getEnrolledLevelAsync();
+                if (enrolledLevel === LocalAuthentication.SecurityLevel.NONE) {
+                  // No biometrics AND no device passcode — nothing to challenge
+                  // against. Block the saved card rather than let the charge
+                  // through unauthenticated.
+                  await resetPaymentSheetCustomer();
+                  intentCreationCallback({
+                    error: {
+                      code: 'Failed',
+                      message: 'Set a device passcode to use a saved card. Please enter a new card to continue.',
+                    },
                   });
-                  if (!result.success) {
-                    // Face ID failed — cancel this attempt, sheet stays open
-                    // User can enter a new card instead
-                    await resetPaymentSheetCustomer();
-                    intentCreationCallback({
-                      error: {
-                        code: 'Failed',
-                        localizedDescription: 'Face ID required for saved card. Please use a different payment method.',
-                      },
-                    });
-                    return;
-                  }
+                  return;
+                }
+
+                // BIOMETRIC (Face ID/Touch ID enrolled) or SECRET (passcode only,
+                // no biometrics enrolled) — authenticateAsync with
+                // disableDeviceFallback:false prompts Face ID/Touch ID when
+                // enrolled, and falls back to the device passcode prompt
+                // automatically when it isn't.
+                const result = await LocalAuthentication.authenticateAsync({
+                  promptMessage:         'Confirm payment',
+                  fallbackLabel:         'Use Passcode',
+                  cancelLabel:           'Cancel',
+                  disableDeviceFallback: false,
+                });
+                if (!result.success) {
+                  // Auth failed — cancel this attempt, sheet stays open
+                  // User can enter a new card instead
+                  await resetPaymentSheetCustomer();
+                  intentCreationCallback({
+                    error: {
+                      code: 'Failed',
+                      message: 'Authentication required for saved card. Please use a different payment method.',
+                    },
+                  });
+                  return;
                 }
               }
 
