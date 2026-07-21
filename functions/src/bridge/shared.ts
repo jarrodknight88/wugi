@@ -20,6 +20,12 @@ export const JARROD_PHONE = '+14704229247';
 export const SECRETS_DOC = 'system/asanaWebhookSecrets';
 /** Firestore doc holding dispatch records, one field per Asana task GID. */
 export const DISPATCHES_DOC = 'system/bridgeDispatches';
+/** Firestore doc holding PR ⇄ Asana-task links, one field per PR number (string key). */
+export const PR_LINKS_DOC = 'system/bridgePrLinks';
+/** Firestore doc holding the SMS inbound rate-limit window (single field: timestamps). */
+export const SMS_RATE_LIMIT_DOC = 'system/bridgeSmsRateLimit';
+/** Firestore doc holding a pending "MERGE ALL" confirmation, if any. */
+export const MERGE_ALL_PENDING_DOC = 'system/bridgeMergeAllPending';
 
 const ASANA_API = 'https://app.asana.com/api/1.0';
 const GITHUB_API = 'https://api.github.com';
@@ -55,6 +61,22 @@ export interface AsanaStory {
   text: string;
   resource_subtype: string;
   created_by?: { gid: string; name?: string } | null;
+  created_at?: string;
+}
+
+/** A PR ⇄ Asana-task link, keyed by PR number. Populated when a "PM CODE
+ * REVIEW" verdict lands on the task; consulted (and re-verified against
+ * live Asana data) when a MERGE/HOLD SMS command references the PR. */
+export interface PrLinkRecord {
+  taskGid: string;
+  issueNumber?: number;
+  /** Cached verdict from the most recent PM CODE REVIEW comment — a
+   * convenience for STATUS/MERGE-ALL prompts. MERGE always re-verifies
+   * against Asana directly rather than trusting this field alone. */
+  verdict?: 'APPROVE' | 'REWORK' | 'HOLD' | null;
+  /** Set by the HOLD SMS command; blocks MERGE until a fresh PM CODE
+   * REVIEW verdict is posted (which clears it). */
+  held?: boolean;
 }
 
 // ── Asana API (fetch, no SDK) ────────────────────────────────────────
@@ -122,6 +144,15 @@ export async function fetchAsanaStory(storyGid: string, token: string): Promise<
     `/stories/${storyGid}?opt_fields=text,resource_subtype,created_by.name`,
     token
   )) as AsanaStory;
+}
+
+/** All comment stories on a task, oldest first (Asana's default order). */
+export async function fetchAsanaTaskStories(taskGid: string, token: string): Promise<AsanaStory[]> {
+  const stories = (await asanaRequest(
+    `/tasks/${taskGid}/stories?opt_fields=text,resource_subtype,created_by.name,created_at`,
+    token
+  )) as AsanaStory[];
+  return stories ?? [];
 }
 
 // ── GitHub API (fetch, no SDK) ───────────────────────────────────────
@@ -234,30 +265,153 @@ export async function postGithubComment(
   });
 }
 
+export interface GithubPullRequest {
+  number: number;
+  state: string;
+  merged: boolean;
+  mergeable: boolean | null;
+  title: string;
+  body: string | null;
+  html_url: string;
+}
+
+export async function getGithubPullRequest(
+  prNumber: number,
+  token: string
+): Promise<GithubPullRequest | null> {
+  try {
+    const pr = await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/pulls/${prNumber}`, token);
+    return {
+      number: pr.number,
+      state: pr.state,
+      merged: pr.merged === true,
+      mergeable: pr.mergeable ?? null,
+      title: pr.title,
+      body: pr.body,
+      html_url: pr.html_url,
+    };
+  } catch (err) {
+    logger.warn('getGithubPullRequest failed', { prNumber, err: String(err) });
+    return null;
+  }
+}
+
+export async function squashMergeGithubPullRequest(
+  prNumber: number,
+  commitTitle: string,
+  token: string
+): Promise<{ merged: boolean; message: string }> {
+  try {
+    const result = await githubRequest(
+      `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/pulls/${prNumber}/merge`,
+      token,
+      { method: 'PUT', body: { merge_method: 'squash', commit_title: commitTitle } }
+    );
+    return { merged: result.merged === true, message: result.message ?? 'merged' };
+  } catch (err) {
+    const message =
+      err instanceof GithubApiError ? err.message : `GitHub merge request failed: ${String(err)}`;
+    logger.error('squashMergeGithubPullRequest failed', { prNumber, err: message });
+    return { merged: false, message };
+  }
+}
+
+/**
+ * Resolve the Asana task GID a PR was dispatched from: the `Asana-GID:`
+ * marker in the PR body, else the marker on an issue the PR references
+ * (e.g. "Fixes #12"). Shared by the GitHub-webhook PR relay and the
+ * Twilio MERGE/HOLD command path so both resolve a PR the same way.
+ */
+export async function resolveTaskGidForPr(
+  pr: { body?: string | null; title?: string | null },
+  ghToken: string
+): Promise<string | null> {
+  const direct = extractAsanaGid(pr.body ?? '');
+  if (direct) return direct;
+  const ref = `${pr.title ?? ''}\n${pr.body ?? ''}`.match(/#(\d+)/);
+  if (!ref) return null;
+  const issue = await getGithubIssue(Number(ref[1]), ghToken);
+  return issue ? extractAsanaGid(issue.body ?? '') : null;
+}
+
 // ── Twilio SMS (REST via fetch, no SDK) ──────────────────────────────
 
+/** E.164: leading +, then 8-15 digits, first digit 1-9. */
+const E164_REGEX = /^\+[1-9]\d{7,14}$/;
+
+export interface SendSmsResult {
+  ok: boolean;
+  sid?: string;
+  status?: string;
+  errorCode?: number;
+  errorMessage?: string;
+}
+
+/**
+ * Send an SMS via the Twilio REST API and log the outcome explicitly —
+ * every call site funnels through here so a single fix covers the whole
+ * bridge. Twilio's POST only confirms the message was *accepted for
+ * queueing* (HTTP 201); it does not confirm delivery. We log the sid +
+ * initial status either way so a queued-but-never-delivered message
+ * (e.g. rejected async for an unapproved A2P 10DLC campaign — see
+ * AGENTS.md "Twilio A2P 10DLC pending Brand/Campaign approval") is at
+ * least visible in Cloud Logging instead of vanishing silently.
+ */
 export async function sendSms(
   to: string,
   body: string,
   accountSid: string,
   authToken: string,
   fromNumber: string
-): Promise<void> {
+): Promise<SendSmsResult> {
+  if (!E164_REGEX.test(to) || !E164_REGEX.test(fromNumber)) {
+    logger.error('Twilio SMS aborted — malformed E.164 number', { to, fromNumber });
+    return { ok: false, errorMessage: `Malformed E.164 number: to=${to} from=${fromNumber}` };
+  }
+
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const params = new URLSearchParams({ To: to, From: fromNumber, Body: body });
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params.toString(),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    // Non-fatal — SMS failure should never break the bridge
-    logger.warn('Twilio SMS failed', { status: res.status, body: text });
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+  } catch (err) {
+    // Network-level failure — fetch() throws instead of resolving with !ok.
+    logger.error('Twilio SMS request threw (network error)', { to, err: String(err) });
+    return { ok: false, errorMessage: `Twilio request failed: ${String(err)}` };
   }
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {
+    // Body wasn't JSON — fall through, res.ok / status still drive the result.
+  }
+
+  if (!res.ok) {
+    logger.error('Twilio SMS rejected by API', {
+      to,
+      status: res.status,
+      twilioErrorCode: json?.code,
+      twilioErrorMessage: json?.message,
+      moreInfo: json?.more_info,
+    });
+    return {
+      ok: false,
+      errorCode: json?.code,
+      errorMessage: json?.message ?? `Twilio API returned ${res.status}`,
+    };
+  }
+
+  logger.info('Twilio SMS queued', { to, sid: json?.sid, status: json?.status });
+  return { ok: true, sid: json?.sid, status: json?.status };
 }
 
 // ── Dispatch records (Firestore) ─────────────────────────────────────
@@ -279,6 +433,71 @@ export async function deleteDispatchRecord(taskGid: string): Promise<void> {
   await admin.firestore().doc(DISPATCHES_DOC).update({
     [taskGid]: admin.firestore.FieldValue.delete(),
   });
+}
+
+// ── PR ⇄ Asana-task links (Firestore) ────────────────────────────────
+
+export async function getPrLinkRecord(prNumber: number): Promise<PrLinkRecord | null> {
+  const snap = await admin.firestore().doc(PR_LINKS_DOC).get();
+  const record = (snap.data() ?? {})[String(prNumber)];
+  return (record as PrLinkRecord) ?? null;
+}
+
+export async function setPrLinkRecord(
+  prNumber: number,
+  record: Partial<PrLinkRecord> & Record<string, unknown>
+): Promise<void> {
+  await admin.firestore().doc(PR_LINKS_DOC).set({ [String(prNumber)]: record }, { merge: true });
+}
+
+export async function listPrLinkRecords(): Promise<Array<[number, PrLinkRecord]>> {
+  const snap = await admin.firestore().doc(PR_LINKS_DOC).get();
+  const data = snap.data() ?? {};
+  return Object.entries(data).map(([k, v]) => [Number(k), v as PrLinkRecord]);
+}
+
+// ── SMS command rate limit (Firestore, sliding 1h window) ────────────
+
+const RATE_LIMIT_MAX_PER_HOUR = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+/** Atomically records this attempt and returns true if it's within the
+ * 10-commands/hour budget (false = caller must refuse and stop). */
+export async function claimSmsRateLimitSlot(nowMs: number): Promise<boolean> {
+  const ref = admin.firestore().doc(SMS_RATE_LIMIT_DOC);
+  return admin.firestore().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const existing = ((snap.data() ?? {}).timestamps ?? []) as number[];
+    const recent = existing.filter((t) => nowMs - t < RATE_LIMIT_WINDOW_MS);
+    if (recent.length >= RATE_LIMIT_MAX_PER_HOUR) {
+      tx.set(ref, { timestamps: recent }, { merge: true });
+      return false;
+    }
+    recent.push(nowMs);
+    tx.set(ref, { timestamps: recent }, { merge: true });
+    return true;
+  });
+}
+
+// ── MERGE ALL confirmation (Firestore) ────────────────────────────────
+
+export interface MergeAllPending {
+  prNumbers: number[];
+  expiresAtMs: number;
+}
+
+export async function getMergeAllPending(): Promise<MergeAllPending | null> {
+  const snap = await admin.firestore().doc(MERGE_ALL_PENDING_DOC).get();
+  const data = snap.data();
+  return (data as MergeAllPending) ?? null;
+}
+
+export async function setMergeAllPending(pending: MergeAllPending | null): Promise<void> {
+  if (pending === null) {
+    await admin.firestore().doc(MERGE_ALL_PENDING_DOC).delete();
+    return;
+  }
+  await admin.firestore().doc(MERGE_ALL_PENDING_DOC).set(pending);
 }
 
 // ── Misc ─────────────────────────────────────────────────────────────

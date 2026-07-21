@@ -28,11 +28,12 @@ import {
   DispatchRecord,
   fetchAsanaTask,
   postAsanaComment,
-  getGithubIssue,
   getGithubComment,
   getDispatchRecord,
   sendSms,
   extractAsanaGid,
+  resolveTaskGidForPr,
+  setPrLinkRecord,
   truncate,
   delay,
 } from './shared';
@@ -67,13 +68,19 @@ async function resolveTaskName(gid: string, record: DispatchRecord | null): Prom
 }
 
 async function smsJarrod(taskName: string, summary: string, link: string): Promise<void> {
-  await sendSms(
+  const result = await sendSms(
     JARROD_PHONE,
     `Wugi Dev — ${taskName}: ${summary} ${link}`,
     twilioSid.value(),
     twilioAuthToken.value(),
     twilioFrom.value()
   );
+  // sendSms() already logs the full Twilio response — this ties that
+  // failure back to the milestone it was supposed to announce, so a scan
+  // of Cloud Logging for "smsJarrod" finds both halves of the story.
+  if (!result.ok) {
+    logger.error('smsJarrod: milestone SMS failed to send', { taskName, summary, err: result.errorMessage });
+  }
 }
 
 /**
@@ -208,15 +215,16 @@ async function handlePullRequest(payload: any): Promise<void> {
 
   // Find the originating task: marker in the PR body, else via the
   // issue the PR references (e.g. "Fixes #12")
-  let gid = extractAsanaGid(pr.body ?? '');
-  if (!gid) {
-    const ref = `${pr.title ?? ''}\n${pr.body ?? ''}`.match(/#(\d+)/);
-    if (ref) {
-      const issue = await getGithubIssue(Number(ref[1]), githubToken.value());
-      if (issue) gid = extractAsanaGid(issue.body ?? '');
-    }
-  }
+  const gid = await resolveTaskGidForPr(pr, githubToken.value());
   if (!gid) return;
+
+  // Cache the PR ⇄ task link as soon as the PR exists, so a v1.3 SMS
+  // HOLD/REWORK command works even before any PM CODE REVIEW verdict
+  // has been posted (which is what normally seeds this record).
+  if (action === 'opened') {
+    const dispatchRecord = await getDispatchRecord(gid);
+    await setPrLinkRecord(pr.number, { taskGid: gid, issueNumber: dispatchRecord?.issueNumber });
+  }
 
   const author = pr.user?.login ?? 'unknown';
   const summary =
