@@ -124,6 +124,8 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
     const issueBody = [
       "@claude Please work this Asana task. Follow the conventions in this repo's CLAUDE.md, open a pull request with your changes, and never merge without human approval.",
       '',
+      'After pushing your branch, open the pull request yourself with `gh pr create` (base `main`), and include the deploy commands + reviewer checklist in the PR body.',
+      '',
       '## Task notes',
       '',
       task.notes?.trim() || '(no notes)',
@@ -151,8 +153,17 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
       pat
     );
   } catch (err) {
-    // Release the claim so a retry can dispatch
+    // Final failure (retries exhausted or non-retryable) — release the
+    // claim so a subsequent assignee-change event can re-dispatch, and
+    // let Jarrod/PM know without requiring a GitHub visit.
     await deleteDispatchRecord(taskGid).catch(() => undefined);
+    await postAsanaComment(
+      taskGid,
+      `Dispatch failed: could not create the GitHub issue (${String(err)}). The claim has been released — re-toggling the assignee will retry the dispatch.`,
+      pat
+    ).catch((commentErr) =>
+      logger.error('Failed to post Dispatch failed comment', { taskGid, err: String(commentErr) })
+    );
     throw err;
   }
 }

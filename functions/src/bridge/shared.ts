@@ -46,6 +46,8 @@ export interface DispatchRecord {
   issueNumber?: number;
   issueUrl?: string;
   firstReplySmsSent?: boolean;
+  /** Issue number whose Claude final-report comment has already been relayed to Asana. */
+  finalReportRelayedIssue?: number;
 }
 
 // ── Asana API (fetch, no SDK) ────────────────────────────────────────
@@ -104,6 +106,16 @@ export async function resolveAsanaUserGid(email: string, token: string): Promise
 
 // ── GitHub API (fetch, no SDK) ───────────────────────────────────────
 
+export class GithubApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'GithubApiError';
+  }
+}
+
 async function githubRequest(
   path: string,
   token: string,
@@ -122,21 +134,41 @@ async function githubRequest(
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`GitHub ${init?.method ?? 'GET'} ${path} failed [${res.status}]: ${body}`);
+    throw new GithubApiError(
+      res.status,
+      `GitHub ${init?.method ?? 'GET'} ${path} failed [${res.status}]: ${body}`
+    );
   }
   return res.json();
 }
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Dispatch's GitHub issue creation gets 3 total attempts (1s, 2s backoff) on 5xx. */
+const CREATE_ISSUE_MAX_ATTEMPTS = 3;
 
 export async function createGithubIssue(
   title: string,
   body: string,
   token: string
 ): Promise<{ number: number; html_url: string }> {
-  const issue = await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues`, token, {
-    method: 'POST',
-    body: { title, body },
-  });
-  return { number: issue.number, html_url: issue.html_url };
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const issue = await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues`, token, {
+        method: 'POST',
+        body: { title, body },
+      });
+      return { number: issue.number, html_url: issue.html_url };
+    } catch (err) {
+      const is5xx = err instanceof GithubApiError && err.status >= 500;
+      if (!is5xx || attempt >= CREATE_ISSUE_MAX_ATTEMPTS) throw err;
+      const backoffMs = 2 ** (attempt - 1) * 1000; // 1s, then 2s
+      logger.warn('createGithubIssue got a 5xx — retrying', { attempt, backoffMs, err: String(err) });
+      await delay(backoffMs);
+    }
+  }
 }
 
 export async function getGithubIssue(
