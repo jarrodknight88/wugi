@@ -27,6 +27,7 @@ import {
   GITHUB_REPO,
   SECRETS_DOC,
   DISPATCHES_DOC,
+  JARROD_PHONE,
   DispatchRecord,
   fetchAsanaTask,
   fetchAsanaStory,
@@ -39,10 +40,16 @@ import {
   getDispatchRecord,
   deleteDispatchRecord,
   setDispatchRecord,
+  setPrLinkRecord,
+  sendSms,
 } from './shared';
+import { isPmCodeReviewComment, parsePmVerdict, composeVerdictSms } from './commandGrammar';
 
 const asanaPat = defineSecret('ASANA_PAT');
 const githubToken = defineSecret('GITHUB_TOKEN');
+const twilioSid = defineSecret('TWILIO_ACCOUNT_SID');
+const twilioAuthToken = defineSecret('TWILIO_AUTH_TOKEN');
+const twilioFrom = defineSecret('TWILIO_PHONE_NUMBER');
 
 /** Dev agent GID, resolved once per instance and cached in memory. */
 let devAgentGidCache: string | null = null;
@@ -180,17 +187,70 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
 /** Matches an @claude mention anywhere in an Asana comment's plain text. */
 const CLAUDE_MENTION = /@claude\b/i;
 
+async function relayClaudeMention(
+  taskGid: string,
+  issueNumber: number,
+  text: string,
+  authorName: string,
+  ghToken: string
+): Promise<void> {
+  await postGithubComment(
+    issueNumber,
+    `Comment from ${authorName} on the Asana task:\n\n${text}`,
+    ghToken
+  );
+  logger.info('Relayed Asana task comment to GitHub issue', { taskGid, issueNumber });
+}
+
+/**
+ * v1.3: a "PM CODE REVIEW" comment on a dispatched task carries a
+ * PR#/VERDICT/tsc verdict block. Compress it into an SMS to Jarrod and
+ * cache the PR ⇄ task link so a later MERGE/HOLD/REWORK SMS command can
+ * find this task by PR number alone.
+ */
+async function relayPmVerdict(
+  taskGid: string,
+  issueNumber: number,
+  text: string,
+  pat: string,
+  twilioSid: string,
+  twilioAuthToken: string,
+  twilioFrom: string
+): Promise<void> {
+  const verdict = parsePmVerdict(text);
+  if (verdict.prNumber !== null) {
+    await setPrLinkRecord(verdict.prNumber, {
+      taskGid,
+      issueNumber,
+      verdict: verdict.verdict,
+      held: false, // a fresh verdict always lifts a prior SMS hold
+    });
+  } else {
+    logger.warn('PM CODE REVIEW comment had no parseable PR#', { taskGid, issueNumber });
+  }
+
+  const result = await sendSms(JARROD_PHONE, composeVerdictSms(verdict), twilioSid, twilioAuthToken, twilioFrom);
+  if (!result.ok) {
+    logger.error('Failed to SMS PM verdict', { taskGid, issueNumber, err: result.errorMessage });
+  }
+}
+
 /**
  * A comment added directly on an already-dispatched Asana task (e.g. scope
  * clarified after dispatch, per the v1.1 process gap) that mentions
  * @claude gets relayed as a new GitHub issue comment, so the Claude Code
  * Action's own `@claude`-in-comment trigger picks it up on the linked issue.
+ * v1.3 adds a second branch: a "PM CODE REVIEW" comment triggers a verdict
+ * SMS instead of a GitHub relay (see relayPmVerdict above).
  */
 async function handleTaskCommentAdded(
   storyGid: string,
   taskGid: string,
   pat: string,
-  ghToken: string
+  ghToken: string,
+  twilioSid: string,
+  twilioAuthToken: string,
+  twilioFrom: string
 ): Promise<void> {
   const record = await getDispatchRecord(taskGid);
   if (!record || record.status !== 'dispatched' || !record.issueNumber) return;
@@ -207,24 +267,22 @@ async function handleTaskCommentAdded(
   if (story.created_by?.gid === bridgeAsanaUserGidCache) return;
 
   const text = (story.text ?? '').trim();
-  if (!CLAUDE_MENTION.test(text)) return;
+  const authorName = story.created_by?.name ?? 'someone';
 
-  await postGithubComment(
-    record.issueNumber,
-    `Comment from ${story.created_by?.name ?? 'someone'} on the Asana task:\n\n${text}`,
-    ghToken
-  );
-  logger.info('Relayed Asana task comment to GitHub issue', {
-    taskGid,
-    issueNumber: record.issueNumber,
-  });
+  if (isPmCodeReviewComment(text)) {
+    await relayPmVerdict(taskGid, record.issueNumber, text, pat, twilioSid, twilioAuthToken, twilioFrom);
+    return;
+  }
+
+  if (!CLAUDE_MENTION.test(text)) return;
+  await relayClaudeMention(taskGid, record.issueNumber, text, authorName, ghToken);
 }
 
 // ── Main Cloud Function ──────────────────────────────────────────────
 
 export const asanaWebhook = onRequest(
   {
-    secrets: [asanaPat, githubToken],
+    secrets: [asanaPat, githubToken, twilioSid, twilioAuthToken, twilioFrom],
     timeoutSeconds: 60,
     memory: '256MiB',
   },
@@ -279,7 +337,10 @@ export const asanaWebhook = onRequest(
             event.resource.gid,
             event.parent.gid,
             asanaPat.value(),
-            githubToken.value()
+            githubToken.value(),
+            twilioSid.value(),
+            twilioAuthToken.value(),
+            twilioFrom.value()
           );
         }
       } catch (err) {
