@@ -216,17 +216,22 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         paymentIntentId,
         reason: 'id_mismatch',
         staffNote: 'ID verification failed at door — authorization voided',
+        pin: session.pin,
       });
       setStep('error');
       setErrorMsg('Authorization voided. No charge was made — the hold will disappear from the customer\'s account within minutes.');
     } catch (e: any) {
-      // Fallback to refund if void fails (e.g., auto-settler already captured)
+      // Fallback to refund if void fails (e.g., auto-settler already captured).
+      // Refunding already-settled money requires Manager/Super Admin — if the
+      // signed-in staffer is door-level only, this will fail server-side and
+      // fall to the "contact support" alert below, same as any other refund error.
       try {
         const refundFn = httpsCallable(getFunctions(), 'refundDoorSale');
         await refundFn({
           paymentIntentId,
           reason: 'id_mismatch',
           staffNote: 'ID verification failed — void failed, issued refund instead',
+          pin: session.pin,
         });
         setStep('error');
         setErrorMsg('ID verification failed. Card has been refunded. The customer should see the credit within minutes.');
@@ -262,7 +267,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
             try {
               if (paymentIntentId) {
                 const cancelFn = httpsCallable(getFunctions(), 'cancelDoorSale');
-                await cancelFn({ paymentIntentId, reason: 'staff_cancelled', staffNote: 'Cancelled at review screen' });
+                await cancelFn({ paymentIntentId, reason: 'staff_cancelled', staffNote: 'Cancelled at review screen', pin: session.pin });
               }
             } catch (e) {}
             setStep('cancelled');

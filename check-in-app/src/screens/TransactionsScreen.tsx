@@ -99,6 +99,7 @@ export default function TransactionsScreen() {
   useEffect(() => { load(); }, [session]);
 
   async function handleRefund(tx: Transaction) {
+    if (!session) return;
     Alert.alert(
       'Refund Payment',
       `Refund $${(tx.amountCents / 100).toFixed(2)} to ${tx.holderName || 'guest'}?\n\nThis will appear on their card within minutes.`,
@@ -114,6 +115,7 @@ export default function TransactionsScreen() {
                 paymentIntentId: tx.paymentIntentId,
                 reason: 'venue_denied',
                 staffNote: 'Refunded by door staff via transactions screen',
+                pin: session.pin,
               });
               Alert.alert('Refunded', 'The customer will see the refund within minutes.');
               setSelected(null);
