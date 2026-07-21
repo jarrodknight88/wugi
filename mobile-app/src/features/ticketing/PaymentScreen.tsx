@@ -30,6 +30,21 @@ type Props = {
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
+// Maps createPaymentIntentHttp error codes to copy a user can act on —
+// raw server strings like "Ticket not on sale" read as a broken app, not
+// "you already RSVP'd" or "this sold out while you were checking out".
+const API_ERROR_MESSAGES: Record<string, string> = {
+  already_claimed:  'You already have a ticket to this event',
+  not_on_sale:      'This ticket is no longer available',
+  sold_out:         'This ticket is no longer available',
+  ticket_not_found: 'This ticket is no longer available',
+};
+
+function friendlyErrorMessage(err: { code?: string; message?: string } | undefined, fallback: string): string {
+  if (err?.code && API_ERROR_MESSAGES[err.code]) return API_ERROR_MESSAGES[err.code];
+  return err?.message ?? fallback;
+}
+
 function centsToDisplay(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -82,7 +97,7 @@ export function PaymentScreen({
           guestPhone:   phone.trim() || undefined,
         }}),
       });
-      if (!json.ok) { const err = await json.json().catch(() => ({})); throw new Error(err?.error?.message ?? 'Failed to initialize payment'); }
+      if (!json.ok) { const err = await json.json().catch(() => ({})); throw new Error(friendlyErrorMessage(err?.error, 'Failed to initialize payment')); }
       const data = await json.json();
       const { customerId, customerEphemeralKey, isFree, orderId: freeOrderId } = data.result ?? data;
 
@@ -165,7 +180,7 @@ export function PaymentScreen({
               if (!json.ok) {
                 const err = await json.json().catch(() => ({}));
                 intentCreationCallback({
-                  error: { code: 'Failed', localizedDescription: err?.error?.message ?? 'Payment failed' },
+                  error: { code: 'Failed', localizedDescription: friendlyErrorMessage(err?.error, 'Payment failed') },
                 });
                 return;
               }

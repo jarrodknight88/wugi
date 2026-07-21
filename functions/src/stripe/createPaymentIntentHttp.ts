@@ -24,10 +24,10 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
           paymentMethodId, savePaymentMethod } = body;
 
   if (!eventId || !ticketTypeId || !quantity) {
-    res.status(400).json({ error: { message: 'Missing required fields' } }); return;
+    res.status(400).json({ error: { code: 'missing_fields', message: 'Missing required fields' } }); return;
   }
   if (!userId && (!guestEmail || !guestName)) {
-    res.status(400).json({ error: { message: 'Guest checkout requires name and email' } }); return;
+    res.status(400).json({ error: { code: 'guest_info_required', message: 'Guest checkout requires name and email' } }); return;
   }
 
   try {
@@ -35,10 +35,10 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
       .collection('events').doc(eventId)
       .collection('ticketTypes').doc(ticketTypeId).get();
 
-    if (!ticketTypeDoc.exists) { res.status(404).json({ error: { message: 'Ticket type not found' } }); return; }
+    if (!ticketTypeDoc.exists) { res.status(404).json({ error: { code: 'ticket_not_found', message: 'Ticket type not found' } }); return; }
 
     const ticketType = ticketTypeDoc.data()!;
-    if (ticketType.status !== 'on_sale') { res.status(400).json({ error: { message: 'Ticket not on sale' } }); return; }
+    if (ticketType.status !== 'on_sale') { res.status(400).json({ error: { code: 'not_on_sale', message: 'Ticket not on sale' } }); return; }
 
     // Table tickets are ONE purchasable unit at a flat price that includes
     // tableCapacity passes. Decouple "units charged" (drives price + inventory)
@@ -50,7 +50,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     const purchaseUnits = isTable ? 1 : Number(quantity);   // flat price charged once for a table
     const passCount     = isTable ? tableCapacity : Number(quantity); // passes to issue
 
-    if (ticketType.remaining < purchaseUnits) { res.status(400).json({ error: { message: 'Not enough tickets' } }); return; }
+    if (ticketType.remaining < purchaseUnits) { res.status(400).json({ error: { code: 'sold_out', message: 'Not enough tickets' } }); return; }
 
     const [eventDoc, venueDoc] = await Promise.all([
       db.collection('events').doc(eventId).get(),
@@ -68,37 +68,67 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
       logger.info('Free ticket — skipping Stripe, creating pass directly', { eventId, ticketTypeId });
 
       const { generateTicketNumber } = await import('../stripe/stripeUtils');
-      const passRef = db.collection('passes').doc();
+
+      // Free/RSVP tickets are one-per-user. Query first for a fast, friendly
+      // rejection of repeat claims; the deterministic passRef id below is the
+      // real (atomic) guard against a race between two concurrent requests.
+      if (userId) {
+        const existing = await db.collection('passes')
+          .where('userId', '==', userId)
+          .where('eventId', '==', eventId)
+          .where('ticketTypeId', '==', ticketTypeId)
+          .limit(1)
+          .get();
+        if (!existing.empty) {
+          res.status(409).json({ error: { code: 'already_claimed', message: 'You already have this ticket' } });
+          return;
+        }
+      }
+
+      // Free/RSVP tickets are one-per-user. Deterministic ID + create() (which
+      // fails atomically if the doc exists) closes the race a plain "check
+      // then write" would leave open for double-tap or concurrent requests.
+      const passRef = userId
+        ? db.collection('passes').doc(`free_${eventId}_${ticketTypeId}_${userId}`)
+        : db.collection('passes').doc();
       const orderId = `free_${passRef.id}`;
 
-      await passRef.set({
-        id:              passRef.id,
-        orderId,
-        userId:          userId || null,
-        eventId,
-        venueId:         ticketType.venueId ?? '',
-        ticketTypeId,
-        ticketTypeName:  ticketType.name,
-        holderName:      userId ? '' : (guestName ?? ''),
-        holderEmail:     userId ? '' : (guestEmail ?? ''),
-        // Denormalize event + venue so PassViewerScreen can render without extra lookups
-        eventTitle:      event?.title || '',
-        venueName:       venue?.name || '',
-        eventDate:       event?.date || '',
-        eventTime:       event?.time || '',
-        ticketNumber:    generateTicketNumber(),
-        isTransferred:   false,
-        transferPending: false,
-        scanStatus:      'valid',
-        source:          'free',
-        isFree:          true,
-        scannedAt:       null,
-        scannedBy:       null,
-        appleWalletPassUrl: null,
-        appleWalletAdded:   false,
-        createdAt:       admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt:       admin.firestore.FieldValue.serverTimestamp(),
-      });
+      try {
+        await passRef.create({
+          id:              passRef.id,
+          orderId,
+          userId:          userId || null,
+          eventId,
+          venueId:         ticketType.venueId ?? '',
+          ticketTypeId,
+          ticketTypeName:  ticketType.name,
+          holderName:      userId ? '' : (guestName ?? ''),
+          holderEmail:     userId ? '' : (guestEmail ?? ''),
+          // Denormalize event + venue so PassViewerScreen can render without extra lookups
+          eventTitle:      event?.title || '',
+          venueName:       venue?.name || '',
+          eventDate:       event?.date || '',
+          eventTime:       event?.time || '',
+          ticketNumber:    generateTicketNumber(),
+          isTransferred:   false,
+          transferPending: false,
+          scanStatus:      'valid',
+          source:          'free',
+          isFree:          true,
+          scannedAt:       null,
+          scannedBy:       null,
+          appleWalletPassUrl: null,
+          appleWalletAdded:   false,
+          createdAt:       admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt:       admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (createErr: any) {
+        if (createErr?.code === 6) { // ALREADY_EXISTS — user already has this pass
+          res.status(409).json({ error: { code: 'already_claimed', message: 'You already have this ticket' } });
+          return;
+        }
+        throw createErr;
+      }
 
       // ── Generate Apple Wallet pass for free ticket ─────────────────
       let freePassUrl: string | null = null;
@@ -141,7 +171,7 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
         .collection('ticketTypes').doc(ticketTypeId).get();
       const currentRemaining = currentDoc.data()?.remaining ?? 0;
       if (currentRemaining <= 0) {
-        res.status(400).json({ error: { message: 'No tickets remaining' } });
+        res.status(400).json({ error: { code: 'sold_out', message: 'No tickets remaining' } });
         return;
       }
       await db.collection('events').doc(eventId)
@@ -251,6 +281,6 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     });
   } catch (e: any) {
     logger.error('createPaymentIntentHttp error', e);
-    res.status(500).json({ error: { message: e.message ?? 'Internal error' } });
+    res.status(500).json({ error: { code: 'internal_error', message: e.message ?? 'Internal error' } });
   }
 });
