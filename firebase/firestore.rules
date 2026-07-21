@@ -184,14 +184,43 @@ service cloud.firestore {
       );
       allow delete: if isStaff();
 
+      // Photo reads: published photos stay public, but Lens Phase 1 pending/
+      // rejected docs are only visible to the assigned photographer or staff.
+      // List queries must carry a provable filter: consumer surfaces already
+      // query where('approved','==',true) (useEventGallery, web gallery page);
+      // the Lens pending pool queries where('photographerId','==',uid).
       match /photos/{photoId} {
-        allow read:   if true;
+        allow read: if resource.data.approved == true
+          || (isAuth() && request.auth.uid == resource.data.photographerId)
+          || isStaff();
         allow create: if isAuth();
         allow update: if isAuth() && (
           request.auth.uid == resource.data.photographerId || isStaff()
         );
         allow delete: if isStaff();
       }
+    }
+
+    // ── Lens Devices ─────────────────────────────────────────────────
+    // devices/{deviceId} — hardware capture device registry (Lens Phase 1).
+    // Assignment (venueId/eventId/galleryId/photographerId), mode and active
+    // toggle are admin-only. The device itself (authenticated as its dedicated
+    // auth user, authUid) may only write its own heartbeat fields.
+    match /devices/{deviceId} {
+      allow read: if isAuth();
+      allow create, delete: if isStaff();
+      allow update: if isStaff()
+        || (isAuth() && request.auth.uid == resource.data.authUid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['heartbeatAt', 'batteryPct', 'updatedAt']));
+    }
+
+    // ── Lens Quarantine Log ──────────────────────────────────────────
+    // Written by the ingest Cloud Function when an upload fails device/
+    // gallery validation. Read-only for staff.
+    match /lensQuarantine/{entryId} {
+      allow read:  if isStaff();
+      allow write: if false;  // Cloud Functions only
     }
 
     // ── Audit Logs ───────────────────────────────────────────────────

@@ -3,14 +3,53 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Allow public reads for images
-    match /{allPaths=**} {
-      allow read: if true;
+    // Top-level prefixes owned by the Lens hardware-ingest pipeline. These are
+    // carved out of the legacy public-read catch-all below (rules `allow`
+    // statements are OR-ed across overlapping matches, so the catch-all must
+    // explicitly exclude them).
+    function isLensPrefix(segment) {
+      return segment == 'lens-ingest' || segment == 'lens-quarantine';
     }
 
-    // Only authenticated users can upload
-    match /{allPaths=**} {
-      allow write: if request.auth != null;
+    // ── Lens ingest ──────────────────────────────────────────────────
+    // lens-ingest/{deviceId}/{galleryId}/{filename}
+    // Hardware capture devices authenticate as dedicated Firebase Auth users
+    // carrying a `lensDeviceId` custom claim (set by scripts/lens-provision-
+    // device.js). A device may only write inside its own deviceId folder.
+    // No reads via rules: originals are preserved here for the paid tier and
+    // are only touched by the ingest Cloud Function (Admin SDK bypasses rules).
+    match /lens-ingest/{deviceId}/{galleryId}/{fileName} {
+      allow read: if false;
+      allow write: if request.auth != null
+        && request.auth.token.lensDeviceId == deviceId
+        && request.resource.size < 30 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Quarantined uploads (device/gallery mismatch) — Cloud Function only.
+    match /lens-quarantine/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Web/thumb renditions written by the ingest function (Admin SDK).
+    // Publicly readable like all other Wugi media; never client-written.
+    match /lens-renditions/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── Legacy catch-all ─────────────────────────────────────────────
+    // Preserves the pre-Lens behavior (public read, any-authed write) for
+    // every existing path, while excluding the private Lens prefixes.
+    // With rules_version 2, {allPaths=**} matches zero or more segments, so
+    // this covers root-level objects too.
+    match /{topLevel}/{allPaths=**} {
+      allow read: if !isLensPrefix(topLevel);
+      // lens-renditions stays publicly readable but is function-written only,
+      // so it must also be excluded from the legacy any-authed-write grant.
+      allow write: if request.auth != null
+        && !isLensPrefix(topLevel)
+        && topLevel != 'lens-renditions';
     }
 
   }

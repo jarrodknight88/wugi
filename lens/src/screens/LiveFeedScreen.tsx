@@ -8,9 +8,10 @@ import {
   SafeAreaView, Image, Alert, ActivityIndicator, Dimensions,
 } from 'react-native'
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker'
-import { getOrCreateGallery } from '../lib/firebase'
+import { getOrCreateGallery, subscribeGalleryCounts } from '../lib/firebase'
 import { useUploadQueue } from '../hooks/useUploadQueue'
 import { useRouterSync } from '../hooks/useRouterSync'
+import { PendingPoolScreen } from './PendingPoolScreen'
 import type { LensEvent, PhotoItem } from '../types'
 
 const { width: SW } = Dimensions.get('window')
@@ -59,6 +60,8 @@ export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
   const [galleryId,    setGalleryId]    = useState<string | null>(null)
   const [initializing, setInitializing] = useState(true)
   const [routerEnabled, setRouterEnabled] = useState(false)
+  const [showPending,  setShowPending]  = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
 
   const { photos, uploading, enqueue, retryFailed, publishedCount, queuedCount, errorCount } =
     useUploadQueue(galleryId)
@@ -82,6 +85,12 @@ export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
       setInitializing(false)
     })
   }, [event])
+
+  // Live pending-pool badge — counts hardware-ingested photos awaiting review.
+  useEffect(() => {
+    if (!galleryId) return
+    return subscribeGalleryCounts(galleryId, c => setPendingCount(c.pendingCount))
+  }, [galleryId])
 
   async function handlePickPhotos() {
     launchImageLibrary(
@@ -112,6 +121,10 @@ export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
         <Text style={{ color: '#555', fontSize: 14, marginTop: 12 }}>Starting gallery...</Text>
       </View>
     )
+  }
+
+  if (showPending && galleryId) {
+    return <PendingPoolScreen galleryId={galleryId} onClose={() => setShowPending(false)}/>
   }
 
   const routerStatusColor = routerStatus === 'connected' ? '#2a7a5a' : routerStatus === 'connecting' ? '#f59e0b' : '#555'
@@ -172,6 +185,24 @@ export function LiveFeedScreen({ event, onBack, onSettings, routerIp }: Props) {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Pending pool banner — hardware-ingested photos awaiting review */}
+      {pendingCount > 0 && (
+        <TouchableOpacity
+          onPress={() => setShowPending(true)}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#f59e0b15', borderBottomWidth: 1, borderBottomColor: '#f59e0b44' }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ backgroundColor: '#f59e0b', borderRadius: 10, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
+              <Text style={{ color: '#000', fontSize: 12, fontWeight: '900' }}>{pendingCount}</Text>
+            </View>
+            <Text style={{ color: '#f59e0b', fontSize: 13, fontWeight: '700' }}>
+              photo{pendingCount > 1 ? 's' : ''} waiting for review
+            </Text>
+          </View>
+          <Text style={{ color: '#f59e0b', fontSize: 13, fontWeight: '700' }}>Review →</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Photo grid */}
       {photos.length === 0 ? (
