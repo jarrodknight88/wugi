@@ -50,6 +50,13 @@ export interface DispatchRecord {
   finalReportRelayedIssue?: number;
 }
 
+export interface AsanaStory {
+  gid: string;
+  text: string;
+  resource_subtype: string;
+  created_by?: { gid: string; name?: string } | null;
+}
+
 // ── Asana API (fetch, no SDK) ────────────────────────────────────────
 
 async function asanaRequest(
@@ -104,6 +111,19 @@ export async function resolveAsanaUserGid(email: string, token: string): Promise
   return user.gid as string;
 }
 
+/** Resolve the Asana user GID that owns the given PAT. */
+export async function fetchAsanaCurrentUserGid(token: string): Promise<string> {
+  const user = await asanaRequest('/users/me?opt_fields=gid', token);
+  return user.gid as string;
+}
+
+export async function fetchAsanaStory(storyGid: string, token: string): Promise<AsanaStory> {
+  return (await asanaRequest(
+    `/stories/${storyGid}?opt_fields=text,resource_subtype,created_by.name`,
+    token
+  )) as AsanaStory;
+}
+
 // ── GitHub API (fetch, no SDK) ───────────────────────────────────────
 
 export class GithubApiError extends Error {
@@ -142,7 +162,7 @@ async function githubRequest(
   return res.json();
 }
 
-function delay(ms: number): Promise<void> {
+export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -185,6 +205,33 @@ export async function getGithubIssue(
     logger.warn('getGithubIssue failed', { issueNumber, err: String(err) });
     return null;
   }
+}
+
+export async function getGithubComment(
+  commentId: number,
+  token: string
+): Promise<{ id: number; body: string; html_url: string } | null> {
+  try {
+    const comment = await githubRequest(
+      `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/comments/${commentId}`,
+      token
+    );
+    return { id: comment.id, body: comment.body, html_url: comment.html_url };
+  } catch (err) {
+    logger.warn('getGithubComment failed', { commentId, err: String(err) });
+    return null;
+  }
+}
+
+export async function postGithubComment(
+  issueNumber: number,
+  body: string,
+  token: string
+): Promise<void> {
+  await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${issueNumber}/comments`, token, {
+    method: 'POST',
+    body: { body },
+  });
 }
 
 // ── Twilio SMS (REST via fetch, no SDK) ──────────────────────────────
