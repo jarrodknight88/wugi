@@ -292,6 +292,10 @@ export type NavEntry =
   | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }
   | { screen: 'pass'; orderId: string; isGuest?: boolean; guestEmail?: string }
+  // Ticket-transfer claim — reached via the wugi://tickets/claim/{token}
+  // deep link (custom scheme or universal link). token identifies the
+  // pending transfer doc; the screen itself calls claimTransfer.
+  | { screen: 'claimTransfer'; token: string }
   // Auth sheet — pushed at the moment of intent (save / passes / general),
   // never as an up-front gate. Dismissible; pop returns to prior context.
   | { screen: 'auth'; intent?: 'save' | 'passes' | 'general' }
