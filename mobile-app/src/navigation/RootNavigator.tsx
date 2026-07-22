@@ -38,6 +38,7 @@ import { SavedListScreen }  from '../screens/SavedListScreen';
 import { ItineraryDetailScreen } from '../screens/ItineraryDetailScreen';
 import { VenueGalleriesListScreen } from '../screens/VenueGalleriesListScreen';
 import { VenueEventsListScreen } from '../screens/VenueEventsListScreen';
+import { MyPhotosScreen }        from '../screens/MyPhotosScreen';
 
 // Features
 import { CameraScreen }          from '../features/stories/CameraScreen';
@@ -480,6 +481,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
 
     if (current.screen === 'camera')  return <CameraScreen   onClose={pop} theme={theme}/>;
     if (current.screen === 'passes')  return <MyPassesScreen onBack={pop}  theme={theme}/>;
+    if (current.screen === 'myPhotos') return <MyPhotosScreen onBack={pop} theme={theme} onPhotoPress={openLikedPhoto}/>;
     if (current.screen === 'photo')   return <PhotoViewer    photos={current.photos} initialIndex={current.initialIndex} galleryTitle={current.galleryTitle} venue={current.venue} date={current.date} onBack={pop} onVenuePress={current.venueId ? () => navigateToVenueById(current.venueId) : undefined} likedPhotoIds={favorites.filter(f => f.type === 'photo').map(f => f.id)} onPhotoLikeChange={onPhotoLikeChange} theme={theme}/>;
     if (current.screen === 'gallery') return <GalleryScreen  gallery={current.gallery} onBack={pop} onPhotoPress={index => navigateToPhoto(current.gallery.photos, index, current.gallery)} onVenuePress={current.gallery.venueId ? () => navigateToVenueById(current.gallery.venueId) : undefined} theme={theme}/>;
     if (current.screen === 'map')     return <MapScreen      address={current.address} venueName={current.venueName} onBack={pop} theme={theme}/>;
@@ -673,7 +675,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite} userVibes={userVibes} savedVenueIds={favorites.filter(f => f.type === 'venue').map(f => f.id)}/>}
         {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllPasses={() => push(uid ? { screen: 'passes' } : { screen: 'auth', intent: 'passes' })} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto}/>}
-        {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })}/>}
+        {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })} onViewPhotos={() => push({ screen: 'myPhotos' })}/>}
         <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
       </View>
 

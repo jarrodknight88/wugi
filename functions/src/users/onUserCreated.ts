@@ -39,6 +39,9 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
       // Username claimed separately via saveUsername
       username: null,
       active: true,
+      // Evergreen, no-expiry HD unlock credit — one per account. Consumed
+      // transactionally by spendFreeUnlock (functions/src/unlocks).
+      freeUnlockUsed: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });  // merge:true is safe — won't overwrite role if somehow pre-created
