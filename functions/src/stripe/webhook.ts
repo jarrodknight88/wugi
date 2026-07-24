@@ -17,6 +17,7 @@ import Stripe from 'stripe';
 import { stripe, generateTicketNumber, calculateReserve } from './stripeUtils';
 import { sendPurchaseConfirmation } from '../email/emailService';
 import { sendPurchaseConfirmationSMS } from '../sms/smsService';
+import { logGA4Event } from '../analytics/ga4';
 
 const db = admin.firestore();
 
@@ -338,6 +339,24 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   await passBatch.commit();
 
   logger.info(`Order ${orderId} created with ${passIds.length} passes`);
+
+  // ── ticket_purchased (GA4 Measurement Protocol) — one event per line ──
+  // item, since a single order can mix ticket types/quantities. Fired
+  // server-side (not from the mobile client) so revenue can't be missed
+  // by an ad-blocker or a user closing the app before the confirmation
+  // screen renders. See analytics/ga4.ts for required env vars.
+  for (const item of items) {
+    await logGA4Event(userId, {
+      name:   'ticket_purchased',
+      params: {
+        event_id:    eventId,
+        ticket_type: item.ticketTypeId,
+        quantity:    item.quantity,
+        value:       item.subtotal / 100,
+        order_id:    orderId,
+      },
+    });
+  }
 
   // ── Generate Apple Wallet pass ──────────────────────────────────────
   // One .pkpass is issued per ORDER, not per pass — its QR must encode the

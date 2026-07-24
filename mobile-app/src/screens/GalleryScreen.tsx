@@ -38,6 +38,7 @@ import MasonryList from 'react-native-masonry-list';
 import type { Theme } from '../constants/colors';
 import type { GalleryData } from '../types';
 import { BackIcon, ShareIcon } from '../components/icons';
+import { logGalleryViewed } from '../analytics/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PAGE_SIZE = 50;
@@ -121,6 +122,7 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, onVenuePress, the
   const [refreshing, setRefreshing]       = useState(false);
   const lastDocRef = useRef<any>(null);
   const loadingRef = useRef(false);   // debounce concurrent loads
+  const viewLoggedRef = useRef(false); // fire gallery_viewed once per mount
 
   // `reset:true` (pull-to-refresh / gallery change) ignores the hasMore guard,
   // clears the cursor, and REPLACES the photo list with page 1. `reset:false`
@@ -206,9 +208,22 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, onVenuePress, the
     setInitialLoading(true);
     lastDocRef.current = null;
     loadingRef.current = false;
+    viewLoggedRef.current = false;
     loadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gallery.id]);
+
+  // ── gallery_viewed — fires once, after the first page of photos loads ──
+  useEffect(() => {
+    if (initialLoading || viewLoggedRef.current) return;
+    viewLoggedRef.current = true;
+    logGalleryViewed({
+      eventId:    gallery.eventId ?? null,
+      venueId:    gallery.venueId ?? null,
+      photoCount: photos.length,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoading]);
 
   const masonryImages: MasonryImage[] = useMemo(
     () => photos.map(p => ({ uri: p.uri, width: p.width, height: p.height })),
