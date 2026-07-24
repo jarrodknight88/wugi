@@ -33,3 +33,5 @@ export { asanaWebhook }       from './bridge/asanaWebhook';
 export { githubWebhook }      from './bridge/githubWebhook';
 export { twilioInbound }      from './bridge/twilioInbound';
 export { ingestLensUpload }   from './lens/ingestLensUpload';
+export { spendFreeUnlock }        from './unlocks/spendFreeUnlock';
+export { getPhotographerEarnings } from './unlocks/getPhotographerEarnings';

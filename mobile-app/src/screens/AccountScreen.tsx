@@ -38,9 +38,10 @@ const ACCOUNT_VIBES = [
 type Props = {
   theme:         Theme;
   onViewPasses?: () => void;
+  onViewPhotos?: () => void;
 };
 
-export function AccountScreen({ theme, onViewPasses }: Props) {
+export function AccountScreen({ theme, onViewPasses, onViewPhotos }: Props) {
   const { user, userVibes, saveVibes, signIn, signUp, signOut, authError, clearAuthError } = useFirebase();
 
   // Auth form state
@@ -447,6 +448,29 @@ export function AccountScreen({ theme, onViewPasses }: Props) {
               <View>
                 <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>My Passes</Text>
                 <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginTop: 1 }}>View your event tickets</Text>
+              </View>
+            </View>
+            <ChevronRightIcon color={theme.subtext}/>
+          </TouchableOpacity>
+        </View>
+
+        {/* My Photos */}
+        <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+          <TouchableOpacity
+            onPress={onViewPhotos}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 16, borderRadius: 12, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#2a7a5a22', alignItems: 'center', justifyContent: 'center' }}>
+                <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <Path d="M4 16l4.5-6 3.5 4.5 2.5-3L20 16" stroke="#2a7a5a" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+                  <Path d="M3 5h18v14H3z" stroke="#2a7a5a" strokeWidth={1.8} strokeLinejoin="round"/>
+                  <Circle cx="8" cy="9" r="1.4" stroke="#2a7a5a" strokeWidth={1.4}/>
+                </Svg>
+              </View>
+              <View>
+                <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>My Photos</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginTop: 1 }}>View your unlocked photos</Text>
               </View>
             </View>
             <ChevronRightIcon color={theme.subtext}/>

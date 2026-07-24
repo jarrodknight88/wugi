@@ -871,6 +871,89 @@ export async function isFavorite(
   }
 }
 
+// ── Unlocks (photo entitlements) ────────────────────────────────────────
+// Top-level `unlocks` collection — the free-credit / purchased photo
+// entitlement ledger (Asana 1216729526587350). Deterministic doc id
+// `${userId}_${photoId}` (photoId is the synthetic `${galleryId}-${index}`
+// id, same format as `favorites`). ALL writes happen server-side via the
+// `spendFreeUnlock` Cloud Function (transactional, prevents double-spend of
+// the one evergreen free credit) — this file only ever READS the
+// collection, matching security rules (`allow write: if false`).
+export type UnlockSource = 'free-credit' | 'purchased';
+
+export type UnlockDoc = {
+  id: string;
+  userId: string;
+  photoId: string;
+  galleryId: string;
+  photoIndex: number;
+  photographerId: string | null;
+  source: UnlockSource;
+  createdAt?: any;
+};
+
+// A user's unlocked photos, resolved against their source `galleries` doc
+// so the My Photos grid has an image to render. Built from listMyUnlocks() +
+// getGalleryById() rather than a stored URL, so it always reflects the
+// live gallery (no separate photo-asset lifecycle to go stale).
+export type UnlockedPhoto = {
+  unlock: UnlockDoc;
+  photoId: string;
+  uri: string;
+  galleryTitle: string;
+};
+
+export async function listMyUnlocks(userId: string): Promise<UnlockDoc[]> {
+  try {
+    if (!userId) return [];
+    const snap = await getDocs(
+      query(
+        collection(db, 'unlocks'),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      )
+    );
+    return snap.docs.map(
+      (d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as UnlockDoc)
+    );
+  } catch (e) {
+    console.log('listMyUnlocks error:', e);
+    return [];
+  }
+}
+
+export async function isPhotoUnlocked(userId: string, photoId: string): Promise<boolean> {
+  try {
+    if (!userId) return false;
+    const snap = await getDoc(doc(collection(db, 'unlocks'), `${userId}_${photoId}`));
+    return snap.exists();
+  } catch (e) {
+    console.log('isPhotoUnlocked error:', e);
+    return false;
+  }
+}
+
+// Resolves a batch of unlock docs into displayable photos, fetching each
+// distinct gallery at most once. Unlocks whose gallery/image no longer
+// resolves (deleted gallery, shrunk images[]) are dropped rather than
+// rendered broken.
+export async function resolveUnlockedPhotos(unlocks: UnlockDoc[]): Promise<UnlockedPhoto[]> {
+  const galleryIds = Array.from(new Set(unlocks.map(u => u.galleryId)));
+  const galleries = await Promise.all(galleryIds.map(id => getGalleryById(id).catch(() => null)));
+  const galleryById = new Map(galleryIds.map((id, i) => [id, galleries[i]]));
+
+  const resolved: UnlockedPhoto[] = [];
+  for (const unlock of unlocks) {
+    const gallery = galleryById.get(unlock.galleryId);
+    if (!gallery) continue;
+    const images = (gallery.images || []).filter(Boolean);
+    const uri = images[unlock.photoIndex];
+    if (!uri) continue;
+    resolved.push({ unlock, photoId: unlock.photoId, uri, galleryTitle: gallery.title || 'Photo' });
+  }
+  return resolved;
+}
+
 // ── Reports ───────────────────────────────────────────────────────────
 // Top-level `reports` collection. Created when a user flags a photo.
 // Materializes on first write (no seed needed). status starts 'open';

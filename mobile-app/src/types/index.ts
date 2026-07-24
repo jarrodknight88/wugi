@@ -288,6 +288,9 @@ export type NavEntry =
   | { screen: 'gallery'; gallery: GalleryData }
   | { screen: 'photo'; photos: GalleryPhoto[]; initialIndex: number; galleryTitle: string; venue: string; date: string; venueId?: string }
   | { screen: 'passes' }
+  // My Photos — lists the signed-in user's unlocked photos (`unlocks`
+  // collection). Reached from AccountScreen, mirroring 'passes'.
+  | { screen: 'myPhotos' }
   | { screen: 'camera' }
   | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }

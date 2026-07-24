@@ -293,6 +293,22 @@ service cloud.firestore {
       allow delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
 
+    // ── Unlocks ──────────────────────────────────────────────────────
+    // Top-level `unlocks` collection — the photo-entitlement ledger
+    // (Asana 1216729526587350). Doc id is deterministic `${userId}_${photoId}`
+    // (photoId is the synthetic `${galleryId}-${index}` id, matching
+    // `favorites`). Unrefundable, spent-credit semantics: a user may only
+    // ever READ their own unlocks; ALL writes (free-credit spend + future
+    // purchased-unlock creation) happen exclusively via Cloud Functions
+    // (spendFreeUnlock), which run with the Admin SDK and bypass these rules.
+    // Photographer earnings aggregation reads this collection server-side
+    // (getPhotographerEarnings), also via the Admin SDK — photographers do
+    // NOT get direct client read access to other users' unlock docs here.
+    match /unlocks/{unlockId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow write: if false;    // Cloud Functions only
+    }
+
     // ── Reports ──────────────────────────────────────────────────────
     // Top-level `reports` collection. Users flag photos; the doc is created
     // with status 'open' and the reporter's uid. Reporters can read their own
