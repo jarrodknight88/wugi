@@ -55,6 +55,7 @@ export function useEventGalleriesBySeriesId(seriesId: string | null): {
           coverImage: g.coverImage || images[0] || '',
           photos,
           venueId: g.venueId || undefined,
+          eventId: g.eventId ?? null,
         });
         setLoading(false);
       } catch (e) {

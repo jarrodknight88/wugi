@@ -45,6 +45,7 @@ import { FONTS, MONO } from '../constants/fonts';
 import { DealCard } from '../components/DealCard';
 import { orderDealsForDisplay } from '../utils/deals';
 import { makeGallery } from '../constants/mockData';
+import { logVenueViewed } from '../analytics/analyticsService';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
 // eligible, expired dropped) — do not reimplement. Exported from firestoreService.
 import { computeSeriesFeed } from '../../firestoreService';
@@ -362,6 +363,12 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   const [deals, setDeals] = useState<FSDeal[]>([]);
   const [activeTicketEvent, setActiveTicketEvent] = useState<ActiveTicketEvent | null>(null);
 
+  // ── venue_viewed — fires once when a venue profile is opened ──────────
+  useEffect(() => {
+    logVenueViewed({ venueId: venue.id, venueName: venue.name });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [venue.id]);
+
   // Map a top-level gallery doc to the GalleryData shape the gallery viewer
   // expects (consumer app is read-only against the galleries collection).
   const toGalleryData = (g: GalleryDoc): GalleryData => ({
@@ -372,6 +379,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
     coverImage: g.coverImage,
     photos: (g.images || []).map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 })),
     venueId: g.venueId || venue.id,
+    eventId: g.eventId ?? null,
   });
   const heroRef = useRef<FlatList<{ type: string; uri: string }>>(null);
   const heroMedia = venue.media.length > 0 ? venue.media : [{ type: 'image', uri: '' }];

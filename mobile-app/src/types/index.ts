@@ -21,6 +21,9 @@ export type GalleryData = {
   // because mock/seed galleries and the live eventGalleries listener may not
   // carry it — the venue line stays non-tappable when absent.
   venueId?: string;
+  // Linked event id (when known) — used for the gallery_viewed analytics
+  // event. Not populated by every gallery-construction path.
+  eventId?: string | null;
 };
 
 // Top-level `galleries` collection doc — the single source of truth for
@@ -292,7 +295,7 @@ export type NavEntry =
   // collection). Reached from AccountScreen, mirroring 'passes'.
   | { screen: 'myPhotos' }
   | { screen: 'camera' }
-  | { screen: 'ticketSelection'; eventId: string; eventName: string; venueName: string; eventDate: string; eventTime: string }
+  | { screen: 'ticketSelection'; eventId: string; eventName: string; venueId: string; venueName: string; eventDate: string; eventTime: string }
   | { screen: 'payment'; selection: import('../features/ticketing/TicketSelectionScreen').TicketSelection }
   | { screen: 'pass'; orderId: string; isGuest?: boolean; guestEmail?: string }
   // Ticket-transfer claim — reached via the wugi://tickets/claim/{token}
@@ -424,6 +427,7 @@ export type TicketTypeKey =
 
 export type PassData = {
   passId:          string;
+  eventId?:        string | null;
   eventTitle:      string;
   venueName:       string;
   date:            string;
