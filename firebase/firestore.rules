@@ -306,7 +306,6 @@ service cloud.firestore {
     // NOT get direct client read access to other users' unlock docs here.
     match /unlocks/{unlockId} {
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      allow list: if isAuth();  // where(userId == uid) query; rule needs auth
       allow write: if false;    // Cloud Functions only
     }
 
