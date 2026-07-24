@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, setDoc, deleteDoc, updateDoc } = require('firebase/firestore');
+const { doc, getDoc, setDoc, deleteDoc, updateDoc, collection, query, where, getDocs } = require('firebase/firestore');
 
 const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
 
@@ -29,7 +29,12 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
 
   const ownerDb = testEnv.authenticatedContext('pgtest-owner').firestore();
   const otherDb = testEnv.authenticatedContext('pgtest-other').firestore();
+  const staffDb = testEnv.authenticatedContext('pgtest-staff').firestore();
   const anonDb  = testEnv.unauthenticatedContext().firestore();
+  // Wugi Door devices sign in to Firebase Auth anonymously but ARE
+  // authenticated (request.auth != null) — distinct from a fully
+  // unauthenticated client. See check-in-app/App.tsx + functions/src/door/staffAuth.ts.
+  const doorDb  = testEnv.authenticatedContext('pgtest-door-anon').firestore();
 
   // Seed existing docs (rules bypassed) so read/delete checks have a resource.
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
@@ -40,6 +45,9 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
     await setDoc(doc(db, 'venues/anyid'), { name: 'v' });
     await setDoc(doc(db, 'photos/anyid'), { imageUrl: 'u' });
     await setDoc(doc(db, 'galleries/anyid'), { title: 'g' });
+    await setDoc(doc(db, 'users/pgtest-staff'), { role: 'super_admin' });
+    await setDoc(doc(db, 'passes/pgtest-pass-owner'), { userId: 'pgtest-owner', eventId: 'pgtest-evt' });
+    await setDoc(doc(db, 'passes/pgtest-pass-victim'), { userId: 'pgtest-victim', eventId: 'pgtest-evt' });
   });
 
   const results = [];
@@ -66,6 +74,21 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
   await run('R4', 'owner read own report', 'allow', getDoc(rep(ownerDb,'pgtest-report')));
   await run('R5', 'non-owner read others report', 'deny', getDoc(rep(otherDb,'pgtest-report')), true); // GATE
   await run('R6', 'owner update report (client)', 'deny', updateDoc(rep(ownerDb,'pgtest-report'), { status:'resolved' }));
+
+  // ── Passes (Asana 1216844677604441 — /passes list scoping) ──
+  // P2 is the actual vulnerability this fix closes: any authed user could
+  // previously list() other users' pass docs (QR/redemption payloads) via
+  // where('userId','==','<victim>'). P4 documents a known side effect: Wugi
+  // Door's anonymous-auth session (no users/{uid} role doc) loses the direct
+  // client list access it relied on under the old broad `isAuth()` grant —
+  // expected/correct per this fix, but Door needs a follow-up (custom claims
+  // or a callable) before its direct Firestore listeners work again.
+  const passesByUser  = (db, uid) => query(collection(db, 'passes'), where('userId', '==', uid));
+  const passesByEvent = (db, eventId) => query(collection(db, 'passes'), where('eventId', '==', eventId));
+  await run('P1', 'owner lists own passes (where userId==self)', 'allow', getDocs(passesByUser(ownerDb, 'pgtest-owner')));
+  await run('P2', 'other user lists VICTIM passes (where userId==victim)', 'deny', getDocs(passesByUser(otherDb, 'pgtest-victim')));
+  await run('P3', 'staff (role=super_admin) lists passes by eventId', 'allow', getDocs(passesByEvent(staffDb, 'pgtest-evt')));
+  await run('P4', 'Door anon session lists passes by eventId (needs follow-up)', 'deny', getDocs(passesByEvent(doorDb, 'pgtest-evt')));
 
   // ── Sanity (existing collections / catch-all intact) ──
   await run('S1', 'unauth read events (public)', 'allow', getDoc(doc(anonDb,'events/anyid')));
