@@ -2,7 +2,7 @@
   "name": "wugi-functions",
   "description": "Wugi Firebase Cloud Functions",
   "scripts": {
-    "build": "/usr/local/lib/node_modules/firebase-tools/node_modules/.bin/tsc",
+    "build": "node node_modules/typescript/bin/tsc",
     "build:watch": "tsc --watch",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
