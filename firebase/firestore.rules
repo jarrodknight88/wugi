@@ -264,8 +264,15 @@ service cloud.firestore {
         request.auth.uid == resource.data.userId  // single doc read
         || isStaff()
       );
-      // Allow list queries — Firestore evaluates the where clause, rule just needs isAuth()
-      allow list: if isAuth();
+      // List queries must be owner- or staff-scoped, mirroring the read rule above.
+      // isAuth() alone is NOT sufficient: Firestore does not enforce a client's
+      // where() clause — it only filters the result set per-document against
+      // this rule, so a broad isAuth() grant lets any authenticated user query
+      // other users' pass docs directly (QR/redemption payload exposure).
+      allow list: if isAuth() && (
+        request.auth.uid == resource.data.userId
+        || isStaff()
+      );
       // Cloud Functions own all writes EXCEPT:
       // Dashboard staff can update check-in status and pass color
       allow update: if isStaff() && request.resource.data.diff(resource.data).affectedKeys()
