@@ -58,6 +58,7 @@ const refreshMode      = args.includes('--refresh');
 const instagramOnly    = args.includes('--instagram-only');
 const closeMode        = args.includes('--close');
 const testMode         = args.includes('--test');
+const dryRun           = args.includes('--dry-run');
 const TEST_LIMIT       = 5;
 
 // ── Atlanta Neighborhoods ─────────────────────────────────────────────
@@ -301,12 +302,178 @@ function mapCategory(types = [], name = '') {
   return 'Bar & Lounge';
 }
 
+// ── primaryCategory (firestore-v2 enum) ────────────────────────────────
+// Reconciles importPlaces' legacy `category` (mapCategory above, kept
+// unchanged for backward compat) with the 11-value enum that
+// scripts/scrape/03-transform-and-write.js writes and that
+// src/types/firestore-v2.ts (PRIMARY_CATEGORIES) defines as canonical.
+// Mirrors 03-transform-and-write.js's inferPrimaryCategory, extended to
+// also consult Google's authoritative `primaryType` field (not available
+// to the scrape pipeline when that function was written).
+const PRIMARY_CATEGORIES = [
+  'Bar', 'Nightclub', 'Restaurant', 'Lounge', 'Live Music', 'Comedy',
+  'Adult', 'Event Venue', 'Brewery/Distillery', 'Cafe', 'Hotel Bar/Rooftop Pool',
+];
+
+function inferPrimaryCategory(types = [], primaryType = '', name = '') {
+  const t  = types.map(x => x.toLowerCase());
+  const pt = (primaryType || '').toLowerCase();
+  const n  = (name || '').toLowerCase();
+
+  if (/(strip club|gentlemen|topless|burlesque)/.test(n))                 return 'Adult';
+  if (/comedy/.test(n) || pt === 'comedy_club' || t.includes('comedy_club')) return 'Comedy';
+  if (/(brewery|brewing|distillery|winery)/.test(n))                     return 'Brewery/Distillery';
+  if (/(cafe|café|coffee)/.test(n) || pt === 'cafe' || pt === 'coffee_shop' || t.includes('cafe')) return 'Cafe';
+  if (/(rooftop|sky bar|skyline)/.test(n) && (t.includes('lodging') || /hotel/.test(n))) return 'Hotel Bar/Rooftop Pool';
+
+  if (pt === 'night_club' || t.includes('night_club'))                    return 'Nightclub';
+  if (/lounge/.test(n))                                                   return 'Lounge';
+  if (/(live music|music hall|concert)/.test(n))                         return 'Live Music';
+  if (t.includes('restaurant') || pt === 'restaurant' ||
+      t.includes('meal_takeaway') || t.includes('meal_delivery'))        return 'Restaurant';
+  if (pt === 'bar' || t.includes('bar') || pt === 'pub' || t.includes('pub')) return 'Bar';
+  if (t.includes('lodging'))                                             return 'Hotel Bar/Rooftop Pool';
+
+  return 'Bar';
+}
+
+// Guards against a future PRIMARY_CATEGORIES edit silently drifting out of
+// sync with inferPrimaryCategory's return values.
+function assertPrimaryCategory(value) {
+  return PRIMARY_CATEGORIES.includes(value) ? value : 'Bar';
+}
+
+// ── Relevance gate (ingest-time reject) ─────────────────────────────────
+// Multi-signal on purpose — a single-signal ("must be typed bar/night_club")
+// gate wrongly rejected Clermont Lounge, The Masquerade, Tabernacle, Pink
+// Pony and Terminal West (typed as store/theater/etc, not bar/night_club).
+// Only reject when a HARD_DENY type is present AND no positive signal
+// exists anywhere (type, primaryType, or name). Generic types like `store`
+// are deliberately absent from HARD_DENY_TYPES so they can never reject on
+// their own (hookah lounges and venue merch stores are typed as `store`).
+const HARD_DENY_TYPES = new Set([
+  'gas_station', 'grocery_or_supermarket', 'convenience_store', 'furniture_store',
+  'home_goods_store', 'clothing_store', 'gym', 'spa', 'movie_theater',
+  'meal_delivery', 'meal_takeaway', 'book_store', 'bakery', 'liquor_store',
+  'shopping_mall', 'tourist_attraction',
+]);
+
+// Google `primaryType` values beyond bar/night_club that are unambiguously
+// nightlife — not derived from our own mapped category (which always
+// falls back to 'Bar' and would otherwise make this signal meaningless).
+const NIGHTLIFE_PRIMARY_TYPES = new Set(['pub', 'wine_bar', 'casino', 'comedy_club', 'karaoke']);
+
+const POSITIVE_NAME_RE = /\b(lounge|club|bar|tavern|pub|hookah|cocktail|speakeasy|cabaret|comedy|music hall|live|saloon|distillery|brewery|taproom|rooftop|karaoke|revue|gentlemen)\b/i;
+
+function evaluateRelevance(place) {
+  const types       = (place.types || []).map(t => t.toLowerCase());
+  const primaryType = (place.primaryType || '').toLowerCase();
+  const name         = place.displayName?.text || '';
+
+  const hasPositiveSignal =
+    types.includes('bar') || types.includes('night_club') ||
+    primaryType === 'bar' || primaryType === 'night_club' ||
+    NIGHTLIFE_PRIMARY_TYPES.has(primaryType) ||
+    POSITIVE_NAME_RE.test(name);
+
+  const deniedTypes = types.filter(t => HARD_DENY_TYPES.has(t));
+  if (primaryType && HARD_DENY_TYPES.has(primaryType) && !deniedTypes.includes(primaryType)) {
+    deniedTypes.push(primaryType);
+  }
+
+  if (deniedTypes.length > 0 && !hasPositiveSignal) {
+    return { reject: true, reason: `hard-deny type(s) [${deniedTypes.join(', ')}] with no positive signal (name="${name}")` };
+  }
+  return { reject: false, reason: null };
+}
+
 function mapPriceLevel(level) {
   return ['', '$', '$$', '$$$', '$$$$'][level] || '$$';
 }
 
 function getPhotoUrl(photoName) {
   return `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=800&maxWidthPx=800&key=${GKEY}&skipHttpRedirect=false`;
+}
+
+// ── Hero image selection ────────────────────────────────────────────────
+// Ranks candidates: aspect >= 1.2 first (VenueScreen renders the hero at
+// HERO_HEIGHT = SCREEN_WIDTH / 1.2 — anything narrower gets vertically
+// centre-cropped), then owner-uploaded above user-uploaded, then larger
+// resolution. "Owner-uploaded" heuristic: the Places API doesn't expose an
+// explicit owner/user flag, but photos sourced from the business's own
+// Google Business Profile characteristically carry no authorAttributions
+// (or one matching the venue's own name); reviewer-contributed photos
+// carry a real person's displayName.
+const HERO_MIN_ASPECT = 1.2;
+
+function scorePhoto(photo, venueName) {
+  const width  = photo.widthPx  || 0;
+  const height = photo.heightPx || 0;
+  const aspect = height > 0 ? width / height : 0;
+  const attributions = photo.authorAttributions || [];
+  const nameLower = (venueName || '').toLowerCase();
+  const ownerUploaded = attributions.length === 0 ||
+    attributions.every(a => nameLower && (a.displayName || '').toLowerCase().includes(nameLower));
+
+  return {
+    url:          getPhotoUrl(photo.name),
+    meetsAspect:  aspect >= HERO_MIN_ASPECT,
+    ownerUploaded,
+    resolution:   width * height,
+  };
+}
+
+function rankPhotos(photos = [], venueName) {
+  return photos
+    .map(p => scorePhoto(p, venueName))
+    .sort((a, b) => {
+      if (a.meetsAspect !== b.meetsAspect)     return a.meetsAspect ? -1 : 1;
+      if (a.ownerUploaded !== b.ownerUploaded) return a.ownerUploaded ? -1 : 1;
+      return b.resolution - a.resolution;
+    });
+}
+
+// ── hoursText ─────────────────────────────────────────────────────────
+// Builds the display string VenueScreen actually renders (the `hours`
+// array has zero consumers). Collapses consecutive identical days into a
+// range, e.g. "Mon–Wed · 5 PM – 11 PM  ·  Thu · 5 PM – 12 AM  ·  Closed Sun".
+// Day ranges use a bare en dash (no spaces); time ranges use en dash with
+// spaces on both sides; groups are joined by double-space-middot-double-space.
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_ABBR  = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
+
+function normalizeHoursSegment(raw) {
+  return raw
+    .replace(/\s*[-–]\s*/g, ' – ')
+    .replace(/:00(?=\s*[AP]M)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildHoursText(weekdayDescriptions) {
+  if (!Array.isArray(weekdayDescriptions) || weekdayDescriptions.length !== 7) return '';
+
+  const parsed = DAY_ORDER.map(day => {
+    const line = weekdayDescriptions.find(l => l.startsWith(day));
+    if (!line) return { abbr: DAY_ABBR[day], hours: 'Closed' };
+    const raw = line.slice(line.indexOf(':') + 1).trim();
+    const hours = /^closed$/i.test(raw) ? 'Closed' : normalizeHoursSegment(raw);
+    return { abbr: DAY_ABBR[day], hours };
+  });
+
+  const groups = [];
+  for (const d of parsed) {
+    const last = groups[groups.length - 1];
+    if (last && last.hours === d.hours) last.abbrs.push(d.abbr);
+    else groups.push({ hours: d.hours, abbrs: [d.abbr] });
+  }
+
+  return groups
+    .map(g => {
+      const dayLabel = g.abbrs.length > 1 ? `${g.abbrs[0]}–${g.abbrs[g.abbrs.length - 1]}` : g.abbrs[0];
+      return g.hours === 'Closed' ? `Closed ${dayLabel}` : `${dayLabel} · ${g.hours}`;
+    })
+    .join('  ·  ');
 }
 
 // ── Google Places ─────────────────────────────────────────────────────
@@ -319,9 +486,11 @@ async function searchPlaces(query, center) {
       'X-Goog-FieldMask': [
         'places.id','places.displayName','places.formattedAddress',
         'places.nationalPhoneNumber','places.websiteUri','places.rating',
-        'places.priceLevel','places.types','places.location',
+        'places.priceLevel','places.types','places.primaryType','places.location',
         'places.currentOpeningHours','places.regularOpeningHours',
-        'places.photos','places.businessStatus','places.parkingOptions',
+        'places.photos.name','places.photos.widthPx','places.photos.heightPx',
+        'places.photos.authorAttributions',
+        'places.businessStatus','places.parkingOptions','places.editorialSummary',
       ].join(','),
     },
     body: JSON.stringify({
@@ -340,9 +509,10 @@ async function getPlaceById(placeId) {
       'X-Goog-Api-Key': GKEY,
       'X-Goog-FieldMask': [
         'id','displayName','formattedAddress','nationalPhoneNumber',
-        'websiteUri','rating','priceLevel','types','location',
+        'websiteUri','rating','priceLevel','types','primaryType','location',
         'currentOpeningHours','regularOpeningHours',
-        'photos','businessStatus','parkingOptions',
+        'photos.name','photos.widthPx','photos.heightPx','photos.authorAttributions',
+        'businessStatus','parkingOptions','editorialSummary',
       ].join(','),
     },
   });
@@ -352,13 +522,22 @@ async function getPlaceById(placeId) {
 
 // ── Build venue ───────────────────────────────────────────────────────
 async function buildVenue(place, neighborhood, skipInstagram = false) {
-  const name    = place.displayName?.text || 'Unknown Venue';
-  const types   = place.types || [];
-  const price   = place.priceLevel || 2;
-  const photos  = (place.photos || []).slice(0, 5).map(p => getPhotoUrl(p.name));
-  const hours   = place.currentOpeningHours?.weekdayDescriptions
-                || place.regularOpeningHours?.weekdayDescriptions
-                || [];
+  const name        = place.displayName?.text || 'Unknown Venue';
+  const types       = place.types || [];
+  const primaryType = place.primaryType || '';
+  const price       = place.priceLevel || 2;
+
+  const rawPhotos     = place.photos || [];
+  const rankedPhotos  = rankPhotos(rawPhotos, name);
+  const media         = rankedPhotos.slice(0, 5).map(p => p.url);
+  const hasHero        = rankedPhotos.length > 0 && rankedPhotos[0].meetsAspect;
+  const heroImage       = hasHero ? rankedPhotos[0].url : null;
+  const needsPhotoRepull = media.length === 0 || !hasHero;
+
+  const hours     = place.currentOpeningHours?.weekdayDescriptions
+                  || place.regularOpeningHours?.weekdayDescriptions
+                  || [];
+  const hoursText = buildHoursText(hours);
   const parking = place.parkingOptions ? {
     freeParking:   place.parkingOptions.freeParkingLot    ?? false,
     paidParking:   place.parkingOptions.paidParkingLot    ?? false,
@@ -369,13 +548,14 @@ async function buildVenue(place, neighborhood, skipInstagram = false) {
 
   const instagramData = skipInstagram ? null : await getInstagram(name);
 
-  const fields     = { name, address: place.formattedAddress, phone: place.nationalPhoneNumber, website: place.websiteUri, hours, photos, instagram: instagramData, parking };
+  const fields     = { name, address: place.formattedAddress, phone: place.nationalPhoneNumber, website: place.websiteUri, hours, photos: media, instagram: instagramData, parking };
   const confidence = calculateConfidence(fields);
   const status     = confidence.overall >= AUTO_APPROVE_THRESHOLD ? 'unclaimed' : 'pending_review';
 
   return {
     name,
     category:          mapCategory(types, name),
+    primaryCategory:   assertPrimaryCategory(inferPrimaryCategory(types, primaryType, name)),
     address:           place.formattedAddress || '',
     phone:             place.nationalPhoneNumber || '',
     website:           place.websiteUri || '',
@@ -383,14 +563,17 @@ async function buildVenue(place, neighborhood, skipInstagram = false) {
     instagramSource:   instagramData?.source || 'inferred',
     instagramInferred: instagramData?.inferred ?? true,
     attributes:        [],
-    about:             '',
-    media:             photos.length > 0 ? photos : [`https://picsum.photos/seed/${place.id}/800/600`],
+    about:             place.editorialSummary?.text || '',
+    media,
+    heroImage,
+    needsPhotoRepull,
     menuDescription:   '',
     location: { latitude: place.location?.latitude || 0, longitude: place.location?.longitude || 0 },
     neighborhood:       neighborhood.name,
     neighborhoodSlug:   neighborhood.slug,
     neighborhoodBounds: neighborhood.bounds,
     hours,
+    hoursText,
     hoursVisible:  true,
     specialHours:  [],
     parking,
@@ -403,7 +586,8 @@ async function buildVenue(place, neighborhood, skipInstagram = false) {
     isClaimed:     false,
     claimedBy:     null,
     claimedAt:     null,
-    isActive:      place.businessStatus === 'OPERATIONAL',
+    isActive:        place.businessStatus === 'OPERATIONAL',
+    businessStatus:  place.businessStatus || null,
     isFeatured:    false,
     createdAt:     admin.firestore.FieldValue.serverTimestamp(),
     updatedAt:     admin.firestore.FieldValue.serverTimestamp(),
@@ -670,12 +854,12 @@ async function refreshVenues(neighborhoodFilter) {
 }
 
 // ── IMPORT MODE ───────────────────────────────────────────────────────
-async function importNeighborhood(neighborhood, seenIds) {
+async function importNeighborhood(neighborhood, seenIds, isDryRun = false) {
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`📍 ${neighborhood.name.toUpperCase()}`);
+  console.log(`📍 ${neighborhood.name.toUpperCase()}${isDryRun ? '  [DRY RUN]' : ''}`);
   console.log(`${'═'.repeat(60)}`);
 
-  let added = 0, pendingReview = 0, errors = 0;
+  let added = 0, pendingReview = 0, errors = 0, rejected = 0;
   const skipped = [];
 
   for (const venueType of neighborhood.searchQueries) {
@@ -699,11 +883,24 @@ async function importNeighborhood(neighborhood, seenIds) {
           continue;
         }
 
+        const relevance = evaluateRelevance(place);
+        if (relevance.reject) {
+          rejected++;
+          skipped.push({ name: placeName, reason: `rejected — ${relevance.reason}` });
+          console.log(`     🚫 REJECT ${placeName}: ${relevance.reason}`);
+          continue;
+        }
+
         try {
           // Skip Instagram during import to save SerpAPI calls
           // Run --instagram-only separately after import
           const venue = await buildVenue(place, neighborhood, true);
-          await db.collection('venues').doc(`gp_${place.id}`).set(venue, { merge: true });
+
+          if (isDryRun) {
+            console.log(`     📝 [dry-run] would write gp_${place.id} — ${venue.name} (status=${venue.status}, primaryCategory=${venue.primaryCategory}, needsPhotoRepull=${venue.needsPhotoRepull})`);
+          } else {
+            await db.collection('venues').doc(`gp_${place.id}`).set(venue, { merge: true });
+          }
           seenIds.add(place.id);
           added++;
           if (venue.status === 'pending_review') pendingReview++;
@@ -739,9 +936,9 @@ async function importNeighborhood(neighborhood, seenIds) {
     }
   }
 
-  console.log(`\n  📊 ${neighborhood.name}: ${added} added · ${pendingReview} need review · ${skipped.length} skipped · ${errors} errors`);
+  console.log(`\n  📊 ${neighborhood.name}: ${added} added · ${rejected} rejected (relevance) · ${pendingReview} need review · ${skipped.length} skipped · ${errors} errors`);
   console.log(`  💡 Run --instagram-only to add Instagram handles for new venues`);
-  return { added, skipped: skipped.length, pendingReview, errors };
+  return { added, skipped: skipped.length, pendingReview, errors, rejected };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -755,7 +952,8 @@ async function main() {
     console.log('  node importPlaces.js --instagram-only --test      (test 5 venues first ← START HERE)');
     console.log('  node importPlaces.js --instagram-only             (run all missing handles)');
     console.log('  node importPlaces.js --close --docId="opera-atlanta"');
-    console.log('  node importPlaces.js --close --docId="opera-atlanta" --replacedBy="gp_xyz"\n');
+    console.log('  node importPlaces.js --close --docId="opera-atlanta" --replacedBy="gp_xyz"');
+    console.log('  node importPlaces.js --all --dry-run              (log every would-be write/reject, zero writes)\n');
     console.log('Status model:');
     console.log('  pending_review — needs manual approval (confidence < 80)');
     console.log('  unclaimed      — live in app with claim CTA');
@@ -796,7 +994,7 @@ async function main() {
   }
 
   // ── Import mode ─────────────────────────────────────────────────────
-  console.log('🌆 Wugi — Google Places Atlanta Import v5\n');
+  console.log(`🌆 Wugi — Google Places Atlanta Import v5${dryRun ? '  [DRY RUN — zero Firestore writes]' : ''}\n`);
   console.log('Note: Instagram lookup skipped during import — run separately after:');
   console.log('      node importPlaces.js --instagram-only --test\n');
   console.log('Legend: ✅ unclaimed · ⚠️  needs review · 🕐 hours · 🅿️ parking · [##] confidence\n');
@@ -815,17 +1013,18 @@ async function main() {
     return [found];
   })();
 
-  let totalAdded = 0, totalPending = 0, totalSkipped = 0, totalErrors = 0;
+  let totalAdded = 0, totalPending = 0, totalSkipped = 0, totalErrors = 0, totalRejected = 0;
 
   for (const neighborhood of toRun) {
-    const r = await importNeighborhood(neighborhood, seenIds);
-    totalAdded   += r.added;
-    totalPending += r.pendingReview;
-    totalSkipped += r.skipped;
-    totalErrors  += r.errors;
+    const r = await importNeighborhood(neighborhood, seenIds, dryRun);
+    totalAdded    += r.added;
+    totalPending  += r.pendingReview;
+    totalSkipped  += r.skipped;
+    totalErrors   += r.errors;
+    totalRejected += r.rejected;
   }
 
-  if (totalPending > 0) {
+  if (totalPending > 0 && !dryRun) {
     await db.collection('config').doc('admin').set({
       pendingVenueReviewCount: admin.firestore.FieldValue.increment(totalPending),
       lastImportAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -833,8 +1032,9 @@ async function main() {
   }
 
   console.log(`\n${'═'.repeat(60)}`);
-  console.log('🎊 DONE');
-  console.log(`   ✅ ${totalAdded} venues imported`);
+  console.log(dryRun ? '🎊 DRY RUN COMPLETE — nothing written' : '🎊 DONE');
+  console.log(`   ✅ ${totalAdded} venues ${dryRun ? 'would be imported' : 'imported'}`);
+  console.log(`   🚫 ${totalRejected} rejected (relevance gate)`);
   console.log(`   ⚠️  ${totalPending} need review`);
   console.log(`   ⏭  ${totalSkipped} skipped`);
   console.log(`   ❌ ${totalErrors} errors`);
