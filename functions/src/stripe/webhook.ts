@@ -340,24 +340,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
 
   logger.info(`Order ${orderId} created with ${passIds.length} passes`);
 
-  // ── ticket_purchased (GA4 Measurement Protocol) — one event per line ──
-  // item, since a single order can mix ticket types/quantities. Fired
-  // server-side (not from the mobile client) so revenue can't be missed
-  // by an ad-blocker or a user closing the app before the confirmation
-  // screen renders. See analytics/ga4.ts for required env vars.
-  for (const item of items) {
-    await logGA4Event(userId, {
-      name:   'ticket_purchased',
-      params: {
-        event_id:    eventId,
-        ticket_type: item.ticketTypeId,
-        quantity:    item.quantity,
-        value:       item.subtotal / 100,
-        order_id:    orderId,
-      },
-    });
-  }
-
   // ── Generate Apple Wallet pass ──────────────────────────────────────
   // One .pkpass is issued per ORDER, not per pass — its QR must encode the
   // purchaser's own passId (passIds[0], see the issuance loop above) so
@@ -406,6 +388,26 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     logger.info('Pass generated for order:', orderId, 'passId:', purchaserPassId);
   } catch (passErr) {
     logger.error('Pass generation failed:', passErr);
+  }
+
+  // ── ticket_purchased (GA4 Measurement Protocol) — one event per line ──
+  // item, since a single order can mix ticket types/quantities. Fired
+  // server-side (not from the mobile client) so revenue can't be missed
+  // by an ad-blocker or a user closing the app before the confirmation
+  // screen renders. Runs after Wallet pass issuance so a slow/hung GA4
+  // request can never delay the pass the purchaser is waiting on. See
+  // analytics/ga4.ts for required env vars and the fetch timeout.
+  for (const item of items) {
+    await logGA4Event(userId, {
+      name:   'ticket_purchased',
+      params: {
+        event_id:    eventId,
+        ticket_type: item.ticketTypeId,
+        quantity:    item.quantity,
+        value:       item.subtotal / 100,
+        order_id:    orderId,
+      },
+    });
   }
 
   // ── Send purchase confirmation email ────────────────────────────────

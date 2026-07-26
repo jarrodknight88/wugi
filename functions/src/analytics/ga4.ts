@@ -39,6 +39,11 @@ export async function logGA4Event(clientId: string, event: GA4Event): Promise<vo
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ client_id: clientId, events: [event] }),
+        // Node's fetch has no default timeout — without this, a hung
+        // google-analytics.com stalls the caller indefinitely. This is
+        // awaited inside the Stripe payment webhook, so a hang here risks
+        // pushing the webhook into Stripe's retry window.
+        signal:  AbortSignal.timeout(2000),
       }
     );
     if (!res.ok) {
