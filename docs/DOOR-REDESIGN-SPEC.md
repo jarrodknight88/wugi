@@ -136,3 +136,25 @@ Also: `check-in-app/node_modules` is **not installed** on the Air — install be
 3. Confirm Tap to Pay entitlement status for App ID `com.wugi.door` / Team `D9438V88S5` (Apple Case-ID `19309580`).
 4. Resolve whether `httpsCallable` is safe in Release under `useFrameworks: static` — consumer app removed `@react-native-firebase/functions` entirely and moved to raw HTTPS. Door still has 13 `httpsCallable` sites. First TestFlight build answers this.
 5. Staff provisioning UX — how does a venue get its door staff accounts created?
+
+---
+
+## 9. Answers to open items (Jarrod, 2026-07-26)
+
+1. **Tap to Pay entitlement** — assume granted; proceed as if present. Jarrod will flag if the portal says otherwise.
+2. **`.limit(5)` in `ticketColorSync`** — verify and fix as part of the colour work.
+3. **IDScanScreen + TransactionsScreen** — **RETAINED.** Both must be carried into the redesign. Not in the design kit (pass 1 = core flows only), so they need styling derived from the `D` tokens rather than a supplied comp. ID scan stays wired to `idVerificationThreshold`.
+4. **`httpsCallable` in Release** — accepted as an open risk; first TestFlight build answers it.
+5. **Staff provisioning — ALREADY BUILT.** `dashboard/app/dashboard/users/page.tsx` manages users with `role`, `venueIds`, `eventIds`, `tableAccess`, `active`, plus an assignment hierarchy (`super_admin` > `moderator` > `venue_admin` > ...). Roles: `super_admin`, `moderator`, `support`, `venue_admin`, `venue_staff`, `event_admin`, `event_staff`.
+
+### 9a. NEW BLOCKER surfaced by item 5
+`venue_staff` is defined in the dashboard as **"Read-only for assigned venues"**, and `canWriteVenue(venueId)` in `firebase/firestore.rules:38` resolves to `isStaff() || (isVenueAdmin() && venueId in venueIds())` — i.e. `venue_staff` **cannot write**.
+
+Door staff must write: check-in sets `scanStatus`, door sales create orders, colour overrides mutate passes.
+
+Options:
+- (a) Grant `venue_staff` a scoped write capability limited to check-in + door-sale paths (preferred — least privilege, no role inflation).
+- (b) Give door staff `venue_admin` (over-privileged: they could edit venue records).
+- (c) Route every Door write through callables that enforce the role server-side, leaving rules read-only for `venue_staff`.
+
+(c) composes well with the hard server-side geofence on money and should be considered together with §2. Decision required before the auth phase is dispatched.
