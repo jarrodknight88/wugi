@@ -1,0 +1,657 @@
+{
+  "_source": "Asana task 1216878669523448 — Google Places verified 2026-07-24",
+  "_builtBy": "flagged-venue-upsert-2026-07",
+  "_canonicalPolicy": "Curated demo doc wins for the 7 demoFlags venues (all inbound event/gallery/series refs point at them; every gp_ doc has 0 refs). gp_ pipeline doc is canonical for the rest. Losers get status:archived + replacedBy + archivedNote.",
+  "_notes": {
+    "tier": "manifestTier (C/S/A) is SCRIPT BOOKKEEPING ONLY — never written. Firestore `tier` is claim state.",
+    "hoursText": "hoursText is what VenueScreen renders. null = curated doc already has a good one, do not touch.",
+    "hours": "day-keyed object written alongside for future use; currently has zero consumers.",
+    "venueField": "legacy `venue` field DROPPED from scope — 0 of 492 docs have it, nothing reads it.",
+    "phone": "normalized to (XXX) XXX-XXXX to match live schema."
+  },
+  "venues": [
+    {
+      "key": "teranga-city-brookhaven",
+      "name": "Teranga City Brookhaven",
+      "manifestTier": "C",
+      "mode": "update",
+      "canonicalDocId": "teranga-city-brookhaven",
+      "archiveDocIds": [],
+      "curated": true,
+      "address": "1860 Corporate Blvd NE, Atlanta, GA 30329",
+      "lat": 33.8364374,
+      "lng": -84.3359266,
+      "phone": "(470) 704-7516",
+      "googlePlaceId": "ChIJQ3Iwv_8H9YgRyBLwybVJq0w",
+      "hours": {
+        "mon": "1:00 PM – 2:00 AM",
+        "tue": "1:00 PM – 2:00 AM",
+        "wed": "1:00 PM – 2:00 AM",
+        "thu": "1:00 PM – 2:00 AM",
+        "fri": "1:00 PM – 2:00 AM",
+        "sat": "12:00 PM – 2:00 AM",
+        "sun": "12:00 PM – 2:00 AM"
+      },
+      "hoursText": null,
+      "aliases": [
+        "Teranga City"
+      ],
+      "review": null
+    },
+    {
+      "key": "afro-district",
+      "name": "Afro District",
+      "manifestTier": "C",
+      "mode": "update",
+      "canonicalDocId": "afro-district-atl",
+      "archiveDocIds": [],
+      "curated": true,
+      "address": "132 10th St NE, Atlanta, GA 30309",
+      "lat": 33.7819416,
+      "lng": -84.3828723,
+      "phone": "(470) 788-8043",
+      "googlePlaceId": "ChIJqfG3ERYF9YgRJaVYLIR7G4U",
+      "hours": {
+        "mon": "1:00 PM – 3:00 AM",
+        "tue": "1:00 PM – 3:00 AM",
+        "wed": "1:00 PM – 3:00 AM",
+        "thu": "1:00 PM – 3:00 AM",
+        "fri": "1:00 PM – 3:00 AM",
+        "sat": "12:00 PM – 3:00 AM",
+        "sun": "12:00 PM – 12:00 AM"
+      },
+      "hoursText": null,
+      "aliases": [
+        "Afro District Bar & Soulfood"
+      ],
+      "review": null
+    },
+    {
+      "key": "prime-on-peachtree",
+      "name": "Prime on Peachtree",
+      "manifestTier": "C",
+      "mode": "update",
+      "canonicalDocId": "prime-on-peachtree",
+      "archiveDocIds": [
+        "gp_ChIJRxHdJAIF9YgRMyURidaY7yM"
+      ],
+      "curated": true,
+      "unarchive": true,
+      "address": "1029 Peachtree St NE, Atlanta, GA 30309",
+      "lat": 33.7828349,
+      "lng": -84.3837164,
+      "phone": "(404) 254-2285",
+      "googlePlaceId": "ChIJRxHdJAIF9YgRMyURidaY7yM",
+      "hours": {
+        "mon": "3:00 PM – 11:00 PM",
+        "tue": "3:00 PM – 11:00 PM",
+        "wed": "3:00 PM – 11:00 PM",
+        "thu": "3:00 PM – 12:00 AM",
+        "fri": "10:00 AM – 12:00 AM",
+        "sat": "10:00 AM – 12:00 AM",
+        "sun": "10:00 AM – 11:00 PM"
+      },
+      "hoursText": null,
+      "aliases": [],
+      "review": "REVERSES the 2026-07-07 archive decision (Jarrod approved). Un-archives curated doc, archives the gp_ twin. Both have 0 inbound refs."
+    },
+    {
+      "key": "revel",
+      "name": "Revel",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "revel-atl",
+      "archiveDocIds": [],
+      "curated": true,
+      "address": "1778 Ellsworth Industrial Blvd NW, Atlanta, GA 30318",
+      "lat": 33.8035308,
+      "lng": -84.4274034,
+      "phone": "(404) 835-5688",
+      "googlePlaceId": "ChIJc7LA4xoF9YgRrNXbZsbkg18",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "Closed",
+        "thu": "Closed",
+        "fri": "10:00 PM – 3:00 AM",
+        "sat": "10:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": null,
+      "aliases": [
+        "REVEL ATLANTA"
+      ],
+      "afterHours": {
+        "days": [
+          "Fri",
+          "Sat"
+        ],
+        "window": "3AM-6AM",
+        "venueLevelOnly": true
+      },
+      "review": null
+    },
+    {
+      "key": "vision-lounge",
+      "name": "Vision Lounge",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "vision-lounge-atl",
+      "archiveDocIds": [
+        "vision-atl",
+        "gp_ChIJC8eKfMIF9YgR2r5dwzbFNl8"
+      ],
+      "curated": true,
+      "address": "2520 Piedmont Rd NE, Atlanta, GA 30324",
+      "lat": 33.8239476,
+      "lng": -84.3676036,
+      "phone": "(404) 941-9714",
+      "googlePlaceId": "ChIJC8eKfMIF9YgR2r5dwzbFNl8",
+      "hours": {
+        "mon": "11:00 AM – 2:30 AM",
+        "tue": "11:00 AM – 4:00 PM",
+        "wed": "11:00 AM – 5:00 PM",
+        "thu": "11:00 AM – 2:00 AM",
+        "fri": "11:00 AM – 2:30 AM",
+        "sat": "11:00 AM – 2:30 AM",
+        "sun": "4:00 PM – 1:00 AM"
+      },
+      "hoursText": null,
+      "aliases": [
+        "Vision Hookah Lounge"
+      ],
+      "review": "3-doc cluster collapsing to 1. Curated doc holds 3 galleries; both twins hold 0."
+    },
+    {
+      "key": "opium",
+      "name": "Opium",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "opium-atl",
+      "archiveDocIds": [
+        "gp_ChIJY9PhiV0E9YgRCcM8v93lux8"
+      ],
+      "curated": true,
+      "address": "990 Brady Ave NW, Atlanta, GA 30318",
+      "lat": 33.7514318,
+      "lng": -84.3896071,
+      "phone": "(770) 875-0040",
+      "googlePlaceId": "ChIJY9PhiV0E9YgRCcM8v93lux8",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "Closed",
+        "thu": "Closed",
+        "fri": "10:00 PM – 3:00 AM",
+        "sat": "10:00 PM – 3:00 AM",
+        "sun": "10:00 PM – 3:00 AM"
+      },
+      "hoursText": null,
+      "aliases": [
+        "Osium"
+      ],
+      "coordsSuspect": true,
+      "review": "COORDS SUSPECT — inherited from the gp_ doc Firestore stores as 'Osium' (likely bad scrape). 33.7514/-84.3896 looks too far SE for 990 Brady Ave NW (Home Park ~33.78/-84.41). Curated doc currently has NO location, so a wrong write is worse than none. Manifest hours 'Daily 7PM-3AM' also contradicts the venue's own site — curated hoursText kept."
+    },
+    {
+      "key": "404-restaurant-bar",
+      "name": "404 Restaurant & Bar",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "404-atl",
+      "archiveDocIds": [],
+      "curated": true,
+      "address": "4969 Roswell Rd #200, Atlanta, GA 30342",
+      "lat": 33.8904095,
+      "lng": -84.3809069,
+      "phone": "(404) 809-3765",
+      "googlePlaceId": "ChIJo1CtxD0P9YgRyM6It0BmI0c",
+      "hours": {
+        "mon": "3:00 PM – 12:00 AM",
+        "tue": "3:00 PM – 12:00 AM",
+        "wed": "3:00 PM – 12:00 AM",
+        "thu": "3:00 PM – 2:00 AM",
+        "fri": "3:00 PM – 2:00 AM",
+        "sat": "3:00 PM – 2:00 AM",
+        "sun": "12:00 PM – 12:00 AM"
+      },
+      "hoursText": null,
+      "aliases": [],
+      "review": null
+    },
+    {
+      "key": "lyfe-atl",
+      "name": "Lyfe ATL",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJDbZEEjoF9YgR-69e4PWpPvM",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "201 Courtland St NE, Atlanta, GA 30303",
+      "lat": 33.7599132,
+      "lng": -84.3839809,
+      "phone": "(404) 386-1888",
+      "googlePlaceId": "ChIJDbZEEjoF9YgR-69e4PWpPvM",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "Closed",
+        "thu": "Closed",
+        "fri": "10:00 PM – 3:00 AM",
+        "sat": "10:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Fri–Sat · 10 PM – 3 AM  ·  Closed Sun–Thu",
+      "aliases": [],
+      "review": null
+    },
+    {
+      "key": "embr-lounge",
+      "name": "EMBR Lounge",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJveZte2YF9YgRJgfuXZRGbog",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "1136 Crescent Ave NE, Atlanta, GA 30309",
+      "lat": 33.785744,
+      "lng": -84.384534,
+      "phone": "(770) 765-3886",
+      "googlePlaceId": "ChIJveZte2YF9YgRJgfuXZRGbog",
+      "hours": {
+        "mon": "Closed",
+        "tue": "10:00 PM – 3:00 AM",
+        "wed": "Closed",
+        "thu": "10:00 PM – 3:00 AM",
+        "fri": "10:00 PM – 3:00 AM",
+        "sat": "10:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Tue · 10 PM – 3 AM  ·  Thu–Sat · 10 PM – 3 AM  ·  Closed Mon, Wed, Sun",
+      "aliases": [
+        "Embr Lounge"
+      ],
+      "renameTo": "EMBR Lounge",
+      "review": "Live doc name is 'Embr Lounge' — manifest casing EMBR applied."
+    },
+    {
+      "key": "midtown-social",
+      "name": "Midtown Social",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJGbbD028F9YgRp46ThVrFD6s",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "1740 Marietta Blvd NW, Atlanta, GA 30318",
+      "lat": 33.802194,
+      "lng": -84.4366259,
+      "phone": "(404) 748-1721",
+      "googlePlaceId": "ChIJGbbD028F9YgRp46ThVrFD6s",
+      "hours": {
+        "mon": "6:00 AM – 12:00 AM",
+        "tue": "6:00 AM – 12:00 AM",
+        "wed": "6:00 AM – 12:00 AM",
+        "thu": "6:00 AM – 12:00 AM",
+        "fri": "6:00 AM – 2:30 AM",
+        "sat": "9:00 AM – 2:30 AM",
+        "sun": "10:00 AM – 12:00 AM"
+      },
+      "hoursText": "Mon–Thu · 6 AM – 12 AM  ·  Fri · 6 AM – 2:30 AM  ·  Sat · 9 AM – 2:30 AM  ·  Sun · 10 AM – 12 AM",
+      "aliases": [
+        "Midtown Social Restaurant & Bar"
+      ],
+      "renameTo": "Midtown Social",
+      "review": "Live doc name is 'Midtown Social Restaurant & Bar' — shortening to manifest name."
+    },
+    {
+      "key": "onyx",
+      "name": "Onyx",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJpdY0H9EF9YgRd5mMsqkrANY",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "1888 Cheshire Bridge Rd NE, Atlanta, GA 30324",
+      "lat": 33.8104304,
+      "lng": -84.3612206,
+      "phone": "(404) 249-4257",
+      "googlePlaceId": "ChIJpdY0H9EF9YgRd5mMsqkrANY",
+      "hours": {
+        "mon": "3:00 PM – 3:00 AM",
+        "tue": "3:00 PM – 3:00 AM",
+        "wed": "3:00 PM – 3:00 AM",
+        "thu": "3:00 PM – 3:00 AM",
+        "fri": "3:00 PM – 3:00 AM",
+        "sat": "3:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Mon–Sat · 3 PM – 3 AM  ·  Closed Sun",
+      "aliases": [
+        "Onyx Gentlemen's Club- Atlanta",
+        "Onyx Gentlemen's Club"
+      ],
+      "renameTo": "Onyx",
+      "review": "Live doc name 'Onyx Gentlemen's Club- Atlanta' (note stray hyphen) — shortening to manifest name."
+    },
+    {
+      "key": "high-society-buckhead",
+      "name": "High Society Buckhead",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJqesI_IsF9YgR8xRqUEln8nc",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "3201 Cains Hill Pl NW, Atlanta, GA 30305",
+      "lat": 33.8419519,
+      "lng": -84.379999,
+      "phone": "(404) 228-8856",
+      "googlePlaceId": "ChIJqesI_IsF9YgR8xRqUEln8nc",
+      "hours": {
+        "mon": "5:00 PM – 11:00 PM",
+        "tue": "5:00 PM – 11:00 PM",
+        "wed": "5:00 PM – 11:00 PM",
+        "thu": "5:00 PM – 12:00 AM",
+        "fri": "5:00 PM – 2:30 AM",
+        "sat": "11:00 AM – 2:30 AM",
+        "sun": "11:00 AM – 12:00 AM"
+      },
+      "hoursText": "Mon–Wed · 5 PM – 11 PM  ·  Thu · 5 PM – 12 AM  ·  Fri · 5 PM – 2:30 AM  ·  Sat · 11 AM – 2:30 AM  ·  Sun · 11 AM – 12 AM",
+      "aliases": [
+        "High Society"
+      ],
+      "review": null
+    },
+    {
+      "key": "allure",
+      "name": "Allure Gentlemen's Club",
+      "manifestTier": "S",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJp0SYSUIH9YgRqUrKX_WlVOg",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "2284 Cheshire Bridge Rd NE, Atlanta, GA 30324",
+      "lat": 33.8175526,
+      "lng": -84.3524303,
+      "phone": "(678) 697-4913",
+      "googlePlaceId": "ChIJp0SYSUIH9YgRqUrKX_WlVOg",
+      "hours": {
+        "mon": "11:30 AM – 3:00 AM",
+        "tue": "11:30 AM – 3:00 AM",
+        "wed": "11:30 AM – 3:00 AM",
+        "thu": "11:30 AM – 3:00 AM",
+        "fri": "11:30 AM – 3:00 AM",
+        "sat": "11:30 AM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Mon–Sat · 11:30 AM – 3 AM  ·  Closed Sun",
+      "aliases": [
+        "Allure"
+      ],
+      "review": null
+    },
+    {
+      "key": "bamboo",
+      "name": "Bamboo",
+      "manifestTier": "A",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJ3Y4PjVsD9YgRdOE-xH29PqE",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "183 Forsyth St SW, Atlanta, GA 30303",
+      "lat": 33.7497499,
+      "lng": -84.3960483,
+      "phone": "(404) 874-4460",
+      "googlePlaceId": "ChIJ3Y4PjVsD9YgRdOE-xH29PqE",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "Closed",
+        "thu": "5:00 PM – 3:00 AM",
+        "fri": "5:00 PM – 3:00 AM",
+        "sat": "5:00 PM – 3:00 AM",
+        "sun": "5:00 PM – 6:00 AM"
+      },
+      "hoursText": "Thu–Sat · 5 PM – 3 AM  ·  Sun · 5 PM – 6 AM  ·  Closed Mon–Wed",
+      "aliases": [
+        "Bamboo atlanta",
+        "Bamboo Atlanta"
+      ],
+      "renameTo": "Bamboo",
+      "review": "Live doc name 'Bamboo atlanta' (lowercase a) — normalizing to manifest name."
+    },
+    {
+      "key": "domaine",
+      "name": "Domaine",
+      "manifestTier": "A",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJdRefdQsF9YgR3QvN54V6WGc",
+      "archiveDocIds": [
+        "opera-atlanta"
+      ],
+      "curated": false,
+      "address": "1150 Crescent Ave NE Fl 1, Atlanta, GA 30309",
+      "lat": 33.7859414,
+      "lng": -84.3840605,
+      "phone": "(404) 517-6373",
+      "googlePlaceId": "ChIJdRefdQsF9YgR3QvN54V6WGc",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "Closed",
+        "thu": "Closed",
+        "fri": "10:00 PM – 3:00 AM",
+        "sat": "3:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Fri · 10 PM – 3 AM  ·  Sat · 3 PM – 3 AM  ·  Closed Sun–Thu",
+      "aliases": [
+        "DOMAINE ATL"
+      ],
+      "renameTo": "Domaine",
+      "review": "NOT ambiguous — opera-atlanta already carries replacedBy -> this doc, but was never status-archived. Completing that half-applied supersede. Legacy doc ID is the old Opera Atlanta record, renamed."
+    },
+    {
+      "key": "district-atlanta",
+      "name": "District Atlanta",
+      "manifestTier": "A",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJ__8_ErcF9YgRTJENrVqRLks",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "269 Armour Dr NE, Atlanta, GA 30324",
+      "lat": 33.81211,
+      "lng": -84.3786098,
+      "phone": "(404) 464-5924",
+      "googlePlaceId": "ChIJ__8_ErcF9YgRTJENrVqRLks",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "Closed",
+        "thu": "10:00 PM – 3:00 AM",
+        "fri": "10:00 PM – 3:00 AM",
+        "sat": "10:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Thu–Sat · 10 PM – 3 AM  ·  Closed Sun–Wed",
+      "aliases": [],
+      "review": null
+    },
+    {
+      "key": "babas-kitchen",
+      "name": "Baba's Kitchen",
+      "manifestTier": "A",
+      "mode": "update",
+      "canonicalDocId": "gp_ChIJD2UjD2oH9YgRlnJWOglpGBo",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "2184 Cheshire Bridge Rd NE, Atlanta, GA 30324",
+      "lat": 33.8145313,
+      "lng": -84.3538147,
+      "phone": "(404) 649-1770",
+      "googlePlaceId": "ChIJD2UjD2oH9YgRlnJWOglpGBo",
+      "hours": {
+        "mon": "3:00 PM – 2:00 AM",
+        "tue": "3:00 PM – 2:00 AM",
+        "wed": "3:00 PM – 2:00 AM",
+        "thu": "3:00 PM – 2:00 AM",
+        "fri": "3:00 PM – 2:00 AM",
+        "sat": "3:00 PM – 2:00 AM",
+        "sun": "3:00 PM – 2:00 AM"
+      },
+      "hoursText": "Daily · 3 PM – 2 AM",
+      "aliases": [
+        "Baba`s Kitchen",
+        "Babas Kitchen"
+      ],
+      "renameTo": "Baba's Kitchen",
+      "review": "Live doc name uses a BACKTICK apostrophe ('Baba`s Kitchen') — normalizing to a real apostrophe.",
+      "afterHours": {
+        "venueLevelOnly": true
+      },
+      "venueSpecial": "$100 Bottles nightly"
+    },
+    {
+      "key": "soho-lounge",
+      "name": "Soho Lounge",
+      "manifestTier": "S",
+      "mode": "create",
+      "canonicalDocId": "soho-lounge-atl",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "2359 Windy Hill Rd SE, Marietta, GA 30067",
+      "lat": 33.9046204,
+      "lng": -84.4855881,
+      "phone": "(404) 694-3883",
+      "googlePlaceId": "ChIJq-wmLwAR9YgRvFHifl3uFoQ",
+      "hours": {
+        "mon": "Closed",
+        "tue": "Closed",
+        "wed": "8:00 PM – 12:00 AM",
+        "thu": "Closed",
+        "fri": "6:00 PM – 3:00 AM",
+        "sat": "8:00 PM – 3:00 AM",
+        "sun": "1:00 PM – 8:00 PM"
+      },
+      "hoursText": "Wed · 8 PM – 12 AM  ·  Fri · 6 PM – 3 AM  ·  Sat · 8 PM – 3 AM  ·  Sun · 1 PM – 8 PM  ·  Closed Mon–Tue",
+      "aliases": [
+        "SOHO Lounge",
+        "Soho Kitchen and Cocktails"
+      ],
+      "neighborhood": "Marietta",
+      "review": "CREATE — no existing doc under any match strategy. MARIETTA, not Atlanta proper; market stays 'atlanta' (all 483 docs use it; a second market value risks breaking feed filters). Dual Google listing at same address/phone — 'SOHO Lounge' used per Jarrod."
+    },
+    {
+      "key": "tabu",
+      "name": "Tabū",
+      "manifestTier": "S",
+      "mode": "create",
+      "canonicalDocId": "tabu-atl",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "1086 Alco St NE, Atlanta, GA 30324",
+      "lat": 33.8174291,
+      "lng": -84.3526699,
+      "phone": "(678) 862-7551",
+      "googlePlaceId": "ChIJGQrEUVcH9YgR9YEN9G1ihew",
+      "hours": {
+        "mon": "9:00 PM – 3:00 AM",
+        "tue": "9:00 PM – 3:00 AM",
+        "wed": "9:00 PM – 3:00 AM",
+        "thu": "9:00 PM – 3:00 AM",
+        "fri": "9:00 PM – 3:00 AM",
+        "sat": "9:00 PM – 3:00 AM",
+        "sun": "Closed"
+      },
+      "hoursText": "Mon–Sat · 9 PM – 3 AM  ·  Closed Sun",
+      "aliases": [
+        "Tabu Atlanta",
+        "Tabu"
+      ],
+      "lowConfidence": true,
+      "review": "CREATE — Jarrod overrode the hold. LOW CONFIDENCE: only 10 Google reviews. Same complex as Allure (2284 Cheshire Bridge / 1086 Alco). Flag for a data-confidence recheck before the Amat/JV demo."
+    },
+    {
+      "key": "flo",
+      "name": "Flo",
+      "manifestTier": "S",
+      "mode": "create",
+      "canonicalDocId": "flo-atl",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "2196B Cheshire Bridge Rd NE, Atlanta, GA 30324",
+      "lat": 33.8148299,
+      "lng": -84.3536334,
+      "phone": "(404) 964-3366",
+      "googlePlaceId": "ChIJVaQpcmQH9YgRsvHfD8-LXRw",
+      "hours": {
+        "mon": "5:00 PM – 12:00 AM",
+        "tue": "5:00 PM – 12:00 AM",
+        "wed": "5:00 PM – 12:00 AM",
+        "thu": "5:00 PM – 12:00 AM",
+        "fri": "5:00 PM – 2:00 AM",
+        "sat": "5:00 PM – 2:00 AM",
+        "sun": "5:00 PM – 12:00 AM"
+      },
+      "hoursText": "Mon–Thu · 5 PM – 12 AM  ·  Fri–Sat · 5 PM – 2 AM  ·  Sun · 5 PM – 12 AM",
+      "aliases": [
+        "Flo Bar"
+      ],
+      "review": "CREATE — no doc exists. NOTE: naive substring matching produced a FALSE POSITIVE against 'Floating Brunch ATL LLC'; substring matching is disabled in this script for exactly this reason."
+    },
+    {
+      "key": "midtown-bowl",
+      "name": "Midtown Bowl",
+      "manifestTier": "A",
+      "mode": "create",
+      "canonicalDocId": "midtown-bowl-atl",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "1936 Piedmont Cir NE, Atlanta, GA 30324",
+      "lat": 33.8098487,
+      "lng": -84.3681959,
+      "phone": "(470) 291-5585",
+      "googlePlaceId": "ChIJ9R5-784F9YgRTSCFnYYej-s",
+      "hours": {
+        "mon": "Closed",
+        "tue": "12:00 PM – 12:00 AM",
+        "wed": "12:00 PM – 12:00 AM",
+        "thu": "12:00 PM – 2:00 AM",
+        "fri": "12:00 PM – 2:00 AM",
+        "sat": "12:00 PM – 2:00 AM",
+        "sun": "12:00 PM – 12:00 AM"
+      },
+      "hoursText": "Tue–Wed · 12 PM – 12 AM  ·  Thu–Sat · 12 PM – 2 AM  ·  Sun · 12 PM – 12 AM  ·  Closed Mon",
+      "aliases": [],
+      "review": "CREATE — no existing doc."
+    },
+    {
+      "key": "4-elements",
+      "name": "4 Elements",
+      "manifestTier": "A",
+      "mode": "create",
+      "canonicalDocId": "4-elements-atl",
+      "archiveDocIds": [],
+      "curated": false,
+      "address": "375 Luckie St NW, Atlanta, GA 30313",
+      "lat": 33.7648501,
+      "lng": -84.3958869,
+      "phone": "(470) 355-6510",
+      "googlePlaceId": "ChIJ6ypVWCYF9YgRKZf2Hv-hFrw",
+      "hours": {
+        "mon": "4:00 PM – 10:00 PM",
+        "tue": "4:00 PM – 10:00 PM",
+        "wed": "4:00 PM – 10:00 PM",
+        "thu": "4:00 PM – 10:00 PM",
+        "fri": "4:00 PM – 12:00 AM",
+        "sat": "11:00 AM – 11:00 PM",
+        "sun": "11:00 AM – 1:30 AM"
+      },
+      "hoursText": "Mon–Thu · 4 PM – 10 PM  ·  Fri · 4 PM – 12 AM  ·  Sat · 11 AM – 11 PM  ·  Sun · 11 AM – 1:30 AM",
+      "aliases": [
+        "4 Elements Restaurant & Bar"
+      ],
+      "note": "former Suite Lounge space",
+      "review": "CREATE — no existing doc. Google still lists Suite Food Lounge (empty hours) at 375 Luckie St NW; corroborates the takeover."
+    }
+  ]
+}
