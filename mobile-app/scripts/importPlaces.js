@@ -363,7 +363,7 @@ const HARD_DENY_TYPES = new Set([
 // falls back to 'Bar' and would otherwise make this signal meaningless).
 const NIGHTLIFE_PRIMARY_TYPES = new Set(['pub', 'wine_bar', 'casino', 'comedy_club', 'karaoke']);
 
-const POSITIVE_NAME_RE = /lounge|club|bar|tavern|pub|hookah|cocktail|speakeasy|cabaret|comedy|music hall|live|saloon|distillery|brewery|taproom|rooftop|karaoke|revue|gentlemen/i;
+const POSITIVE_NAME_RE = /\b(lounge|club|bar|tavern|pub|hookah|cocktail|speakeasy|cabaret|comedy|music hall|live|saloon|distillery|brewery|taproom|rooftop|karaoke|revue|gentlemen)\b/i;
 
 function evaluateRelevance(place) {
   const types       = (place.types || []).map(t => t.toLowerCase());
