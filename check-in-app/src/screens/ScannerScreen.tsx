@@ -6,6 +6,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
+import { COLORS, PASS_FALLBACK } from '../constants/colors';
 
 // Tap to Pay is pending Apple entitlement approval — disabled until approved
 const TAP_TO_PAY_ENABLED = true;
@@ -102,7 +103,7 @@ export default function ScannerScreen() {
         showResult('wrong_event', {
           holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
           ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
-          ticketColor: pass.passColor || '#2a7a5a', quantity: 1,
+          ticketColor: pass.passColor || PASS_FALLBACK, quantity: 1,
           ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
         });
         return;
@@ -113,7 +114,7 @@ export default function ScannerScreen() {
         showResult('already_scanned', {
           holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
           ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
-          ticketColor: pass.passColor || '#2a7a5a', quantity: 1,
+          ticketColor: pass.passColor || PASS_FALLBACK, quantity: 1,
           ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
         });
         return;
@@ -138,6 +139,8 @@ export default function ScannerScreen() {
             ticketType: pass.ticketTypeName || '',
             ticketTypeName: pass.ticketTypeName || '',
             ticketTypeId: pass.ticketTypeId || '',
+            // Pass/ticket colour field (not chrome) — intentionally left as a
+            // literal per the balance-blocked pass display; do not tokenize.
             ticketColor: '#e6a817',
             quantity: 1,
             ticketId: passId,
@@ -158,7 +161,7 @@ export default function ScannerScreen() {
       showResult('valid', {
         holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
         ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
-        ticketColor: pass.passColor || '#2a7a5a', quantity: 1,
+        ticketColor: pass.passColor || PASS_FALLBACK, quantity: 1,
         ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
       });
     } catch (e) { showResult('invalid'); }
@@ -176,12 +179,16 @@ export default function ScannerScreen() {
     );
   }
 
+  // NOTE: the four `bg` washes below (0d3d2a/3d2a00/3d0d0d/3d1a00) are unique
+  // one-off shades that don't exactly match goDeep/warnDeep/stopDeep — left
+  // as literals rather than guess a consolidation that would shift pixels.
+  // See PR description.
   const resultConfig = {
-    valid:            { bg: '#0d3d2a', border: '#2a7a5a', icon: '✓', label: 'Valid Ticket',       color: '#2a7a5a' },
-    already_scanned:  { bg: '#3d2a00', border: '#e6a817', icon: '!', label: 'Already Scanned',    color: '#e6a817' },
-    invalid:          { bg: '#3d0d0d', border: '#cc3333', icon: '✕', label: 'Invalid Ticket',     color: '#cc3333' },
-    wrong_event:      { bg: '#3d0d0d', border: '#cc3333', icon: '✕', label: 'Wrong Event',        color: '#cc3333' },
-    balance_blocked:  { bg: '#3d1a00', border: '#e6a817', icon: '⚠', label: 'Balance Outstanding', color: '#e6a817' },
+    valid:            { bg: '#0d3d2a', border: COLORS.go,   icon: '✓', label: 'Valid Ticket',       color: COLORS.go },
+    already_scanned:  { bg: '#3d2a00', border: COLORS.warn, icon: '!', label: 'Already Scanned',    color: COLORS.warn },
+    invalid:          { bg: '#3d0d0d', border: COLORS.stop, icon: '✕', label: 'Invalid Ticket',     color: COLORS.stop },
+    wrong_event:      { bg: '#3d0d0d', border: COLORS.stop, icon: '✕', label: 'Wrong Event',        color: COLORS.stop },
+    balance_blocked:  { bg: '#3d1a00', border: COLORS.warn, icon: '⚠', label: 'Balance Outstanding', color: COLORS.warn },
   };
   const cfg = result ? resultConfig[result] : null;
   const hasBalance = (ticketInfo?.balanceDue ?? 0) > 0;
@@ -292,36 +299,36 @@ export default function ScannerScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 56, paddingBottom: 12, backgroundColor: '#111' },
-  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  backBtnText: { color: '#fff', fontSize: 20, lineHeight: 22 },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  backBtnText: { color: COLORS.text, fontSize: 20, lineHeight: 22 },
   headerCenter: { flex: 1 },
-  eventName: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  eventName: { fontSize: 15, fontWeight: '700', color: COLORS.text },
   venueName: { fontSize: 12, color: '#888', marginTop: 2 },
   countBadge: { alignItems: 'center', marginLeft: 8 },
-  countNum: { fontSize: 24, fontWeight: '800', color: '#2a7a5a' },
+  countNum: { fontSize: 24, fontWeight: '800', color: COLORS.brand },
   countLabel: { fontSize: 11, color: '#888' },
   camera: { flex: 1 },
   viewfinder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  corner: { position: 'absolute', width: 28, height: 28, borderColor: '#2a7a5a', borderWidth: 3 },
+  corner: { position: 'absolute', width: 28, height: 28, borderColor: COLORS.brand, borderWidth: 3 },
   tl: { top: '30%', left: '20%', borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 4 },
   tr: { top: '30%', right: '20%', borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 4 },
   bl: { bottom: '30%', left: '20%', borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 4 },
   br: { bottom: '30%', right: '20%', borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 4 },
-  hint: { color: '#2a7a5a', fontSize: 13, fontWeight: '500', marginTop: 80 },
+  hint: { color: COLORS.brand, fontSize: 13, fontWeight: '500', marginTop: 80 },
   resultOverlay: { position: 'absolute', bottom: 32, left: 16, right: 16, borderRadius: 20, borderWidth: 1.5, padding: 22, alignItems: 'center' },
   resultIcon: { fontSize: 40, fontWeight: '800', marginBottom: 6 },
   resultLabel: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  resultName: { fontSize: 18, color: '#fff', fontWeight: '600', marginBottom: 2 },
+  resultName: { fontSize: 18, color: COLORS.text, fontWeight: '600', marginBottom: 2 },
   resultDetail: { fontSize: 14, color: '#aaa', marginBottom: 4 },
-  resultId: { fontSize: 11, color: '#555', marginBottom: 8 },
-  balanceWarning: { width: '100%', backgroundColor: '#2a1a00', borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#e6a817', marginTop: 8 },
-  balanceWarningText: { fontSize: 16, fontWeight: '800', color: '#e6a817', marginBottom: 12 },
-  collectBtn: { backgroundColor: '#e6a817', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28, width: '100%', alignItems: 'center' },
+  resultId: { fontSize: 11, color: COLORS.subtext, marginBottom: 8 },
+  balanceWarning: { width: '100%', backgroundColor: COLORS.warnDeep, borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: COLORS.warn, marginTop: 8 },
+  balanceWarningText: { fontSize: 16, fontWeight: '800', color: COLORS.warn, marginBottom: 12 },
+  collectBtn: { backgroundColor: COLORS.warn, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28, width: '100%', alignItems: 'center' },
   collectBtnText: { fontSize: 16, fontWeight: '800', color: '#000' },
   balanceHint: { fontSize: 12, color: '#a16207', textAlign: 'center', marginTop: 2 },
   permText: { color: '#aaa', textAlign: 'center', marginBottom: 20, fontSize: 15, paddingHorizontal: 32 },
-  permBtn: { backgroundColor: '#2a7a5a', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 },
-  permBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  permBtn: { backgroundColor: COLORS.brand, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 },
+  permBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 16 },
 });

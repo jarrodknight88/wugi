@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { useSession } from '../context/SessionContext';
+import { COLORS } from '../constants/colors';
 import ScannerScreen from './ScannerScreen';
 import ManualLookupScreen from './ManualLookupScreen';
 import DashboardScreen from './DashboardScreen';
@@ -58,7 +59,7 @@ export default function MainTabs() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   screens: { flex: 1 },
   tabBar: {
     flexDirection: 'row', backgroundColor: '#111',
@@ -69,10 +70,10 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: 'center', paddingVertical: 10, position: 'relative',
   },
   tabIcon: { fontSize: 18, marginBottom: 2 },
-  tabLabel: { fontSize: 11, color: '#555', fontWeight: '500' },
-  tabLabelActive: { color: '#2a7a5a', fontWeight: '700' },
+  tabLabel: { fontSize: 11, color: COLORS.subtext, fontWeight: '500' },
+  tabLabelActive: { color: COLORS.brand, fontWeight: '700' },
   tabIndicator: {
     position: 'absolute', top: 0, left: '25%', right: '25%',
-    height: 2, backgroundColor: '#2a7a5a', borderRadius: 1,
+    height: 2, backgroundColor: COLORS.brand, borderRadius: 1,
   },
 });

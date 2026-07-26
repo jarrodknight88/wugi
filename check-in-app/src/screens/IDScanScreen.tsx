@@ -12,6 +12,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
 import { parseAAMVA, nameMatchScore, ParsedID } from '../utils/aamvaParser';
+import { COLORS } from '../constants/colors';
 
 export interface IDScanProps {
   ticketId: string;
@@ -260,9 +261,10 @@ export default function IDScanScreen({
       {(scanState === 'result' || scanState === 'saving' || scanState === 'error') && verification && parsedID && (
         <Animated.ScrollView style={[styles.resultPanel, { opacity: fadeAnim }]}
           contentContainerStyle={styles.resultContent}>
-          <View style={[styles.statusBadge, { backgroundColor: overallOk ? '#0d3d2a' : '#3d0d0d', borderColor: overallOk ? '#2a7a5a' : '#cc3333' }]}>
-            <Text style={[styles.statusIcon, { color: overallOk ? '#2a7a5a' : '#cc3333' }]}>{overallOk ? '✓' : '!'}</Text>
-            <Text style={[styles.statusLabel, { color: overallOk ? '#2a7a5a' : '#cc3333' }]}>{overallOk ? 'ID Verified' : 'Verification Issue'}</Text>
+          {/* 0d3d2a/3d0d0d are unique washes, not exact goDeep/stopDeep matches — left literal, see PR description */}
+          <View style={[styles.statusBadge, { backgroundColor: overallOk ? '#0d3d2a' : '#3d0d0d', borderColor: overallOk ? COLORS.go : COLORS.stop }]}>
+            <Text style={[styles.statusIcon, { color: overallOk ? COLORS.go : COLORS.stop }]}>{overallOk ? '✓' : '!'}</Text>
+            <Text style={[styles.statusLabel, { color: overallOk ? COLORS.go : COLORS.stop }]}>{overallOk ? 'ID Verified' : 'Verification Issue'}</Text>
           </View>
           <View style={styles.idCard}>
             <Row label="Name on ID" value={parsedID.fullName} />
@@ -301,7 +303,7 @@ export default function IDScanScreen({
               </TouchableOpacity>
             )}
             {overallOk && (
-              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: '#2a7a5a', flex: 2 }]}
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: COLORS.brand, flex: 2 }]}
                 onPress={saveAndContinue} disabled={saving}>
                 <Text style={styles.confirmBtnText}>{saving ? 'Saving…' : 'Confirm & Proceed'}</Text>
               </TouchableOpacity>
@@ -314,7 +316,7 @@ export default function IDScanScreen({
 }
 
 function Row({ label, value, highlight }: { label: string; value: string; highlight?: 'ok' | 'warn' }) {
-  const color = highlight === 'warn' ? '#e6a817' : highlight === 'ok' ? '#2a7a5a' : '#aaa';
+  const color = highlight === 'warn' ? COLORS.warn : highlight === 'ok' ? COLORS.go : '#aaa';
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
@@ -323,9 +325,10 @@ function Row({ label, value, highlight }: { label: string; value: string; highli
   );
 }
 function MatchBadge({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
+  // 1f0d0d has no exact stopDeep match — left literal, see PR description.
   return (
-    <View style={[styles.badge, { borderColor: ok ? '#2a7a5a' : '#cc3333', backgroundColor: ok ? '#0d1f16' : '#1f0d0d' }]}>
-      <Text style={[styles.badgeDetail, { color: ok ? '#2a7a5a' : '#cc3333' }]}>{detail}</Text>
+    <View style={[styles.badge, { borderColor: ok ? COLORS.go : COLORS.stop, backgroundColor: ok ? COLORS.goDeep : '#1f0d0d' }]}>
+      <Text style={[styles.badgeDetail, { color: ok ? COLORS.go : COLORS.stop }]}>{detail}</Text>
       <Text style={styles.badgeLabel}>{label}</Text>
     </View>
   );
@@ -335,61 +338,61 @@ function Warn({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   centered: { alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12, backgroundColor: '#111' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
-  skipText: { fontSize: 14, color: '#555', fontWeight: '600' },
-  instructionRow: { backgroundColor: '#161616', padding: 14, borderBottomWidth: 1, borderBottomColor: '#222' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text },
+  skipText: { fontSize: 14, color: COLORS.subtext, fontWeight: '600' },
+  instructionRow: { backgroundColor: COLORS.surface, padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
   instructionText: { fontSize: 13, color: '#888', textAlign: 'center' },
   camera: { flex: 1 },
   viewfinder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  corner: { position: 'absolute', width: 36, height: 22, borderColor: '#2a7a5a', borderWidth: 3 },
+  corner: { position: 'absolute', width: 36, height: 22, borderColor: COLORS.brand, borderWidth: 3 },
   tl: { top: '35%', left: '10%', borderRightWidth: 0, borderBottomWidth: 0 },
   tr: { top: '35%', right: '10%', borderLeftWidth: 0, borderBottomWidth: 0 },
   bl: { bottom: '35%', left: '10%', borderRightWidth: 0, borderTopWidth: 0 },
   br: { bottom: '35%', right: '10%', borderLeftWidth: 0, borderTopWidth: 0 },
-  hint: { color: '#2a7a5a', fontSize: 13, fontWeight: '500', marginTop: 60 },
+  hint: { color: COLORS.brand, fontSize: 13, fontWeight: '500', marginTop: 60 },
   resultPanel: { flex: 1 },
   resultContent: { padding: 20, paddingBottom: 40 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 14, borderWidth: 1.5, marginBottom: 16 },
   statusIcon: { fontSize: 28, fontWeight: '800' },
   statusLabel: { fontSize: 18, fontWeight: '700' },
-  idCard: { backgroundColor: '#161616', borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#222' },
+  idCard: { backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: COLORS.divider },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1e1e1e' },
-  rowLabel: { fontSize: 13, color: '#555' },
+  rowLabel: { fontSize: 13, color: COLORS.subtext },
   rowValue: { fontSize: 13, color: '#aaa', fontWeight: '600' },
   matchRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
   badge: { flex: 1, minWidth: 70, alignItems: 'center', padding: 10, borderRadius: 10, borderWidth: 1 },
   badgeDetail: { fontSize: 16, fontWeight: '800', marginBottom: 3 },
-  badgeLabel: { fontSize: 10, color: '#555', textAlign: 'center' },
-  warnBox: { backgroundColor: '#2a1a00', borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#e6a817' },
-  warnText: { color: '#e6a817', fontSize: 13, fontWeight: '600' },
+  badgeLabel: { fontSize: 10, color: COLORS.subtext, textAlign: 'center' },
+  warnBox: { backgroundColor: COLORS.warnDeep, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: COLORS.warn },
+  warnText: { color: COLORS.warn, fontSize: 13, fontWeight: '600' },
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  skipBtn: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
-  skipBtnText: { color: '#555', fontWeight: '600', fontSize: 14 },
+  skipBtn: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  skipBtnText: { color: COLORS.subtext, fontWeight: '600', fontSize: 14 },
   rescanBtn: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#1a1a2a', borderWidth: 1, borderColor: '#2a2a4a' },
-  rescanBtnText: { color: '#7c8aed', fontWeight: '600', fontSize: 14 },
-  refundBtn:     { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#2a1a1a', borderWidth: 1, borderColor: '#cc3333' },
-  refundBtnText: { color: '#cc3333', fontWeight: '700', fontSize: 14 },
+  rescanBtnText: { color: COLORS.info, fontWeight: '600', fontSize: 14 },
+  refundBtn:     { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: COLORS.stopDeep, borderWidth: 1, borderColor: COLORS.stop },
+  refundBtnText: { color: COLORS.stop, fontWeight: '700', fontSize: 14 },
   confirmBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
-  confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  confirmBtnText: { color: COLORS.text, fontWeight: '800', fontSize: 15 },
   permText: { color: '#aaa', textAlign: 'center', marginBottom: 20, fontSize: 15, paddingHorizontal: 32 },
-  permBtn: { backgroundColor: '#2a7a5a', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 },
-  permBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  doneIcon: { fontSize: 64, color: '#2a7a5a', marginBottom: 16 },
-  doneText: { fontSize: 22, fontWeight: '800', color: '#fff' },
+  permBtn: { backgroundColor: COLORS.brand, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 },
+  permBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 16 },
+  doneIcon: { fontSize: 64, color: COLORS.go, marginBottom: 16 },
+  doneText: { fontSize: 22, fontWeight: '800', color: COLORS.text },
   // Bypass modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modalBox: { backgroundColor: '#111', borderRadius: 18, padding: 24, width: '100%', borderWidth: 1, borderColor: '#e6a817' },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#e6a817', marginBottom: 4, textAlign: 'center' },
+  modalBox: { backgroundColor: '#111', borderRadius: 18, padding: 24, width: '100%', borderWidth: 1, borderColor: COLORS.warn },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: COLORS.warn, marginBottom: 4, textAlign: 'center' },
   modalAmount: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 16 },
   modalBody: { fontSize: 14, color: '#aaa', lineHeight: 20, marginBottom: 14, textAlign: 'center' },
-  modalWarningBox: { backgroundColor: '#2a1a00', borderRadius: 10, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: '#b45309' },
+  modalWarningBox: { backgroundColor: COLORS.warnDeep, borderRadius: 10, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: '#b45309' },
   modalWarningText: { fontSize: 13, color: '#fbbf24', lineHeight: 19 },
   modalActions: { flexDirection: 'row', gap: 10 },
-  modalCancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, backgroundColor: '#1a1a1a', alignItems: 'center', borderWidth: 1, borderColor: '#2a2a2a' },
+  modalCancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, backgroundColor: COLORS.card, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
   modalCancelText: { color: '#888', fontWeight: '700', fontSize: 14 },
   modalAcceptBtn: { flex: 2, paddingVertical: 13, borderRadius: 12, backgroundColor: '#b45309', alignItems: 'center' },
-  modalAcceptText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  modalAcceptText: { color: COLORS.text, fontWeight: '800', fontSize: 13 },
 });

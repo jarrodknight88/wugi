@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useSession, EventSession } from '../context/SessionContext';
+import { COLORS } from '../constants/colors';
 
 interface EventOption {
   id: string;
@@ -122,7 +123,7 @@ export default function SuperAdminEventSelector() {
     return (
       <TouchableOpacity style={styles.card} onPress={() => selectEvent(item)} activeOpacity={0.7}>
         <View style={styles.cardLeft}>
-          <View style={[styles.statusDot, { backgroundColor: upcoming ? '#2a7a5a' : '#444' }]} />
+          <View style={[styles.statusDot, { backgroundColor: upcoming ? COLORS.brand : '#444' }]} />
         </View>
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
@@ -162,7 +163,7 @@ export default function SuperAdminEventSelector() {
           <TextInput
             style={styles.searchInput}
             placeholder="Search event or venue…"
-            placeholderTextColor="#555"
+            placeholderTextColor={COLORS.subtext}
             value={query}
             onChangeText={setQuery}
             autoCorrect={false}
@@ -192,7 +193,7 @@ export default function SuperAdminEventSelector() {
       {/* Event list */}
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#2a7a5a" size="large" />
+          <ActivityIndicator color={COLORS.brand} size="large" />
           <Text style={styles.loadingText}>Loading events…</Text>
         </View>
       ) : (
@@ -221,39 +222,43 @@ export default function SuperAdminEventSelector() {
   );
 }
 
+// NOTE: superAdminBadge/toggleBtnActive/showAllLink and their text styles use
+// the same admin-purple family as DashboardScreen's Super Admin badge — real
+// chrome, not a pass colour, but no token in the given set covers it. Left
+// as literals; see PR description.
 const styles = StyleSheet.create({
-  container:        { flex: 1, backgroundColor: '#0a0a0a' },
+  container:        { flex: 1, backgroundColor: COLORS.bg },
   centered:         { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   header:           { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  headerTitle:      { fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 6 },
+  headerTitle:      { fontSize: 24, fontWeight: '800', color: COLORS.text, marginBottom: 6 },
   superAdminBadge:  { backgroundColor: '#7c3aed', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
-  superAdminText:   { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  superAdminText:   { color: COLORS.text, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   searchRow:        { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 10 },
-  searchInput:      { flex: 1, backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: '#fff', fontSize: 16, borderWidth: 1, borderColor: '#2a2a2a' },
+  searchInput:      { flex: 1, backgroundColor: COLORS.card, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: COLORS.text, fontSize: 16, borderWidth: 1, borderColor: COLORS.border },
   clearBtn:         { position: 'absolute', right: 12, padding: 4 },
-  clearBtnText:     { color: '#555', fontSize: 16 },
+  clearBtnText:     { color: COLORS.subtext, fontSize: 16 },
   toggleRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 },
-  toggleLabel:      { fontSize: 12, color: '#555' },
-  toggleBtn:        { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
+  toggleLabel:      { fontSize: 12, color: COLORS.subtext },
+  toggleBtn:        { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.card },
   toggleBtnActive:  { borderColor: '#7c3aed', backgroundColor: '#2d1f4d' },
-  toggleBtnText:    { fontSize: 12, fontWeight: '600', color: '#555' },
+  toggleBtnText:    { fontSize: 12, fontWeight: '600', color: COLORS.subtext },
   toggleBtnTextActive: { color: '#a78bfa' },
   list:             { paddingHorizontal: 16, paddingBottom: 40 },
-  card:             { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161616', borderRadius: 14, marginBottom: 10, borderWidth: 1, borderColor: '#222', padding: 16 },
+  card:             { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: 14, marginBottom: 10, borderWidth: 1, borderColor: COLORS.divider, padding: 16 },
   cardLeft:         { marginRight: 12 },
   statusDot:        { width: 10, height: 10, borderRadius: 5 },
   cardBody:         { flex: 1 },
-  cardTitle:        { fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 2 },
+  cardTitle:        { fontSize: 15, fontWeight: '700', color: COLORS.text, marginBottom: 2 },
   cardVenue:        { fontSize: 13, color: '#888', marginBottom: 2 },
-  cardDate:         { fontSize: 12, color: '#555' },
+  cardDate:         { fontSize: 12, color: COLORS.subtext },
   cardRight:        { alignItems: 'flex-end', gap: 6 },
-  soldBadge:        { fontSize: 11, fontWeight: '700', color: '#2a7a5a', backgroundColor: '#0d1f16', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  soldBadge:        { fontSize: 11, fontWeight: '700', color: COLORS.go, backgroundColor: COLORS.goDeep, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   arrow:            { fontSize: 22, color: '#333' },
-  loadingText:      { color: '#555', fontSize: 14, marginTop: 12 },
+  loadingText:      { color: COLORS.subtext, fontSize: 14, marginTop: 12 },
   emptyIcon:        { fontSize: 48, marginBottom: 12 },
-  emptyText:        { color: '#555', fontSize: 15, textAlign: 'center', paddingHorizontal: 32 },
+  emptyText:        { color: COLORS.subtext, fontSize: 15, textAlign: 'center', paddingHorizontal: 32 },
   showAllLink:      { marginTop: 16, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, borderWidth: 1, borderColor: '#7c3aed' },
   showAllLinkText:  { color: '#a78bfa', fontWeight: '600', fontSize: 14 },
-  logOutBtn:        { backgroundColor: '#2a1a1a', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cc3333', alignSelf: 'flex-start' },
-  logOutBtnText:    { color: '#cc3333', fontWeight: '700', fontSize: 14 },
+  logOutBtn:        { backgroundColor: COLORS.stopDeep, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.stop, alignSelf: 'flex-start' },
+  logOutBtnText:    { color: COLORS.stop, fontWeight: '700', fontSize: 14 },
 });
