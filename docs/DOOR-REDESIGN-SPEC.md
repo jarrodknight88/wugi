@@ -158,3 +158,68 @@ Options:
 - (c) Route every Door write through callables that enforce the role server-side, leaving rules read-only for `venue_staff`.
 
 (c) composes well with the hard server-side geofence on money and should be considered together with §2. Decision required before the auth phase is dispatched.
+
+---
+
+## 10. Write architecture — DECIDED (Jarrod, 2026-07-26): option (c)
+
+**All Door writes go through callables. Rules stay read-only for `venue_staff`.**
+
+```
+READS   direct Firestore, gated by canAccessVenue(venueId) in rules
+        (live listeners are required — dashboard capacity gauge, activity feed,
+         scanner. Callables cannot stream, so reads must stay direct.)
+
+WRITES  callables only. Each enforces, server-side:
+          1. authenticated uid
+          2. role + venueIds membership for the target venue
+          3. geofence (hard for money, soft/flagged for scans)
+```
+
+This puts every authorisation control in one place rather than splitting it between
+rules and functions, and it composes with the server-side geofence from §2.
+
+### Write inventory
+
+| Write | Today | Target |
+|---|---|---|
+| Check-in (`scanStatus`) | **direct client write** (ManualLookupScreen, ScannerScreen) | **NEW callable `checkInPass`** |
+| Door sale intent | `createTerminalPaymentIntent` | unchanged (already callable) |
+| Capture payment | `captureTerminalPayment` | unchanged + **hard geofence** |
+| Cancel / refund | `cancelDoorSale`, `refundDoorSale` | unchanged (staff-gated, PR #44) |
+| Tier colour scheme | dashboard only | **NEW callable `setTicketColorScheme`** |
+| Per-ticket colour override | — | **NEW callable `setPassColorOverride`** |
+| Shift start/end | — | **NEW callable `startShift` / `endShift`** (only if shift records are wanted) |
+
+### Offline check-in vs server-side writes — resolution
+
+These appear to conflict: the design mandates offline scan queueing, but a callable
+needs the network. They reconcile as **optimistic local + deferred callable**:
+
+1. Scan resolves against a locally cached pass list; UI shows success immediately
+   (the green flash must never wait on a round trip — velocity at the door).
+2. The intent is queued to AsyncStorage with `scanLat`/`scanLng` + a client timestamp.
+3. `checkInPass` fires on reconnect. Server validates role, venue, geofence, and
+   double-redemption at that point.
+4. Conflicts (already redeemed, out-of-area) surface as **review items**, never as a
+   retroactive denial to a guest already inside.
+
+Duplicate detection is inherently weaker offline. That is a property of offline mode,
+not of this architecture, and the design already accepts it.
+
+### Consequence for PR #70 (merged, undeployed)
+The merged rule uses `isStaff()`, which is Wugi-internal only. Under this architecture
+the `/passes` **list** rule should be:
+```
+allow list: if resource.data.userId == request.auth.uid
+            || canAccessVenue(resource.data.venueId);
+```
+and `/passes` **writes** should be closed to clients entirely (callable-only, via
+Admin SDK which bypasses rules). Follow-up task required; deploy still gated on
+Door shipping real accounts.
+
+### Build-lane note
+The auth rebuild (SignIn / VenueSelect / ShiftConfirm + callable migration + rules
+change) is **greenfield and cross-cutting** — per the operating manual §3 that is a
+**Claude Code cloud session**, not an Action dispatch. Scoped follow-ups (individual
+screen restyles, the rules fix, single callables) remain Action-sized.
