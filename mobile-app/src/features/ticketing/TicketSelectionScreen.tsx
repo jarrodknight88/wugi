@@ -11,6 +11,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import { safeNum, safeStr } from '../../utils/safeData';
 import { BackIcon } from '../../components/icons';
+import { logTicketViewed, logTicketAddedToCart } from '../../analytics/analyticsService';
 
 // ── Types ─────────────────────────────────────────────────────────────
 export type TicketType = {
@@ -36,6 +37,7 @@ export type TicketType = {
 type Props = {
   eventId: string;
   eventName: string;
+  venueId: string;
   venueName: string;
   eventDate: string;
   eventTime: string;
@@ -76,7 +78,7 @@ function centsToDisplay(cents: number): string {
 
 // ── Component ─────────────────────────────────────────────────────────
 export function TicketSelectionScreen({
-  eventId, eventName, venueName, eventDate, eventTime,
+  eventId, eventName, venueId, venueName, eventDate, eventTime,
   theme, onBack, onContinue,
 }: Props) {
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
@@ -85,6 +87,12 @@ export function TicketSelectionScreen({
   const [quantity,    setQuantity]    = useState(1);
   const [feeExpanded, setFeeExpanded] = useState(false);
   const feeAnim = useState(new Animated.Value(0))[0];
+
+  // ── ticket_viewed — fires once when this screen opens ────────────────
+  useEffect(() => {
+    logTicketViewed({ eventId, eventName, venueId, venueName });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Load ticket types ───────────────────────────────────────────────
   useEffect(() => {
@@ -147,6 +155,12 @@ export function TicketSelectionScreen({
 
   const handleContinue = () => {
     if (!selected) return;
+    logTicketAddedToCart({
+      eventId,
+      ticketType: selected.name,
+      quantity:   purchaseUnits,
+      value:      subtotal / 100,
+    });
     onContinue({
       eventId, eventName, venueName, eventDate, eventTime,
       // Send units charged (1 for a table). The display still shows the table's

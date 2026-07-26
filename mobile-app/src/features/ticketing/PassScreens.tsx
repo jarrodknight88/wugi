@@ -14,6 +14,7 @@ import { getPassStyle } from '../../utils/safeData';
 import { groupPassesByOrder, classifyPassGroup, mapPassDoc, isRenderablePassDoc } from '../../utils/passGrouping';
 import { PassGroupCard } from './PassGroupCard';
 import { BackIcon } from '../../components/icons';
+import { logPassViewed } from '../../analytics/analyticsService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -161,6 +162,13 @@ type PassViewerProps = {
 export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
   // ── Live pass doc listener — color updates instantly from dashboard ──
   const [livePass, setLivePass] = useState<PassData>(pass);
+
+  // ── pass_viewed — fires once when this pass is opened from MyPassesScreen ──
+  useEffect(() => {
+    logPassViewed({ eventId: pass.eventId ?? null, passId: pass.passId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     let unsub: (() => void) | null = null;
     async function subscribe() {

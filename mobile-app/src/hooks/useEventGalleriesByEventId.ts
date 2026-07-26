@@ -55,6 +55,7 @@ export function useEventGalleriesByEventId(eventId: string | null): {
           coverImage: g.coverImage || images[0] || '',
           photos,
           venueId: g.venueId || undefined,
+          eventId,
         });
         setLoading(false);
       } catch (e) {

@@ -57,6 +57,7 @@ export function useEventGallery(eventId: string | null): {
               date:       data.createdAt?.toDate?.()?.toLocaleDateString() || '',
               coverImage: photos[0]?.uri || '',
               photos,
+              eventId,
             })
             setLoading(false)
           }, () => setLoading(false))

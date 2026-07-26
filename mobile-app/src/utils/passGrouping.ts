@@ -41,6 +41,7 @@ export function mapPassDoc(d: any): PassData {
   return {
     orderId:              data.orderId || d.id,
     passId:               d.id,
+    eventId:              data.eventId || null,
     passNumber:           1,
     totalPasses:          1,
     ticketType:           typeKey,

@@ -501,6 +501,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       <TicketSelectionScreen
         eventId={current.eventId}
         eventName={current.eventName}
+        venueId={current.venueId}
         venueName={current.venueName}
         eventDate={current.eventDate}
         eventTime={current.eventTime}
@@ -591,6 +592,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             screen:    'ticketSelection',
             eventId:   current.event.id ?? '',
             eventName: current.event.title,
+            venueId:   current.event.venueId ?? '',
             venueName: eventVenueName,
             eventDate: current.event.date,
             eventTime: current.event.time,
@@ -623,6 +625,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
           screen:    'ticketSelection',
           eventId:   activeEvent.id,
           eventName: activeEvent.name,
+          venueId:   current.venue.id,
           venueName: current.venue.name,
           eventDate: activeEvent.date,
           eventTime: activeEvent.time,
