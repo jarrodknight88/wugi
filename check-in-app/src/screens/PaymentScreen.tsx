@@ -40,7 +40,7 @@ interface Props {
 type PaymentStep = 'details' | 'connecting' | 'collecting' | 'id_scan' | 'review' | 'processing' | 'success' | 'cancelled' | 'error';
 
 export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
-  const { session } = useSession();
+  const { session, setSession } = useSession();
   const { isReady, isConnecting, connectReader } = useTerminal();
   const { collectPaymentMethod, confirmPaymentIntent, cancelCollectPaymentMethod, retrievePaymentIntent } = useStripeTerminal();
 
@@ -292,9 +292,42 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
     onCancel();
   }
 
+  // Same pattern as the "Switch Event" control on DashboardScreen/ScannerScreen —
+  // routes back to SuperAdminEventSelector by resetting session to the sentinel state.
+  function handleSelectVenue() {
+    if (!session) return;
+    setSession({ ...session, eventId: '__super_admin__', eventName: 'All Events', venueName: 'Super Admin', venueId: '__super_admin__' });
+  }
+
   // ── Render ────────────────────────────────────────────────────────
   const isWalkin = mode.type === 'walkin';
   const guestName = holderName || (mode.type === 'balance' ? mode.holderName : '');
+
+  // No venue means there is no reader to connect to — a genuinely different
+  // state from "reader failed to connect". Checked before any payment step so
+  // the misleading retry-connection error can't be reached at all.
+  const noVenue = !session?.venueId || session.venueId === '__super_admin__';
+  if (noVenue) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Text style={styles.noVenueIcon}>🏢</Text>
+        <Text style={styles.noVenueTitle}>No Venue Selected</Text>
+        <Text style={styles.noVenueMsg}>
+          {session?.isSuperAdmin
+            ? 'Select a venue to take payments.'
+            : 'No venue is configured for this session. Contact support.'}
+        </Text>
+        {session?.isSuperAdmin && (
+          <TouchableOpacity style={styles.selectVenueBtn} onPress={handleSelectVenue}>
+            <Text style={styles.selectVenueBtnText}>Select Venue</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+          <Text style={styles.cancelBtnText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   // Review screen — shown after card tap, before ID scan/capture
   // Staff sees summary and confirms or cancels. Card authorized but NOT charged yet.
@@ -535,7 +568,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       })()}
 
       <Text style={styles.readerStatus}>
-        {isReady ? '🟢 Reader ready' : isConnecting ? '⏳ Connecting reader…' : '🔴 Reader not connected'}
+        {isReady ? '🟢 Reader ready' : isConnecting ? '⏳ Connecting reader…' : noVenue ? '🔵 No venue selected' : '🔴 Reader not connected'}
       </Text>
 
       <TouchableOpacity
@@ -594,6 +627,11 @@ const styles = StyleSheet.create({
   errorMsg: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 32, paddingHorizontal: 32 },
   retryBtn: { backgroundColor: COLORS.brand, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 12 },
   retryBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 16 },
+  noVenueIcon: { fontSize: 60, color: COLORS.info, marginBottom: 16 },
+  noVenueTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  noVenueMsg: { fontSize: 14, color: COLORS.subtext, textAlign: 'center', marginBottom: 32, paddingHorizontal: 32 },
+  selectVenueBtn: { backgroundColor: COLORS.brand, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 12 },
+  selectVenueBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 16 },
   cancelledIcon: { fontSize: 64, color: COLORS.subtext, marginBottom: 16 },
   cancelledTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
   cancelledSub: { fontSize: 14, color: COLORS.subtext, textAlign: 'center', paddingHorizontal: 32, marginBottom: 32, lineHeight: 20 },
