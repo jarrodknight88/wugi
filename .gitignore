@@ -38,3 +38,6 @@ scripts/backups/
 
 # Raw API capture (scripts/capture-raw.js) — large, regenerable from API credits
 data/raw/
+
+# local run logs
+logs/
