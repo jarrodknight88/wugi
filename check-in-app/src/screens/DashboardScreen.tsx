@@ -1,4 +1,11 @@
-import React, { useState, useEffect } from 'react';
+// ─────────────────────────────────────────────────────────────────────
+// DashboardScreen — capacity gauge + activity feed, per
+// docs/DOOR-REDESIGN-SPEC.md §6 ("Dashboard: restyle + capacity gauge").
+// System font only — PP Neue Montreal is not yet an approved dependency.
+// No expo-haptics / expo-av in this build; see TODOs below for the spots
+// that want them once approved.
+// ─────────────────────────────────────────────────────────────────────
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Alert, Modal,
@@ -6,6 +13,9 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
 import { COLORS, PASS_FALLBACK } from '../constants/colors';
+import CapacityCard from '../components/CapacityCard';
+import RecentActivityList, { ActivityItem } from '../components/RecentActivityList';
+import SellSheet, { SellableType } from '../components/SellSheet';
 
 const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
@@ -15,14 +25,39 @@ interface TicketTypeStat {
   color: string; price: number; remaining: number;
 }
 
-export default function DashboardScreen() {
+// Builds the live activity feed from a pass query snapshot's docs. Only
+// 'success' items are ever produced today — see RecentActivityList.tsx for
+// why denials can't be populated yet.
+function buildRecentActivity(docs: any[]): ActivityItem[] {
+  return docs
+    .filter(d => d.data().scanStatus === 'scanned' && !!d.data().scannedAt?.toDate)
+    .map(d => ({
+      id: d.id,
+      name: d.data().holderName || 'Guest',
+      tier: d.data().ticketTypeName || '',
+      at: d.data().scannedAt.toDate() as Date,
+      status: 'success' as const,
+    }))
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 8);
+}
+
+interface Props {
+  /** Wired up by MainTabs once it owns real tab switching — see PR notes. */
+  onScanPress?: () => void;
+  onLookupPress?: () => void;
+}
+
+export default function DashboardScreen({ onScanPress, onLookupPress }: Props = {}) {
   const { session, clearSession, setSession } = useSession();
   const [totalTickets, setTotalTickets]     = useState(0);
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [balanceDueCount, setBalanceDueCount] = useState(0);
   const [typeStats, setTypeStats]           = useState<TicketTypeStat[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
   const [lastUpdated, setLastUpdated]       = useState<Date>(new Date());
   const [paymentMode, setPaymentMode]       = useState<PaymentMode | null>(null);
+  const [sellSheetVisible, setSellSheetVisible] = useState(false);
 
   // Live ticket stats — venue event OR super admin aggregate
   useEffect(() => {
@@ -33,11 +68,11 @@ export default function DashboardScreen() {
       const unsub = firestore()
         .collection('passes')
         .onSnapshot(snap => {
-          const docs = snap.docs.map(d => d.data() as any);
-          const active = docs.filter(d => d.source !== 'door');
+          const active = snap.docs.filter(d => d.data().source !== 'door');
           setTotalTickets(active.length);
-          setCheckedInCount(active.filter(d => d.scanStatus === 'scanned').length);
-          setBalanceDueCount(active.filter(d => (d.balanceDue ?? 0) > 0).length);
+          setCheckedInCount(active.filter(d => d.data().scanStatus === 'scanned').length);
+          setBalanceDueCount(active.filter(d => (d.data().balanceDue ?? 0) > 0).length);
+          setRecentActivity(buildRecentActivity(active));
           setLastUpdated(new Date());
         }, () => {});
       return unsub;
@@ -49,10 +84,10 @@ export default function DashboardScreen() {
       .where('eventId', '==', session.eventId)
       .where('source', '!=', 'door')
       .onSnapshot(snap => {
-        const docs = snap.docs.map(d => d.data() as any);
-        setTotalTickets(docs.length);
-        setCheckedInCount(docs.filter(d => d.scanStatus === 'scanned').length);
-        setBalanceDueCount(docs.filter(d => (d.balanceDue ?? 0) > 0).length);
+        setTotalTickets(snap.docs.length);
+        setCheckedInCount(snap.docs.filter(d => d.data().scanStatus === 'scanned').length);
+        setBalanceDueCount(snap.docs.filter(d => (d.data().balanceDue ?? 0) > 0).length);
+        setRecentActivity(buildRecentActivity(snap.docs));
         setLastUpdated(new Date());
       }, () => {});
     return unsub;
@@ -79,7 +114,16 @@ export default function DashboardScreen() {
   }, [session]);
 
   const remaining = totalTickets - checkedInCount;
-  const pct = totalTickets > 0 ? (checkedInCount / totalTickets) * 100 : 0;
+
+  // Event capacity, derived from the ticket-type schema (sum of
+  // ticketTypes[].capacity) rather than a dedicated field — none exists.
+  // Unavailable for super-admin aggregate mode or events with no ticket
+  // types configured; CapacityCard degrades to count-only in that case.
+  const totalCapacity = useMemo(() => {
+    if (session?.isSuperAdmin || typeStats.length === 0) return null;
+    const sum = typeStats.reduce((acc, t) => acc + (t.total || 0), 0);
+    return sum > 0 ? sum : null;
+  }, [typeStats, session?.isSuperAdmin]);
 
   function handleLogOut() {
     Alert.alert('Log Out', 'Return to PIN entry screen?', [
@@ -93,6 +137,30 @@ export default function DashboardScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'End Session', style: 'destructive', onPress: clearSession },
     ]);
+  }
+
+  function handleScanPress() {
+    // TODO(haptics): light impact on press once expo-haptics is approved.
+    // MainTabs owns real tab switching and isn't touched by this task —
+    // it can pass a real onScanPress once it's ready (see PR notes).
+    if (onScanPress) onScanPress();
+    else Alert.alert('Scan', 'Tap the Scan tab below to check in a ticket.');
+  }
+
+  function handleLookupPress() {
+    if (onLookupPress) onLookupPress();
+    else Alert.alert('Look Up', 'Tap the Lookup tab below to find a guest by name.');
+  }
+
+  function handleSell(type: SellableType) {
+    setSellSheetVisible(false);
+    setPaymentMode({
+      type: 'walkin',
+      ticketTypeName: type.name,
+      ticketTypeId: type.id,
+      price: type.price,
+      color: type.color,
+    });
   }
 
   return (
@@ -110,10 +178,16 @@ export default function DashboardScreen() {
         })()}
       </Modal>
 
+      <SellSheet
+        visible={sellSheetVisible}
+        types={typeStats}
+        onSelect={handleSell}
+        onClose={() => setSellSheetVisible(false)}
+      />
+
       {/* Header */}
       <View style={styles.headerRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Dashboard</Text>
           <Text style={styles.subtitle}>{session?.eventName}</Text>
           <Text style={styles.venue}>{session?.venueName} · {session?.date}</Text>
           {session?.isSuperAdmin && (
@@ -146,21 +220,8 @@ export default function DashboardScreen() {
         )}
       </View>
 
-      {/* Stat cards */}
-      <View style={styles.statsRow}>
-        <View style={[styles.statCard, styles.statGreen]}>
-          <Text style={styles.statNum}>{checkedInCount}</Text>
-          <Text style={styles.statLabel}>Checked In</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNum}>{remaining}</Text>
-          <Text style={styles.statLabel}>Remaining</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNum}>{totalTickets}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </View>
-      </View>
+      {/* Capacity gauge — hero */}
+      <CapacityCard checkedIn={checkedInCount} capacity={totalCapacity} />
 
       {/* Balance due warning */}
       {balanceDueCount > 0 && (
@@ -169,43 +230,38 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Progress bar */}
-      <View style={styles.progressWrap}>
-        <View style={styles.progressBg}>
-          <View style={[styles.progressFill, { width: `${pct}%` as any }]} />
-        </View>
-        <Text style={styles.progressPct}>{Math.round(pct)}% checked in</Text>
+      {/* Primary action */}
+      <TouchableOpacity style={styles.primaryBtn} onPress={handleScanPress} activeOpacity={0.85}>
+        <Text style={styles.primaryBtnText}>Scan ticket / QR check-in</Text>
+      </TouchableOpacity>
+
+      {/* Secondary actions */}
+      <View style={styles.secondaryRow}>
+        <TouchableOpacity style={styles.secondaryTile} onPress={() => setSellSheetVisible(true)} activeOpacity={0.8}>
+          <Text style={styles.secondaryTileIcon}>💳</Text>
+          <Text style={styles.secondaryTileLabel}>Sell / Tap to Pay</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryTile} onPress={handleLookupPress} activeOpacity={0.8}>
+          <Text style={styles.secondaryTileIcon}>🔍</Text>
+          <Text style={styles.secondaryTileLabel}>Look up / By name</Text>
+        </TouchableOpacity>
       </View>
 
+      {/* Recent activity */}
+      <RecentActivityList items={recentActivity} />
+
       {/* Ticket type breakdown — venue only */}
-      {!session?.isSuperAdmin && (
+      {!session?.isSuperAdmin && typeStats.length > 0 && (
         <>
           <Text style={styles.sectionTitle}>Ticket Types</Text>
           {typeStats.map(stat => (
             <View key={stat.id} style={styles.typeRow}>
               <View style={[styles.typeAccent, { backgroundColor: stat.color }]} />
               <View style={styles.typeBody}>
-                <View style={styles.typeTop}>
-                  <View>
-                    <Text style={styles.typeName}>{stat.name}</Text>
-                    <Text style={styles.typeSub}>
-                      {stat.remaining} left · ${(stat.price / 100).toFixed(2)}
-                    </Text>
-                  </View>
-                  {stat.remaining > 0 && (
-                    <TouchableOpacity
-                      style={[styles.doorSaleBtn, { backgroundColor: stat.color }]}
-                      onPress={() => setPaymentMode({
-                        type: 'walkin',
-                        ticketTypeName: stat.name,
-                        ticketTypeId: stat.id,
-                        price: stat.price,
-                        color: stat.color,
-                      })}>
-                      <Text style={styles.doorSaleBtnText}>💳 Door Sale</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                <Text style={styles.typeName}>{stat.name}</Text>
+                <Text style={styles.typeSub}>
+                  {stat.remaining} left · ${(stat.price / 100).toFixed(2)}
+                </Text>
                 <View style={styles.typeBarBg}>
                   <View style={[styles.typeBarFill, {
                     width: `${stat.total > 0 ? ((stat.total - stat.remaining) / stat.total) * 100 : 0}%` as any,
@@ -236,32 +292,28 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   content: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 60 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
-  title: { fontSize: 26, fontWeight: '800', color: COLORS.text },
-  subtitle: { fontSize: 15, color: '#aaa', marginTop: 2 },
-  venue: { fontSize: 12, color: COLORS.subtext, marginTop: 1 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  subtitle: { fontSize: 17, fontWeight: '700', color: COLORS.text },
+  venue: { fontSize: 12, color: COLORS.subtext, marginTop: 2 },
   endBtn: { backgroundColor: COLORS.stopDeep, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.stop },
   endBtnText: { color: COLORS.stop, fontWeight: '700', fontSize: 14 },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  statCard: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: COLORS.divider },
-  statGreen: { borderColor: COLORS.brand, backgroundColor: COLORS.card2 },
-  statNum: { fontSize: 32, fontWeight: '800', color: COLORS.text },
-  statLabel: { fontSize: 11, color: '#888', marginTop: 4 },
-  balanceCard: { backgroundColor: COLORS.warnDeep, borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: COLORS.warn },
+  balanceCard: { backgroundColor: COLORS.warnDeep, borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: COLORS.warn },
   balanceCardText: { color: COLORS.warn, fontWeight: '700', fontSize: 14 },
-  progressWrap: { marginBottom: 28 },
-  progressBg: { height: 8, backgroundColor: COLORS.card, borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
-  progressFill: { height: '100%', backgroundColor: COLORS.brand, borderRadius: 4 },
-  progressPct: { fontSize: 12, color: COLORS.subtext, textAlign: 'right' },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 14 },
+  primaryBtn: { backgroundColor: COLORS.brand, borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginBottom: 12 },
+  primaryBtnText: { color: COLORS.onBrand, fontWeight: '800', fontSize: 17 },
+  secondaryRow: { flexDirection: 'row', gap: 10, marginBottom: 24 },
+  secondaryTile: {
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.divider,
+    paddingVertical: 16, alignItems: 'center', gap: 6,
+  },
+  secondaryTileIcon: { fontSize: 20 },
+  secondaryTileLabel: { fontSize: 13, fontWeight: '700', color: COLORS.text, textAlign: 'center' },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 14, marginTop: 8 },
   typeRow: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: 14, marginBottom: 10, borderWidth: 1, borderColor: COLORS.divider, overflow: 'hidden' },
   typeAccent: { width: 5 },
   typeBody: { flex: 1, padding: 14 },
-  typeTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   typeName: { fontSize: 15, fontWeight: '600', color: COLORS.text },
-  typeSub: { fontSize: 12, color: '#888', marginTop: 2 },
-  doorSaleBtn: { borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14 },
-  doorSaleBtnText: { color: COLORS.text, fontWeight: '800', fontSize: 13 },
+  typeSub: { fontSize: 12, color: COLORS.subtext, marginTop: 2, marginBottom: 10 },
   typeBarBg: { height: 5, backgroundColor: COLORS.card2, borderRadius: 3, overflow: 'hidden' },
   typeBarFill: { height: '100%', borderRadius: 3 },
   updated: { fontSize: 11, color: '#333', textAlign: 'center', marginTop: 24 },
