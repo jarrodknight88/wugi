@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
   endBtnText: { color: COLORS.stop, fontWeight: '700', fontSize: 14 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
   statCard: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: COLORS.divider },
-  statGreen: { borderColor: COLORS.go, backgroundColor: COLORS.goDeep },
+  statGreen: { borderColor: COLORS.brand, backgroundColor: COLORS.card2 },
   statNum: { fontSize: 32, fontWeight: '800', color: COLORS.text },
   statLabel: { fontSize: 11, color: '#888', marginTop: 4 },
   balanceCard: { backgroundColor: COLORS.warnDeep, borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: COLORS.warn },
