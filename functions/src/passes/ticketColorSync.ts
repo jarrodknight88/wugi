@@ -5,11 +5,22 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { buildPassBuffer, getPrimaryPassId } from './generatePass';
+import { runWithConcurrency, scheduleRebuild, REBUILD_POOL_CONCURRENCY } from './passRebuildQueue';
 
 const db      = admin.firestore();
 const storage = admin.storage();
 
-export const onTicketColorChange = functions.firestore
+// `ticketId` here is the Firestore doc ID of a single events/{eventId}/tickets/{ticketId}
+// doc — a per-guest door ticket (holderName/holderEmail/balanceDue/checkedIn are
+// per-person fields, and every walk-in mints a brand-new doc via .doc()/addDoc,
+// never reused across guests of the same tier — the tier itself lives in the
+// separate ticketTypes subcollection). So a single ticketId can never fan out to
+// the "200 sold on this tier" truncation scenario; .limit(5) is a defensive cap,
+// not a silent-data-loss bug, and is intentionally left in place. The warning
+// below flags it if that assumption is ever violated in practice.
+export const onTicketColorChange = functions
+  .runWith({ maxInstances: 10 })
+  .firestore
   .document('events/{eventId}/tickets/{ticketId}')
   .onUpdate(async (change, context) => {
     const before = change.before.data();
@@ -32,17 +43,31 @@ export const onTicketColorChange = functions.firestore
         .limit(5)
         .get();
 
+      if (ordersSnap.size >= 5) {
+        functions.logger.warn(
+          'onTicketColorChange: orders query hit the .limit(5) cap — ticketId is expected ' +
+          'to be per-order, so this many matches is unexpected. Verify before trusting propagation:',
+          eventId, ticketId,
+        );
+      }
+
       if (ordersSnap.empty) {
         // Also try looking up by the ticket's orderId field
         const orderId = after.orderId;
         if (!orderId) return;
-        await regenerateAndPush(orderId, after);
+        await scheduleRebuild(orderId, after, regenerateAndPush);
         return;
       }
 
-      for (const orderDoc of ordersSnap.docs) {
-        await regenerateAndPush(orderDoc.id, { ...orderDoc.data(), color: after.color });
-      }
+      // Bounded-concurrency pool rather than a sequential for-await (slow)
+      // or an unbounded Promise.all (a rebuild storm under rotate-all).
+      // scheduleRebuild debounces so several colour edits to the same order
+      // within a few seconds coalesce into one rebuild.
+      await runWithConcurrency(
+        ordersSnap.docs,
+        (orderDoc) => scheduleRebuild(orderDoc.id, { ...orderDoc.data(), color: after.color }, regenerateAndPush),
+        REBUILD_POOL_CONCURRENCY,
+      );
     } catch (e) {
       functions.logger.error('onTicketColorChange error:', e);
     }
