@@ -9,6 +9,7 @@ import { sendDoorSaleReceiptSMS, sendBalancePaidSMS } from '../sms/smsService';
 import { verifyStaffPin, isManagerOrAbove } from '../door/staffAuth';
 import { logDoorSecurityEvent } from '../door/auditLog';
 import { SUPER_ADMIN_SECRETS } from '../door/validateSuperAdminPin';
+import { GEOFENCE_RADIUS_METERS, extractVenueLatLng, haversineMeters } from '../door/geofence';
 
 const db = admin.firestore();
 
@@ -134,6 +135,12 @@ export const createTerminalPaymentIntent = functions
 // Called after the Terminal SDK confirms the payment.
 // Applies 12% booking fee, transfers venue payout via Stripe Connect,
 // updates Firestore tickets, writes payment record.
+//
+// Geofence is HARD here (unlike checkInPass's soft geofence): the device
+// is online by definition while capturing a payment, so there's no
+// offline excuse, and money — not just a scan — is on the line. Missing
+// or unparseable device coords reject just like out-of-range ones; an
+// absent location must never be a bypass.
 export const captureTerminalPayment = functions
   .runWith({ secrets: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER'] })
   .https.onCall(async (data: {
@@ -142,6 +149,8 @@ export const captureTerminalPayment = functions
     eventId: string;
     venueId: string;
     amountCents: number;
+    scanLat?: number;
+    scanLng?: number;
     newTicketData?: {
       holderName: string; holderEmail: string; holderPhone?: string;
       ticketTypeId: string; ticketTypeName: string;
@@ -156,7 +165,33 @@ export const captureTerminalPayment = functions
   }, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Auth required');
 
-    const { paymentIntentId, ticketId, eventId, venueId, amountCents, newTicketData, idScanData } = data;
+    const { paymentIntentId, ticketId, eventId, venueId, amountCents, scanLat, scanLng, newTicketData, idScanData } = data;
+
+    // Look up venue for Stripe Connect account ID + geofence origin. Fetched
+    // up front (before any Stripe call) so a geofence rejection never even
+    // touches the payment intent.
+    const venueSnap = await db.collection('venues').doc(venueId).get();
+    const venueData = venueSnap.data();
+    const stripeConnectAccountId: string = venueData?.stripeConnectAccountId || '';
+
+    // Missing venue location is a data problem, not a staff problem — reject
+    // with a distinct error code so the UI can say "venue location not
+    // configured" instead of blaming the staffer standing at the venue.
+    const venueCoords = extractVenueLatLng(venueData?.location);
+    if (!venueCoords) {
+      functions.logger.error(`captureTerminalPayment: venue ${venueId} has no usable location`, { venueId, paymentIntentId });
+      throw new functions.https.HttpsError('unavailable', 'Venue location not configured — contact support to enable payments at this venue.');
+    }
+
+    // Missing/unparseable device coords must not be a bypass — reject same as out-of-range.
+    if (typeof scanLat !== 'number' || typeof scanLng !== 'number') {
+      throw new functions.https.HttpsError('failed-precondition', 'You must be at the venue to take payment.');
+    }
+
+    const distanceMeters = haversineMeters(scanLat, scanLng, venueCoords.lat, venueCoords.lng);
+    if (distanceMeters > GEOFENCE_RADIUS_METERS) {
+      throw new functions.https.HttpsError('failed-precondition', 'You must be at the venue to take payment.');
+    }
 
     // Retrieve PI — for manual capture it should be 'requires_capture'
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -170,10 +205,6 @@ export const captureTerminalPayment = functions
     if (pi.status === 'requires_capture') {
       await stripe.paymentIntents.capture(paymentIntentId);
     }
-
-    // Look up venue for Stripe Connect account ID
-    const venueSnap = await db.collection('venues').doc(venueId).get();
-    const stripeConnectAccountId: string = venueSnap.data()?.stripeConnectAccountId || '';
 
     // Calculate booking fee (12%, min $1.99, max $100)
     const bookingFeeCents = calculateBookingFee(amountCents);
@@ -301,6 +332,13 @@ export const captureTerminalPayment = functions
       chargeId,
       // ID scan evidence stored with payment for chargeback disputes
       idVerification: idScanData || null,
+      // Geofence evidence for chargeback/friendly-fraud disputes — proves the
+      // device (and therefore staff) was physically at the venue when the
+      // charge was captured. Only ever written once the hard geofence above
+      // has already passed.
+      scanLat,
+      scanLng,
+      distanceMeters,
       createdAt: now,
     });
 
