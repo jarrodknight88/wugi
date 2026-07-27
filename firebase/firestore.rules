@@ -343,7 +343,36 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ── Editorial (Discover tab) ─────────────────────────────────────
+    // Wugi-authored public content (itineraries, neighborhood guides,
+    // photographer features, deals) surfaced on the unauthenticated-
+    // browsable Discover tab. Public read like venues/events; writes are
+    // Wugi editorial staff only (NOT canWriteVenue() — these are not
+    // venue-owned documents).
+    match /itineraries/{itineraryId} {
+      allow read:  if true;  // public
+      allow write: if isStaff();
+    }
+    match /neighborhoodGuides/{guideId} {
+      allow read:  if true;  // public
+      allow write: if isStaff();
+    }
+    match /photographerFeatures/{featureId} {
+      allow read:  if true;  // public
+      allow write: if isStaff();
+    }
+    match /deals/{dealId} {
+      allow read:  if true;  // public
+      allow write: if isStaff();
+    }
+
     // ── Catch-all ────────────────────────────────────────────────────
+    // Collections still relying on this fallback (isAuth()-gated read, no
+    // write) rather than an explicit match block of their own: `photos`
+    // and `galleries` (legacy top-level names exercised by the S3/S4/S6
+    // sanity checks in tools/rules-test/test.js — the real photo docs live
+    // under eventGalleries/{galleryId}/photos, which has its own rule
+    // above). Any other undeclared collection also falls through here.
     match /{document=**} {
       allow read:  if isAuth();
       allow write: if false;

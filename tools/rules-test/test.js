@@ -53,6 +53,9 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
     // Venue-scoped passes for the canAccessVenue() list tests (Asana 1216889041040300).
     await setDoc(doc(db, 'passes/pgtest-pass-venue-a'), { userId: 'pgtest-venue-a-guest', eventId: 'pgtest-evt-a', venueId: 'pgtest-venue-a' });
     await setDoc(doc(db, 'passes/pgtest-pass-venue-b'), { userId: 'pgtest-venue-b-guest', eventId: 'pgtest-evt-b', venueId: 'pgtest-venue-b' });
+    // Editorial Discover-tab content (Asana 1216918520075279 — catch-all denial fix).
+    await setDoc(doc(db, 'itineraries/pgtest-itin'), { title: 'Decatur Saturday' });
+    await setDoc(doc(db, 'deals/pgtest-deal'), { title: '2-for-1' });
   });
 
   const results = [];
@@ -104,6 +107,19 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
   await run('P5', 'venue staff lists passes for THEIR venue (venueId in venueIds())', 'allow', getDocs(passesByVenue(venueStaffDb, 'pgtest-venue-a')));
   await run('P6', 'venue staff lists passes for ANOTHER venue (not in venueIds())', 'deny', getDocs(passesByVenue(venueStaffDb, 'pgtest-venue-b')));
   await run('P7', 'anonymous (unauthenticated) lists passes', 'deny', getDocs(passesByVenue(anonDb, 'pgtest-venue-a')));
+
+  // ── Editorial (Discover tab — Asana 1216918520075279) ──
+  // itineraries/neighborhoodGuides/photographerFeatures/deals previously had
+  // no match block and fell through to the isAuth()-gated catch-all, so an
+  // unauthenticated Discover-tab load got permission-denied on every read
+  // and getEditorialShelves() silently returned [] (try/catch swallowed it).
+  await run('E1', 'unauth read itinerary (public)', 'allow', getDoc(doc(anonDb,'itineraries/pgtest-itin')));
+  await run('E2', 'unauth read deal (public)', 'allow', getDoc(doc(anonDb,'deals/pgtest-deal')));
+  await run('E3', 'unauth write itinerary', 'deny', setDoc(doc(anonDb,'itineraries/pgtest-itin'), { title: 'hacked' }));
+  await run('E4', 'unauth write deal', 'deny', setDoc(doc(anonDb,'deals/pgtest-deal'), { title: 'hacked' }));
+  await run('E5', 'staff write itinerary', 'allow', setDoc(doc(staffDb,'itineraries/pgtest-itin'), { title: 'Decatur Saturday (updated)' }));
+  await run('E6', 'staff write deal', 'allow', setDoc(doc(staffDb,'deals/pgtest-deal'), { title: '2-for-1 (updated)' }));
+  await run('E7', 'non-staff auth write itinerary', 'deny', setDoc(doc(ownerDb,'itineraries/pgtest-itin'), { title: 'hacked-by-user' }));
 
   // ── Sanity (existing collections / catch-all intact) ──
   await run('S1', 'unauth read events (public)', 'allow', getDoc(doc(anonDb,'events/anyid')));
