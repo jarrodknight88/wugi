@@ -25,9 +25,35 @@ function metersToMiles(meters: number): string {
   return `${miles.toFixed(1)} mile${miles.toFixed(1) === '1.0' ? '' : 's'} away`;
 }
 
+export type CoordResult =
+  | { status: 'ok'; lat: number; lng: number }
+  | { status: 'permission_denied' }
+  | { status: 'unavailable' };
+
 export function useLocationCheck() {
   const [checking, setChecking] = useState(false);
   const [error, setError]       = useState<string | null>(null);
+
+  // Raw coord getter — no distance check, no DEV bypass. Callers that need
+  // to send coords to a server-side geofence (e.g. captureTerminalPayment)
+  // must get a real reading every time, since an absent/faked coord would
+  // otherwise be indistinguishable from a bypass attempt server-side.
+  async function getCurrentCoords(): Promise<CoordResult> {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        return { status: 'permission_denied' };
+      }
+
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      return { status: 'ok', lat: pos.coords.latitude, lng: pos.coords.longitude };
+    } catch (e) {
+      return { status: 'unavailable' };
+    }
+  }
 
   async function verifyAtVenue(
     venueLat: number,
@@ -76,5 +102,5 @@ export function useLocationCheck() {
     }
   }
 
-  return { verifyAtVenue, checking, error, setError };
+  return { verifyAtVenue, getCurrentCoords, checking, error, setError };
 }
