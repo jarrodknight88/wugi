@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
   cardVenue:        { fontSize: 13, color: '#888', marginBottom: 2 },
   cardDate:         { fontSize: 12, color: COLORS.subtext },
   cardRight:        { alignItems: 'flex-end', gap: 6 },
-  soldBadge:        { fontSize: 11, fontWeight: '700', color: COLORS.go, backgroundColor: COLORS.goDeep, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  soldBadge:        { fontSize: 11, fontWeight: '700', color: COLORS.brand, backgroundColor: COLORS.card2, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: COLORS.brand },
   arrow:            { fontSize: 22, color: '#333' },
   loadingText:      { color: COLORS.subtext, fontSize: 14, marginTop: 12 },
   emptyIcon:        { fontSize: 48, marginBottom: 12 },
