@@ -1,18 +1,25 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type StaffRole = 'door' | 'manager' | 'super_admin';
+// Mirrors WugiRole in dashboard/context/AuthContext.tsx and the role
+// provisioned via dashboard/app/dashboard/users/page.tsx.
+export type StaffRole =
+  | 'super_admin' | 'moderator' | 'support'
+  | 'venue_admin' | 'venue_staff'
+  | 'event_admin' | 'event_staff';
 
 export interface EventSession {
   eventId: string;
   eventName: string;
   venueName: string;
   venueId: string;
-  venueLatitude: number;
-  venueLongitude: number;
   date: string;
   role: StaffRole;
+  // Deprecated — PIN auth is retired (docs/DOOR-REDESIGN-SPEC.md §1), always ''.
+  // Kept only because PaymentScreen/ScannerScreen/TransactionsScreen/IDScanScreen
+  // still read session.pin for cancelDoorSale/refundDoorSale and audit stamps;
+  // moving those off PIN-based staff verification is a separate follow-up task.
   pin: string;
-  isSuperAdmin?: boolean;  // bypasses geofence and works across all events
+  isSuperAdmin?: boolean;  // role === 'super_admin' — sees all venues, bypasses geofence
 }
 
 interface SessionContextType {
