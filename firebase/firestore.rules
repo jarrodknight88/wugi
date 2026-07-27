@@ -264,17 +264,31 @@ service cloud.firestore {
         request.auth.uid == resource.data.userId  // single doc read
         || isStaff()
       );
-      // List queries must be owner- or staff-scoped, mirroring the read rule above.
+      // List queries must be owner- or venue-scoped, mirroring the read rule above.
       // isAuth() alone is NOT sufficient: Firestore does not enforce a client's
       // where() clause — it only filters the result set per-document against
       // this rule, so a broad isAuth() grant lets any authenticated user query
       // other users' pass docs directly (QR/redemption payload exposure).
+      // NOTE: isStaff() (Wugi-internal: super_admin/moderator/support) is the
+      // WRONG primitive here — it grants nothing to venue door staff and would
+      // over-grant across venues if it did (a Teranga door person must not be
+      // able to list Prime on Peachtree's passes). canAccessVenue() is the
+      // venue-scoped primitive (it still includes isStaff() as a bypass for
+      // Wugi-internal roles) — see docs/DOOR-REDESIGN-SPEC.md §1/§10.
       allow list: if isAuth() && (
         request.auth.uid == resource.data.userId
-        || isStaff()
+        || canAccessVenue(resource.data.venueId)
       );
       // Cloud Functions own all writes EXCEPT:
-      // Dashboard staff can update check-in status and pass color
+      // Dashboard staff (isStaff() = Wugi-internal, real accounts) can update
+      // check-in status and pass color directly — used by
+      // dashboard/app/dashboard/events/[eventId]/checkin/page.tsx.
+      // This does NOT serve Door: venue_admin/venue_staff were never in
+      // isStaff(), and Door's anonymous-auth session has no users/{uid} doc,
+      // so isStaff() is false regardless. Per docs/DOOR-REDESIGN-SPEC.md §10
+      // (write architecture, decided), ALL Door writes go through callables
+      // on the Admin SDK (see functions/src/door/checkInPass.ts) instead of
+      // this rule — so there is no Door-only client write path here to close.
       allow update: if isStaff() && request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['scanStatus','scannedAt','scannedBy','passColor','updatedAt',
                   'depositPaid','balanceDue','tableAssignment']);
