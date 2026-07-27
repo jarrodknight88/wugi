@@ -8,7 +8,10 @@ import {
   RefreshControl, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useSession } from '../context/SessionContext';
+import { useLocationCheck } from '../hooks/useLocationCheck';
+import { generateIdempotencyKey } from '../utils/idempotencyKey';
 import { COLORS, PASS_FALLBACK } from '../constants/colors';
 
 
@@ -243,6 +246,7 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, venueTables, e
 
 export default function ManualLookupScreen() {
   const { session } = useSession();
+  const { getCurrentCoords } = useLocationCheck();
   const [query, setQuery]             = useState('');
   const [results, setResults]         = useState<Ticket[]>([]);
   const [loading, setLoading]         = useState(false);
@@ -336,17 +340,15 @@ export default function ManualLookupScreen() {
 
   async function handleSearch() {
     if (!query.trim() || !session) return;
+    // Scoped to the current event — an unscoped collection('passes').get()
+    // is exactly the query the merged /passes rule denies (see issue #110).
+    if (!session.eventId || session.eventId === '__super_admin__') return;
     setLoading(true); setSearched(true);
     setSelected(new Set()); setMultiSelect(false);
     try {
       const q = query.trim().toLowerCase();
-      let snap;
-      if (session.isSuperAdmin) {
-        snap = await firestore().collection('passes').get();
-      } else {
-        snap = await firestore().collection('passes')
-          .where('eventId', '==', session.eventId).get();
-      }
+      const snap = await firestore().collection('passes')
+        .where('eventId', '==', session.eventId).get();
       const all = snap.docs.map(d => passToTicket(d, session.eventId));
       const filtered = all.filter(t => t.holderName.toLowerCase().includes(q));
       filtered.sort((a, b) => a.holderName.localeCompare(b.holderName));
@@ -387,21 +389,50 @@ export default function ManualLookupScreen() {
     finally { setSaving(false); }
   }
 
-  async function handleCheckIn(ticket: Ticket) {
+  function handleCheckIn(ticket: Ticket) {
     if (ticket.checkedIn) { Alert.alert('Already checked in', `${ticket.holderName} is already in.`); return; }
     Alert.alert('Check In', `Check in ${ticket.holderName}?\n${ticket.ticketTypeName}`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Confirm', onPress: async () => {
-        // Update passes collection doc
-        await firestore().collection('passes').doc(ticket.id)
-          .update({
-            scanStatus:  'scanned',
-            scannedAt:   firestore.FieldValue.serverTimestamp(),
-            scannedBy:   session?.pin,
-          });
-        setResults(prev => prev.map(t => t.id === ticket.id ? { ...t, checkedIn: true } : t));
-      }},
+      { text: 'Confirm', onPress: () => submitCheckIn(ticket, generateIdempotencyKey()) },
     ]);
+  }
+
+  // Not optimistic (unlike ScannerScreen) — this is a deliberate list-row
+  // action behind a confirm dialog, not a door-velocity scan.
+  async function submitCheckIn(ticket: Ticket, idempotencyKey: string) {
+    if (!session) return;
+    let scanLat: number | null = null;
+    let scanLng: number | null = null;
+    try {
+      const coords = await getCurrentCoords();
+      if (coords.status === 'ok') { scanLat = coords.lat; scanLng = coords.lng; }
+    } catch { /* soft geofence — missing coords just means geofenceOk:false server-side */ }
+
+    try {
+      const checkInPass = httpsCallable(getFunctions(), 'checkInPass');
+      const res = await checkInPass({
+        passId: ticket.id,
+        venueId: session.venueId,
+        eventId: session.eventId,
+        scanLat, scanLng,
+        clientScannedAt: new Date().toISOString(),
+        idempotencyKey,
+      });
+      const data = res.data as { alreadyCheckedIn: boolean };
+      setResults(prev => prev.map(t => t.id === ticket.id ? { ...t, checkedIn: true } : t));
+      if (data.alreadyCheckedIn) {
+        Alert.alert('Already checked in', `${ticket.holderName} was already checked in.`);
+      }
+    } catch (e: any) {
+      if (e?.code === 'functions/permission-denied') {
+        Alert.alert('Not authorized', 'Your account is not authorized to check in passes at this venue.');
+        return;
+      }
+      Alert.alert('Check-in failed', "Couldn't reach the server. Check your connection and try again.", [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Retry', onPress: () => submitCheckIn(ticket, idempotencyKey) },
+      ]);
+    }
   }
 
   function renderTicket({ item }: { item: Ticket }) {
