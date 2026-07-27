@@ -12,29 +12,29 @@
 
 export const COLORS = {
   // Surfaces
-  bg:      '#0a0a0a',
-  card:    '#1a1a1a',
-  card2:   '#2a2a2a',
-  surface: '#161616',
-  border:  '#2a2a2a',
-  divider: '#222222',
+  bg:      '#0e0c08',
+  card:    '#1a1612',
+  card2:   '#231e18',
+  surface: '#131009',
+  border:  '#2a241c',
+  divider: '#221d16',
 
   // Text
-  text:    '#ffffff',
-  subtext: '#555555',
+  text:    '#f4efe1',
+  subtext: '#9a8f7c',
 
   // Brand
   brand:   '#2a7a5a',
-  onBrand: '#ffffff',
+  onBrand: '#f4efe1',
 
   // Status / semantic
-  go:       '#2a7a5a',
-  goDeep:   '#0d1f16',
-  stop:     '#cc3333',
-  stopDeep: '#2a1a1a',
-  warn:     '#e6a817',
-  warnDeep: '#2a1a00',
-  info:     '#7c8aed',
+  go:       '#2bd46a',
+  goDeep:   '#0e3d22',
+  stop:     '#fb4b3e',
+  stopDeep: '#3d130f',
+  warn:     '#f5b73d',
+  warnDeep: '#3a2c0c',
+  info:     '#43b4e0',
 };
 
 // Derived type — used throughout the app for theme prop typing
