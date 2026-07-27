@@ -30,6 +30,7 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
   const ownerDb = testEnv.authenticatedContext('pgtest-owner').firestore();
   const otherDb = testEnv.authenticatedContext('pgtest-other').firestore();
   const staffDb = testEnv.authenticatedContext('pgtest-staff').firestore();
+  const venueStaffDb = testEnv.authenticatedContext('pgtest-venue-staff').firestore();
   const anonDb  = testEnv.unauthenticatedContext().firestore();
   // Wugi Door devices sign in to Firebase Auth anonymously but ARE
   // authenticated (request.auth != null) — distinct from a fully
@@ -46,8 +47,12 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
     await setDoc(doc(db, 'photos/anyid'), { imageUrl: 'u' });
     await setDoc(doc(db, 'galleries/anyid'), { title: 'g' });
     await setDoc(doc(db, 'users/pgtest-staff'), { role: 'super_admin' });
+    await setDoc(doc(db, 'users/pgtest-venue-staff'), { role: 'venue_staff', venueIds: ['pgtest-venue-a'] });
     await setDoc(doc(db, 'passes/pgtest-pass-owner'), { userId: 'pgtest-owner', eventId: 'pgtest-evt' });
     await setDoc(doc(db, 'passes/pgtest-pass-victim'), { userId: 'pgtest-victim', eventId: 'pgtest-evt' });
+    // Venue-scoped passes for the canAccessVenue() list tests (Asana 1216889041040300).
+    await setDoc(doc(db, 'passes/pgtest-pass-venue-a'), { userId: 'pgtest-venue-a-guest', eventId: 'pgtest-evt-a', venueId: 'pgtest-venue-a' });
+    await setDoc(doc(db, 'passes/pgtest-pass-venue-b'), { userId: 'pgtest-venue-b-guest', eventId: 'pgtest-evt-b', venueId: 'pgtest-venue-b' });
   });
 
   const results = [];
@@ -75,20 +80,30 @@ const RULES = path.join(__dirname, '..', '..', 'firebase', 'firestore.rules');
   await run('R5', 'non-owner read others report', 'deny', getDoc(rep(otherDb,'pgtest-report')), true); // GATE
   await run('R6', 'owner update report (client)', 'deny', updateDoc(rep(ownerDb,'pgtest-report'), { status:'resolved' }));
 
-  // ── Passes (Asana 1216844677604441 — /passes list scoping) ──
-  // P2 is the actual vulnerability this fix closes: any authed user could
-  // previously list() other users' pass docs (QR/redemption payloads) via
-  // where('userId','==','<victim>'). P4 documents a known side effect: Wugi
-  // Door's anonymous-auth session (no users/{uid} role doc) loses the direct
-  // client list access it relied on under the old broad `isAuth()` grant —
-  // expected/correct per this fix, but Door needs a follow-up (custom claims
-  // or a callable) before its direct Firestore listeners work again.
+  // ── Passes (Asana 1216889041040300 — /passes list scoping to canAccessVenue) ──
+  // P2 is the actual vulnerability the original fix closed: any authed user
+  // could previously list() other users' pass docs (QR/redemption payloads)
+  // via where('userId','==','<victim>'). PR #70 then scoped `list` to
+  // `isStaff()`, which is WRONG: isStaff() is Wugi-internal (super_admin/
+  // moderator/support) only, so it granted venue door staff nothing and
+  // would have over-granted across venues if it had (a Teranga door person
+  // must not be able to list Prime on Peachtree's passes). P5/P6 exercise
+  // the corrected canAccessVenue(resource.data.venueId) primitive. P4
+  // documents a known side effect: Wugi Door's anonymous-auth session (no
+  // users/{uid} role doc) has no direct Firestore list access under this or
+  // the old rule — expected/correct; Door needs real staff accounts (see
+  // docs/DOOR-REDESIGN-SPEC.md §1) before its direct listeners work, and
+  // that is the deploy gate on this change.
   const passesByUser  = (db, uid) => query(collection(db, 'passes'), where('userId', '==', uid));
   const passesByEvent = (db, eventId) => query(collection(db, 'passes'), where('eventId', '==', eventId));
+  const passesByVenue = (db, venueId) => query(collection(db, 'passes'), where('venueId', '==', venueId));
   await run('P1', 'owner lists own passes (where userId==self)', 'allow', getDocs(passesByUser(ownerDb, 'pgtest-owner')));
   await run('P2', 'other user lists VICTIM passes (where userId==victim)', 'deny', getDocs(passesByUser(otherDb, 'pgtest-victim')));
   await run('P3', 'staff (role=super_admin) lists passes by eventId', 'allow', getDocs(passesByEvent(staffDb, 'pgtest-evt')));
   await run('P4', 'Door anon session lists passes by eventId (needs follow-up)', 'deny', getDocs(passesByEvent(doorDb, 'pgtest-evt')));
+  await run('P5', 'venue staff lists passes for THEIR venue (venueId in venueIds())', 'allow', getDocs(passesByVenue(venueStaffDb, 'pgtest-venue-a')));
+  await run('P6', 'venue staff lists passes for ANOTHER venue (not in venueIds())', 'deny', getDocs(passesByVenue(venueStaffDb, 'pgtest-venue-b')));
+  await run('P7', 'anonymous (unauthenticated) lists passes', 'deny', getDocs(passesByVenue(anonDb, 'pgtest-venue-a')));
 
   // ── Sanity (existing collections / catch-all intact) ──
   await run('S1', 'unauth read events (public)', 'allow', getDoc(doc(anonDb,'events/anyid')));
