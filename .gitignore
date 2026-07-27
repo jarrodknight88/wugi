@@ -35,3 +35,6 @@ AuthKey_*.p8
 
 # Venue backup dumps from upsert-flagged-venues.js (large, regenerable)
 scripts/backups/
+
+# Raw API capture (scripts/capture-raw.js) — large, regenerable from API credits
+data/raw/
