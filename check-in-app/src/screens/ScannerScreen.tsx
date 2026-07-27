@@ -5,14 +5,19 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import firestore from '@react-native-firebase/firestore';
+import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useSession } from '../context/SessionContext';
+import { useLocationCheck } from '../hooks/useLocationCheck';
+import { generateIdempotencyKey } from '../utils/idempotencyKey';
 import { COLORS, PASS_FALLBACK } from '../constants/colors';
 
 // Tap to Pay is pending Apple entitlement approval — disabled until approved
 const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
 
-type ScanResult = 'valid' | 'already_scanned' | 'invalid' | 'wrong_event' | 'balance_blocked' | null;
+type ScanResult =
+  | 'valid' | 'already_scanned' | 'invalid' | 'wrong_event' | 'balance_blocked'
+  | 'sync_failed' | 'permission_denied' | null;
 
 interface TicketInfo {
   holderName: string;
@@ -24,10 +29,12 @@ interface TicketInfo {
   ticketId: string;
   balanceDue: number;
   holderEmail: string;
+  scannedAtLabel?: string;
 }
 
 export default function ScannerScreen() {
   const { session, clearSession, setSession } = useSession();
+  const { getCurrentCoords } = useLocationCheck();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning]       = useState(true);
   const [result, setResult]           = useState<ScanResult>(null);
@@ -36,6 +43,12 @@ export default function ScannerScreen() {
   const [total, setTotal]             = useState(0);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  // Bumped on every showResult() call; a stale animation-complete callback
+  // checks this before clearing state so a late auto-dismiss from a
+  // superseded result (e.g. optimistic 'valid' → reconciled 'sync_failed')
+  // can't clobber the newer one.
+  const resultGenRef = useRef(0);
+  const pendingRetryRef = useRef<{ passId: string; info: TicketInfo; idempotencyKey: string } | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -52,19 +65,87 @@ export default function ScannerScreen() {
     return unsub;
   }, [session]);
 
-  function showResult(r: ScanResult, info: TicketInfo | null = null) {
+  // `sticky` results (sync failure, permission denied) stay on screen until
+  // the staff member dismisses or retries — auto-dismissing an unresolved
+  // check-in would hide the exact case that needs their attention.
+  function showResult(r: ScanResult, info: TicketInfo | null = null, opts?: { sticky?: boolean }) {
+    const gen = ++resultGenRef.current;
+    fadeAnim.stopAnimation();
+    fadeAnim.setValue(0);
     setResult(r); setTicketInfo(info); setScanning(false);
+    const sticky = opts?.sticky ?? false;
     Animated.sequence([
       Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.delay(r === 'valid' && (info?.balanceDue ?? 0) > 0 ? 8000 : 2800),
-      Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
-    ]).start(() => { setResult(null); setTicketInfo(null); setScanning(true); });
+      ...(sticky ? [] : [
+        Animated.delay(r === 'valid' && (info?.balanceDue ?? 0) > 0 ? 8000 : 2800),
+        Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]),
+    ]).start(() => {
+      if (resultGenRef.current !== gen || sticky) return;
+      setResult(null); setTicketInfo(null); setScanning(true);
+    });
   }
 
   function dismissResult() {
+    resultGenRef.current++;
+    pendingRetryRef.current = null;
     fadeAnim.stopAnimation();
     fadeAnim.setValue(0);
     setResult(null); setTicketInfo(null); setScanning(true);
+  }
+
+  // Fire-and-forget: the optimistic 'valid' flash is already on screen by the
+  // time this runs. Reconciles the UI only if the server disagrees.
+  async function submitCheckIn(passId: string, info: TicketInfo, idempotencyKey: string) {
+    if (!session) return;
+    let scanLat: number | null = null;
+    let scanLng: number | null = null;
+    try {
+      const coords = await getCurrentCoords();
+      if (coords.status === 'ok') { scanLat = coords.lat; scanLng = coords.lng; }
+    } catch { /* soft geofence — missing coords just means geofenceOk:false server-side */ }
+
+    try {
+      const checkInPass = httpsCallable(getFunctions(), 'checkInPass');
+      const res = await checkInPass({
+        passId,
+        venueId: session.venueId,
+        eventId: session.eventId,
+        scanLat, scanLng,
+        clientScannedAt: new Date().toISOString(),
+        idempotencyKey,
+      });
+      const data = res.data as { alreadyCheckedIn: boolean; scannedBy?: string | null };
+      if (data.alreadyCheckedIn) {
+        // Someone else redeemed this pass between our local read and the
+        // server call — re-read for the real scan time to show staff.
+        let scannedAtLabel: string | undefined;
+        try {
+          const fresh = await firestore().collection('passes').doc(passId).get();
+          const ts: any = fresh.data()?.scannedAt;
+          if (ts?.toDate) scannedAtLabel = ts.toDate().toLocaleTimeString();
+        } catch { /* show without a time rather than block on this */ }
+        Vibration.vibrate([0, 200, 100, 200]);
+        showResult('already_scanned', { ...info, scannedAtLabel });
+      }
+    } catch (e: any) {
+      if (e?.code === 'functions/permission-denied') {
+        Vibration.vibrate([0, 100, 100, 100]);
+        showResult('permission_denied', info, { sticky: true });
+        return;
+      }
+      pendingRetryRef.current = { passId, info, idempotencyKey };
+      Vibration.vibrate([0, 100, 100, 100]);
+      showResult('sync_failed', info, { sticky: true });
+    }
+  }
+
+  function retryPendingCheckIn() {
+    const pending = pendingRetryRef.current;
+    if (!pending) return;
+    Vibration.vibrate(150);
+    showResult('valid', pending.info);
+    submitCheckIn(pending.passId, pending.info, pending.idempotencyKey);
   }
 
   async function handleBarCodeScanned({ data }: { data: string }) {
@@ -111,11 +192,13 @@ export default function ScannerScreen() {
 
       if (pass.scanStatus === 'scanned') {
         Vibration.vibrate([0, 200, 100, 200]);
+        const scannedAt: any = pass.scannedAt;
         showResult('already_scanned', {
           holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
           ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
           ticketColor: pass.passColor || PASS_FALLBACK, quantity: 1,
           ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
+          scannedAtLabel: scannedAt?.toDate ? scannedAt.toDate().toLocaleTimeString() : undefined,
         });
         return;
       }
@@ -151,19 +234,17 @@ export default function ScannerScreen() {
         }
       }
 
-      // Valid — mark scanned
-      await passSnap.ref.update({
-        scanStatus:  'scanned',
-        scannedAt:   firestore.FieldValue.serverTimestamp(),
-        scannedBy:   session.pin,
-      });
-      Vibration.vibrate(150);
-      showResult('valid', {
+      // Valid — flash success immediately (door velocity matters more than
+      // round-trip confirmation) and let checkInPass do the actual write.
+      const info: TicketInfo = {
         holderName: pass.holderName, ticketType: pass.ticketTypeName || '',
         ticketTypeName: pass.ticketTypeName || '', ticketTypeId: pass.ticketTypeId || '',
         ticketColor: pass.passColor || PASS_FALLBACK, quantity: 1,
         ticketId: passId, balanceDue: pass.balanceDue ?? 0, holderEmail: pass.holderEmail || '',
-      });
+      };
+      Vibration.vibrate(150);
+      showResult('valid', info);
+      submitCheckIn(passId, info, generateIdempotencyKey());
     } catch (e) { showResult('invalid'); }
   }
 
@@ -189,6 +270,8 @@ export default function ScannerScreen() {
     invalid:          { bg: '#3d0d0d', border: COLORS.stop, icon: '✕', label: 'Invalid Ticket',     color: COLORS.stop },
     wrong_event:      { bg: '#3d0d0d', border: COLORS.stop, icon: '✕', label: 'Wrong Event',        color: COLORS.stop },
     balance_blocked:  { bg: '#3d1a00', border: COLORS.warn, icon: '⚠', label: 'Balance Outstanding', color: COLORS.warn },
+    sync_failed:      { bg: '#3d1a00', border: COLORS.warn, icon: '⟳', label: 'Not Confirmed',      color: COLORS.warn },
+    permission_denied:{ bg: '#3d0d0d', border: COLORS.stop, icon: '✕', label: 'Not Authorized',     color: COLORS.stop },
   };
   const cfg = result ? resultConfig[result] : null;
   const hasBalance = (ticketInfo?.balanceDue ?? 0) > 0;
@@ -259,8 +342,33 @@ export default function ScannerScreen() {
               </Text>
               <Text style={styles.resultId}>#{ticketInfo.ticketId.slice(-8).toUpperCase()}</Text>
 
+              {result === 'already_scanned' && ticketInfo.scannedAtLabel && (
+                <Text style={styles.resultDetail}>Scanned at {ticketInfo.scannedAtLabel}</Text>
+              )}
+
+              {result === 'permission_denied' && (
+                <View style={styles.balanceWarning}>
+                  <Text style={styles.balanceWarningText}>Your account isn't authorized for this venue — check-in was NOT recorded.</Text>
+                  <TouchableOpacity style={styles.collectBtn} onPress={dismissResult}>
+                    <Text style={styles.collectBtnText}>Dismiss</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {result === 'sync_failed' && (
+                <View style={styles.balanceWarning}>
+                  <Text style={styles.balanceWarningText}>Couldn't confirm with the server — check-in may not have been recorded.</Text>
+                  <TouchableOpacity style={styles.collectBtn} onPress={retryPendingCheckIn}>
+                    <Text style={styles.collectBtnText}>Retry</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.dismissInline} onPress={dismissResult}>
+                    <Text style={styles.balanceHint}>Dismiss</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {/* ⚠️ Balance due — guest pass blocked or collect at door */}
-              {hasBalance && (
+              {hasBalance && result !== 'sync_failed' && result !== 'permission_denied' && (
                 <View style={styles.balanceWarning}>
                   <Text style={styles.balanceWarningText}>
                     {result === 'balance_blocked'
@@ -328,6 +436,7 @@ const styles = StyleSheet.create({
   collectBtn: { backgroundColor: COLORS.warn, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28, width: '100%', alignItems: 'center' },
   collectBtnText: { fontSize: 16, fontWeight: '800', color: '#000' },
   balanceHint: { fontSize: 12, color: '#a16207', textAlign: 'center', marginTop: 2 },
+  dismissInline: { marginTop: 10, alignItems: 'center' },
   permText: { color: '#aaa', textAlign: 'center', marginBottom: 20, fontSize: 15, paddingHorizontal: 32 },
   permBtn: { backgroundColor: COLORS.brand, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 },
   permBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 16 },
