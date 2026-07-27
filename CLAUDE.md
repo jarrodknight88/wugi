@@ -53,9 +53,39 @@ internal), `preview` (internal), `testflight` / `production` (store).
   `@react-native-google-signin` plugin config. Both are set; changing them is
   JS-only (no rebuild).
 
+## TypeScript baselines
+
+Canonical source of truth for pre-existing `tsc` error counts — do not restate
+these numbers anywhere else (AGENTS.md links back here). A dispatched agent
+once measured its own baseline instead of trusting the docs because the docs
+disagreed with each other; that is exactly how a regression slips through
+review. **If a baseline legitimately changes, update it here immediately.**
+
+Measured directly on `main`, 2026-07-26/27:
+
+| Package        | Errors | Command (run from the package dir)          |
+|-----------------|--------|-----------------------------------------------|
+| `functions/`    | 0      | `node node_modules/typescript/bin/tsc --noEmit` |
+| `mobile-app/`   | 31     | `npx tsc --noEmit`                            |
+| `check-in-app/` | 5      | `npx tsc --noEmit` (PaymentScreen.tsx, ScannerScreen.tsx) |
+
+- `check-in-app/` had no recorded baseline before 2026-07-26 — `node_modules`
+  was never installed there until that session, so it was never measured.
+- `npx tsc` inside `functions/` is BROKEN — it resolves a stub `typescript`
+  package, not the real compiler. Use the `node node_modules/...` command
+  above, or `npm run build`, instead.
+
 ## Git / release conventions
 
-- Solo maintainer. PRs to `main`, squash-merged, no review gate — but run
-  `npx tsc --noEmit` and compare error count to `main` first (~39 pre-existing
-  errors; introduce zero new ones).
+- Solo maintainer. PRs to `main`, squash-merged, no review gate — but run the
+  package's `tsc` command (see TypeScript baselines above) and compare the
+  error count to that package's baseline first; introduce zero new errors.
 - Feature branches: `claude/wugi-*`.
+
+## Asana
+
+- The belief that `update_tasks` cannot edit a task's notes/description is
+  OBSOLETE — verified working 2026-07-24. `docs/skills/asana-task-management.md`
+  and `docs/skills/project-instructions.md` still route completion logging
+  through `add_comment` instead of editing notes directly; that pattern still
+  works but is no longer required for this reason.

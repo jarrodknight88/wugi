@@ -66,6 +66,13 @@ changes land. Audit script: `mobile-app/scripts/backfill-missing-fields.js --dry
   "set default if missing." Use `data().fieldName === undefined` checks, 
   not falsy checks (false is a valid value).
 
+- **`scripts/add-venue-coordinates.js` is STALE — do not use it as a schema
+  reference.** It reads a service-account path that doesn't exist
+  (`firebase/service-account.json`) and writes flat `latitude`/`longitude`
+  fields that zero of the 497 venue docs carry. The live coordinate field is
+  `location`, a map, present in three different key shapes across venue docs.
+  Flag any new code that trusts this script's field names.
+
 ## iOS / Expo build-breakers
 
 - **Native module imports must be top-level static imports**, never dynamic. 
@@ -141,5 +148,6 @@ queries: be adversarial. These have caused multi-build debugging cycles.
 
 - Generic "consider adding tests" suggestions — assumed.
 - Style/linting nits — pre-launch focus is correctness, not polish.
-- The 48 pre-existing TypeScript errors on `main` — separate cleanup task. 
-  Only flag new tsc errors introduced by the diff under review.
+- Pre-existing TypeScript errors on `main` — separate cleanup task. See the
+  TypeScript baselines table in CLAUDE.md for current per-package counts and
+  commands; only flag new tsc errors introduced by the diff under review.
