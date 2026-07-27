@@ -6,13 +6,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, ScrollView, Vibration,
-  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform,
+  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform, Linking,
 } from 'react-native';
 import { useStripeTerminal } from '@stripe/stripe-terminal-react-native';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
 import { useTerminal } from '../context/TerminalContext';
+import { useLocationCheck } from '../hooks/useLocationCheck';
 import { COLORS } from '../constants/colors';
 import IDScanScreen from './IDScanScreen';
 import type { VerificationResult } from './IDScanScreen';
@@ -43,6 +44,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const { session, setSession } = useSession();
   const { isReady, isConnecting, connectReader } = useTerminal();
   const { collectPaymentMethod, confirmPaymentIntent, cancelCollectPaymentMethod, retrievePaymentIntent } = useStripeTerminal();
+  const { getCurrentCoords } = useLocationCheck();
 
   const defaultAmount = mode.type === 'balance' ? mode.balanceDue : mode.price;
   const [amountCents, setAmountCents] = useState(defaultAmount);
@@ -53,6 +55,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   const [tableAssign, setTableAssign] = useState((mode as any).tableAssignment || '');
   const [step, setStep]               = useState<PaymentStep>('details');
   const [errorMsg, setErrorMsg]       = useState('');
+  const [errorIsPermission, setErrorIsPermission] = useState(false);
   const [idVerification, setIdVerification] = useState<VerificationResult | null>(null);
   const [tableInfo, setTableInfo] = useState<{ table: string; remaining: number } | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -80,6 +83,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
       Alert.alert('Name required', 'Please enter the guest name.'); return;
     }
     if (!session) return;
+    setErrorIsPermission(false);
 
     // Always fetch threshold fresh from venue doc — applies to all roles including super admin
     try {
@@ -158,6 +162,24 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   async function captureAfterApproval(piId: string, verification: VerificationResult | null) {
     setIdVerification(verification);
     setStep('processing');
+
+    // Fetch fresh at capture time (not from stale state) — a shift can start
+    // at the venue and the device can move before the charge is captured.
+    const coords = await getCurrentCoords();
+    if (coords.status === 'permission_denied') {
+      setErrorIsPermission(true);
+      setErrorMsg('Location permission is required to take payments. Enable location access for Wugi Door in Settings, then try again.');
+      setStep('error');
+      return;
+    }
+    if (coords.status === 'unavailable') {
+      setErrorIsPermission(false);
+      setErrorMsg('Could not determine your location. Check that Location Services are on and try again.');
+      setStep('error');
+      return;
+    }
+
+    setErrorIsPermission(false);
     try {
       const capture = httpsCallable(getFunctions(), 'captureTerminalPayment');
       const captureResult = await capture({
@@ -166,6 +188,8 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         eventId: session!.eventId,
         venueId: session!.venueId,
         amountCents,
+        scanLat: coords.lat,
+        scanLng: coords.lng,
         newTicketData: mode.type === 'walkin' ? {
           holderName: holderName.trim(),
           holderEmail: holderEmail.trim(),
@@ -510,6 +534,11 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         <Text style={styles.errorIcon}>✕</Text>
         <Text style={styles.errorTitle}>Payment Failed</Text>
         <Text style={styles.errorMsg}>{errorMsg}</Text>
+        {errorIsPermission && (
+          <TouchableOpacity style={styles.retryBtn} onPress={() => Linking.openSettings()}>
+            <Text style={styles.retryBtnText}>Open Settings</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.retryBtn} onPress={() => setStep('details')}>
           <Text style={styles.retryBtnText}>Try Again</Text>
         </TouchableOpacity>
