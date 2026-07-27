@@ -58,11 +58,11 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
       });
       if (connErr) {
         console.warn('Terminal connect error:', connErr.message, connErr.code);
-        setError(connErr.message);
+        setError(connErr.code ? `${connErr.code}: ${connErr.message}` : connErr.message);
       }
     } catch (e: any) {
       console.warn('Terminal connect exception:', e.message);
-      setError(e.message || 'Failed to connect reader');
+      setError(e.code ? `${e.code}: ${e.message}` : (e.message || 'Failed to connect reader'));
     } finally { setIsConnecting(false); }
   }, [connectedReader, easyConnect]);
 
@@ -76,6 +76,7 @@ function TerminalInner({ children, venueId }: { children: ReactNode; venueId: st
         if (!cancelled) await connectReader(venueId);
       } catch (e: any) {
         console.warn('Terminal init error:', e.message);
+        if (!cancelled) setError(e.code ? `${e.code}: ${e.message}` : (e.message || 'Failed to initialize reader'));
       }
     }
     initAndConnect();
