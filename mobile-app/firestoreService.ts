@@ -716,23 +716,62 @@ export async function getVenuesByNeighborhood(
 }
 
 // ── Deals ─────────────────────────────────────────────────────────────
+// Live schema (verified against wugi-prod 2026-07-27): every deal doc has
+// title, venueId, venueName, detail, image, isActive, createdAt, vibes,
+// updatedAt — and NOTHING else. There is no status/active/startsAt/endsAt
+// field on any doc. getActiveDeals/getDealsBrowse previously queried on
+// none of those missing fields — they only ever applied an optional vibes
+// filter + limit() — so the empty Discover deals shelf was NOT caused by a
+// Firestore-side field-name mismatch in the query itself. It was caused by
+// these queries not narrowing to isActive docs at all (an inactive/stale
+// deal could sort ahead of live ones) and having no deterministic order,
+// combined with firestore.rules denying the read entirely (fixed
+// separately — that alone does not make deals appear).
+//
+// Query now filters where('isActive', '==', true): Firestore equality
+// filters never match a doc missing the field, so a deal with no isActive
+// at all is excluded — fail-closed per spec, no client-side check needed.
+// orderBy(createdAt desc) makes the shelf stable between loads. Composite
+// indexes in firebase/firestore.indexes.json (deals: isActive+createdAt,
+// and isActive+vibes+createdAt for the vibes-filtered variant).
+//
+// toDeal() converts one doc defensively — a single malformed doc (e.g. a
+// snap.data() that throws) is skipped+logged rather than failing the whole
+// map() and blanking the entire shelf.
+function toDeal(d: any): FSDeal | null {
+  try {
+    return { id: d.id, ...d.data() } as FSDeal;
+  } catch (e) {
+    console.log('toDeal: skipping unreadable deal doc', d?.id, e);
+    return null;
+  }
+}
+
+function isDeal(deal: FSDeal | null): deal is FSDeal {
+  return deal !== null;
+}
+
 export async function getActiveDeals(
   userVibes?: string[],
   max: number = 5
 ): Promise<FSDeal[]> {
   try {
-    let q;
-    if (userVibes && userVibes.length > 0) {
-      q = query(
-        collection(db, 'deals'),
-        where('vibes', 'array-contains-any', userVibes),
-        limit(max)
-      );
-    } else {
-      q = query(collection(db, 'deals'), limit(max));
-    }
+    const q = userVibes && userVibes.length > 0
+      ? query(
+          collection(db, 'deals'),
+          where('isActive', '==', true),
+          where('vibes', 'array-contains-any', userVibes),
+          orderBy('createdAt', 'desc'),
+          limit(max)
+        )
+      : query(
+          collection(db, 'deals'),
+          where('isActive', '==', true),
+          orderBy('createdAt', 'desc'),
+          limit(max)
+        );
     const snap = await getDocs(q);
-    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
+    return snap.docs.map(toDeal).filter(isDeal);
   } catch (e) {
     console.log('getActiveDeals error:', e);
     return [];
@@ -740,9 +779,13 @@ export async function getActiveDeals(
 }
 
 // Deals for a single venue's profile. Single-field equality on venueId (no
-// composite index needed). No status filter in the query — eligibility /
-// "active now" is computed client-side (src/utils/deals.ts) so a missing
-// status never silently drops a deal (canonical-status footgun).
+// composite index needed). No status/isActive filter in the query —
+// eligibility / "active now" is computed client-side (src/utils/deals.ts)
+// so a missing status never silently drops a deal (canonical-status
+// footgun). Left as-is: unlike the two shelves below, this feeds the venue
+// profile page, which intentionally shows a venue's inactive/upcoming deals
+// too via client-side eligibility — diverges from getActiveDeals/
+// getDealsBrowse on purpose, not an oversight.
 export async function getDealsForVenue(
   venueId: string,
   max: number = 20
@@ -751,20 +794,29 @@ export async function getDealsForVenue(
     const snap = await getDocs(
       query(collection(db, 'deals'), where('venueId', '==', venueId), limit(max))
     );
-    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
+    return snap.docs.map(toDeal).filter(isDeal);
   } catch (e) {
     console.log('getDealsForVenue error:', e);
     return [];
   }
 }
 
-// Broad deal fetch for browsable surfaces (Discover, For You). Intentionally
-// unfiltered in Firestore (just a limit) to avoid the missing-field footgun;
-// callers filter/sort via src/utils/deals.ts (orderDealsForDisplay).
+// Broad deal fetch for browsable surfaces (Discover, For You). Same
+// isActive/createdAt query shape as getActiveDeals but never takes a vibes
+// filter (callers filter/sort client-side via src/utils/deals.ts
+// orderDealsForDisplay) — that's the one deliberate divergence between the
+// two shelf queries; do not unify them.
 export async function getDealsBrowse(max: number = 50): Promise<FSDeal[]> {
   try {
-    const snap = await getDocs(query(collection(db, 'deals'), limit(max)));
-    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
+    const snap = await getDocs(
+      query(
+        collection(db, 'deals'),
+        where('isActive', '==', true),
+        orderBy('createdAt', 'desc'),
+        limit(max)
+      )
+    );
+    return snap.docs.map(toDeal).filter(isDeal);
   } catch (e) {
     console.log('getDealsBrowse error:', e);
     return [];
