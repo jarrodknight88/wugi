@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
+import { COLORS, PASS_FALLBACK } from '../constants/colors';
 
 const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
@@ -69,7 +70,7 @@ export default function DashboardScreen() {
           name: d.data().name || '',
           total: d.data().capacity || 0,
           checkedIn: 0,
-          color: d.data().color || '#2a7a5a',
+          color: d.data().color || PASS_FALLBACK,
           price: d.data().price || 0,
           remaining: d.data().remaining ?? d.data().capacity ?? 0,
         })));
@@ -116,9 +117,13 @@ export default function DashboardScreen() {
           <Text style={styles.subtitle}>{session?.eventName}</Text>
           <Text style={styles.venue}>{session?.venueName} · {session?.date}</Text>
           {session?.isSuperAdmin && (
+            // NOTE: #7c3aed/#a78bfa here are the "Super Admin" badge chrome,
+            // NOT the getPassStyle VIP pass colour — verified no pass data
+            // flows through this badge. No token in the given set covers an
+            // admin/purple accent, so left as literals. See PR description.
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <View style={{ backgroundColor: '#7c3aed', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
-                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>⚡ SUPER ADMIN</Text>
+                <Text style={{ color: COLORS.text, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>⚡ SUPER ADMIN</Text>
               </View>
               <TouchableOpacity
                 onPress={() => {
@@ -216,6 +221,7 @@ export default function DashboardScreen() {
       {/* Super admin note */}
       {session?.isSuperAdmin && (
         <View style={{ backgroundColor: '#1a1a2e', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#7c3aed33', marginTop: 8 }}>
+          {/* Same admin-purple family as the badge above — left as literals for the same reason. */}
           <Text style={{ color: '#a78bfa', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>
             ⚡ Showing aggregate across all active events
           </Text>
@@ -228,35 +234,35 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   content: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 60 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
-  title: { fontSize: 26, fontWeight: '800', color: '#fff' },
+  title: { fontSize: 26, fontWeight: '800', color: COLORS.text },
   subtitle: { fontSize: 15, color: '#aaa', marginTop: 2 },
-  venue: { fontSize: 12, color: '#555', marginTop: 1 },
-  endBtn: { backgroundColor: '#2a1a1a', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: '#cc3333' },
-  endBtnText: { color: '#cc3333', fontWeight: '700', fontSize: 14 },
+  venue: { fontSize: 12, color: COLORS.subtext, marginTop: 1 },
+  endBtn: { backgroundColor: COLORS.stopDeep, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.stop },
+  endBtnText: { color: COLORS.stop, fontWeight: '700', fontSize: 14 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  statCard: { flex: 1, backgroundColor: '#161616', borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#222' },
-  statGreen: { borderColor: '#2a7a5a', backgroundColor: '#0d1f16' },
-  statNum: { fontSize: 32, fontWeight: '800', color: '#fff' },
+  statCard: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: COLORS.divider },
+  statGreen: { borderColor: COLORS.go, backgroundColor: COLORS.goDeep },
+  statNum: { fontSize: 32, fontWeight: '800', color: COLORS.text },
   statLabel: { fontSize: 11, color: '#888', marginTop: 4 },
-  balanceCard: { backgroundColor: '#2a1a00', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#e6a817' },
-  balanceCardText: { color: '#e6a817', fontWeight: '700', fontSize: 14 },
+  balanceCard: { backgroundColor: COLORS.warnDeep, borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: COLORS.warn },
+  balanceCardText: { color: COLORS.warn, fontWeight: '700', fontSize: 14 },
   progressWrap: { marginBottom: 28 },
-  progressBg: { height: 8, backgroundColor: '#1a1a1a', borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
-  progressFill: { height: '100%', backgroundColor: '#2a7a5a', borderRadius: 4 },
-  progressPct: { fontSize: 12, color: '#555', textAlign: 'right' },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 14 },
-  typeRow: { flexDirection: 'row', backgroundColor: '#161616', borderRadius: 14, marginBottom: 10, borderWidth: 1, borderColor: '#222', overflow: 'hidden' },
+  progressBg: { height: 8, backgroundColor: COLORS.card, borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
+  progressFill: { height: '100%', backgroundColor: COLORS.brand, borderRadius: 4 },
+  progressPct: { fontSize: 12, color: COLORS.subtext, textAlign: 'right' },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 14 },
+  typeRow: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: 14, marginBottom: 10, borderWidth: 1, borderColor: COLORS.divider, overflow: 'hidden' },
   typeAccent: { width: 5 },
   typeBody: { flex: 1, padding: 14 },
   typeTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  typeName: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  typeName: { fontSize: 15, fontWeight: '600', color: COLORS.text },
   typeSub: { fontSize: 12, color: '#888', marginTop: 2 },
   doorSaleBtn: { borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14 },
-  doorSaleBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-  typeBarBg: { height: 5, backgroundColor: '#2a2a2a', borderRadius: 3, overflow: 'hidden' },
+  doorSaleBtnText: { color: COLORS.text, fontWeight: '800', fontSize: 13 },
+  typeBarBg: { height: 5, backgroundColor: COLORS.card2, borderRadius: 3, overflow: 'hidden' },
   typeBarFill: { height: '100%', borderRadius: 3 },
   updated: { fontSize: 11, color: '#333', textAlign: 'center', marginTop: 24 },
 });

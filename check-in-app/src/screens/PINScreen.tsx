@@ -12,6 +12,7 @@ import firestore from '@react-native-firebase/firestore';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useSession, EventSession } from '../context/SessionContext';
 import { useLocationCheck } from '../hooks/useLocationCheck';
+import { COLORS } from '../constants/colors';
 
 const MAX_ATTEMPTS    = 5;
 const LOCKOUT_MINUTES = 30;
@@ -169,7 +170,7 @@ export default function PINScreen() {
       {/* Loading spinner replaces keypad when submitting */}
       {(loading || checking) && (
         <View style={styles.spinnerRow}>
-          <ActivityIndicator color="#2a7a5a" size="large" />
+          <ActivityIndicator color={COLORS.brand} size="large" />
           <Text style={styles.spinnerText}>{checking ? 'Checking location…' : 'Verifying…'}</Text>
         </View>
       )}
@@ -179,15 +180,15 @@ export default function PINScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: '#0a0a0a',
+    flex: 1, backgroundColor: COLORS.bg,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24,
   },
   logo: {
-    fontSize: 42, fontWeight: '900', color: '#2a7a5a',
+    fontSize: 42, fontWeight: '900', color: COLORS.brand,
     letterSpacing: 2, marginBottom: 6,
   },
   title: {
-    fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 4,
+    fontSize: 22, fontWeight: '700', color: COLORS.text, marginBottom: 4,
   },
   subtitle: {
     fontSize: 15, color: '#666', marginBottom: 36,
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: '#333', backgroundColor: 'transparent',
   },
   dotFilled: {
-    backgroundColor: '#2a7a5a', borderColor: '#2a7a5a',
+    backgroundColor: COLORS.brand, borderColor: COLORS.brand,
   },
   errorText: {
     color: '#ff6b6b', fontSize: 14, textAlign: 'center',
@@ -221,7 +222,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   keyText: {
-    fontSize: 32, fontWeight: '400', color: '#fff',
+    fontSize: 32, fontWeight: '400', color: COLORS.text,
   },
   backspaceText: {
     fontSize: 28, color: '#aaa',
@@ -230,6 +231,6 @@ const styles = StyleSheet.create({
     marginTop: 32, alignItems: 'center', gap: 10,
   },
   spinnerText: {
-    color: '#555', fontSize: 14,
+    color: COLORS.subtext, fontSize: 14,
   },
 });

@@ -13,6 +13,7 @@ import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
 import { useTerminal } from '../context/TerminalContext';
+import { COLORS } from '../constants/colors';
 import IDScanScreen from './IDScanScreen';
 import type { VerificationResult } from './IDScanScreen';
 
@@ -398,7 +399,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
         <Text style={styles.successAmount}>${(amountCents / 100).toFixed(2)}</Text>
         {guestName ? <Text style={styles.successSub}>{guestName}</Text> : null}
         {idVerification && (
-          <Text style={{ color: idVerification.verified ? '#2a7a5a' : '#e6a817', fontSize: 13, marginTop: 8 }}>
+          <Text style={{ color: idVerification.verified ? COLORS.go : COLORS.warn, fontSize: 13, marginTop: 8 }}>
             {idVerification.verified ? '✓ ID Verified' : '⚠️ ID override recorded'}
           </Text>
         )}
@@ -413,7 +414,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
               onPress={handleCheckInNow}
               disabled={checkingIn}>
               {checkingIn
-                ? <ActivityIndicator color="#fff" size="small" />
+                ? <ActivityIndicator color={COLORS.text} size="small" />
                 : <Text style={styles.checkInNowText}>✓ Check In Now</Text>
               }
             </TouchableOpacity>
@@ -461,7 +462,7 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
   if (step === 'processing' || step === 'connecting') {
     return (
       <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#2a7a5a" />
+        <ActivityIndicator size="large" color={COLORS.brand} />
         <Text style={styles.processingText}>
           {step === 'connecting' ? 'Connecting reader…' : 'Processing…'}
         </Text>
@@ -502,16 +503,16 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 
       {isWalkin && (
         <>
-          <TextInput ref={nameRef} style={styles.field} placeholder="Guest name *" placeholderTextColor="#555"
+          <TextInput ref={nameRef} style={styles.field} placeholder="Guest name *" placeholderTextColor={COLORS.subtext}
             value={holderName} onChangeText={setHolderName} autoCapitalize="words"
             returnKeyType="next" onSubmitEditing={() => emailRef.current?.focus()} blurOnSubmit={false} />
-          <TextInput ref={emailRef} style={styles.field} placeholder="Email (optional)" placeholderTextColor="#555"
+          <TextInput ref={emailRef} style={styles.field} placeholder="Email (optional)" placeholderTextColor={COLORS.subtext}
             value={holderEmail} onChangeText={setHolderEmail} keyboardType="email-address" autoCapitalize="none"
             returnKeyType="next" onSubmitEditing={() => phoneRef.current?.focus()} blurOnSubmit={false} />
-          <TextInput ref={phoneRef} style={styles.field} placeholder="Phone (optional)" placeholderTextColor="#555"
+          <TextInput ref={phoneRef} style={styles.field} placeholder="Phone (optional)" placeholderTextColor={COLORS.subtext}
             value={holderPhone} onChangeText={v => setHolderPhone(formatPhone(v))} keyboardType="phone-pad"
             returnKeyType="next" onSubmitEditing={() => tableRef.current?.focus()} blurOnSubmit={false} />
-          <TextInput ref={tableRef} style={styles.field} placeholder="Table assignment (optional)" placeholderTextColor="#555"
+          <TextInput ref={tableRef} style={styles.field} placeholder="Table assignment (optional)" placeholderTextColor={COLORS.subtext}
             value={tableAssign} onChangeText={setTableAssign}
             returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
         </>
@@ -557,67 +558,71 @@ export default function PaymentScreen({ mode, onSuccess, onCancel }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   centered: { alignItems: 'center', justifyContent: 'center' },
   form: { padding: 24, paddingTop: 60 },
-  title: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
+  title: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 4 },
   subtitle: { fontSize: 15, color: '#888', marginBottom: 24 },
   amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
-  dollarSign: { fontSize: 36, color: '#2a7a5a', fontWeight: '700', marginRight: 4 },
-  amountInput: { fontSize: 52, fontWeight: '800', color: '#fff', minWidth: 120, textAlign: 'center' },
-  field: { backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 1, borderColor: '#2a2a2a', color: '#fff', fontSize: 16, paddingHorizontal: 16, paddingVertical: 13, marginBottom: 12 },
+  dollarSign: { fontSize: 36, color: COLORS.brand, fontWeight: '700', marginRight: 4 },
+  amountInput: { fontSize: 52, fontWeight: '800', color: COLORS.text, minWidth: 120, textAlign: 'center' },
+  field: { backgroundColor: COLORS.card, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, color: COLORS.text, fontSize: 16, paddingHorizontal: 16, paddingVertical: 13, marginBottom: 12 },
+  // disclosureBox/border are unique one-off shades (1a1200/3d2a00), not exact
+  // warnDeep matches — left literal, see PR description.
   disclosureBox: { backgroundColor: '#1a1200', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#3d2a00' },
-  disclosureText: { color: '#e6a817', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  idNotice: { backgroundColor: '#0d1f16', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#2a7a5a' },
+  disclosureText: { color: COLORS.warn, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  idNotice: { backgroundColor: COLORS.goDeep, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.go },
   idNoticeText: { color: '#4ade80', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   readerStatus: { fontSize: 13, color: '#888', textAlign: 'center', marginBottom: 20 },
-  chargeBtn: { backgroundColor: '#2a7a5a', borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginBottom: 12 },
+  chargeBtn: { backgroundColor: COLORS.brand, borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginBottom: 12 },
   chargeBtnDisabled: { opacity: 0.4 },
-  chargeBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  chargeBtnText: { color: COLORS.text, fontSize: 18, fontWeight: '800' },
   cancelBtn: { alignItems: 'center', paddingVertical: 14 },
-  cancelBtnText: { color: '#555', fontSize: 16, fontWeight: '600' },
-  tapRing: { width: 140, height: 140, borderRadius: 70, borderWidth: 3, borderColor: '#2a7a5a', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
+  cancelBtnText: { color: COLORS.subtext, fontSize: 16, fontWeight: '600' },
+  tapRing: { width: 140, height: 140, borderRadius: 70, borderWidth: 3, borderColor: COLORS.brand, alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
   tapIcon: { fontSize: 60 },
-  tapLabel: { fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 8 },
-  tapAmount: { fontSize: 40, fontWeight: '800', color: '#2a7a5a', marginBottom: 8 },
+  tapLabel: { fontSize: 22, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
+  tapAmount: { fontSize: 40, fontWeight: '800', color: COLORS.brand, marginBottom: 8 },
   tapHint: { fontSize: 14, color: '#888', marginBottom: 40 },
-  successIcon: { fontSize: 72, color: '#2a7a5a', marginBottom: 16 },
-  successText: { fontSize: 26, fontWeight: '800', color: '#fff', marginBottom: 8 },
-  successAmount: { fontSize: 42, fontWeight: '800', color: '#2a7a5a', marginBottom: 6 },
+  successIcon: { fontSize: 72, color: COLORS.go, marginBottom: 16 },
+  successText: { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  successAmount: { fontSize: 42, fontWeight: '800', color: COLORS.go, marginBottom: 6 },
   successSub: { fontSize: 16, color: '#888' },
   processingText: { color: '#888', fontSize: 16, marginTop: 20 },
-  errorIcon: { fontSize: 60, color: '#cc3333', marginBottom: 16 },
-  errorTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 8 },
+  errorIcon: { fontSize: 60, color: COLORS.stop, marginBottom: 16 },
+  errorTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
   errorMsg: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 32, paddingHorizontal: 32 },
-  retryBtn: { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 12 },
-  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  cancelledIcon: { fontSize: 64, color: '#555', marginBottom: 16 },
-  cancelledTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 8 },
-  cancelledSub: { fontSize: 14, color: '#555', textAlign: 'center', paddingHorizontal: 32, marginBottom: 32, lineHeight: 20 },
-  cancelledBtn: { backgroundColor: '#1a1a1a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, borderWidth: 1, borderColor: '#2a2a2a' },
+  retryBtn: { backgroundColor: COLORS.brand, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, marginBottom: 12 },
+  retryBtnText: { color: COLORS.text, fontWeight: '700', fontSize: 16 },
+  cancelledIcon: { fontSize: 64, color: COLORS.subtext, marginBottom: 16 },
+  cancelledTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  cancelledSub: { fontSize: 14, color: COLORS.subtext, textAlign: 'center', paddingHorizontal: 32, marginBottom: 32, lineHeight: 20 },
+  cancelledBtn: { backgroundColor: COLORS.card, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, borderWidth: 1, borderColor: COLORS.border },
   cancelledBtnText: { color: '#888', fontWeight: '700', fontSize: 16 },
-  checkedInBadge: { backgroundColor: '#0d1f16', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 8, marginTop: 12, borderWidth: 1, borderColor: '#2a7a5a' },
-  checkInNowBtn: { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 36, marginTop: 16 },
-  checkInNowText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  checkedInBadge: { backgroundColor: COLORS.goDeep, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 8, marginTop: 12, borderWidth: 1, borderColor: COLORS.go },
+  checkInNowBtn: { backgroundColor: COLORS.brand, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 36, marginTop: 16 },
+  checkInNowText: { color: COLORS.text, fontWeight: '800', fontSize: 16 },
   checkedInText: { color: '#4ade80', fontWeight: '700', fontSize: 14 },
-  tableNotice: { backgroundColor: '#1a1a00', borderRadius: 12, padding: 16, marginTop: 16, marginHorizontal: 32, borderWidth: 1, borderColor: '#e6a817', alignItems: 'center' },
-  tableNoticeTitle: { color: '#e6a817', fontWeight: '800', fontSize: 15, marginBottom: 6 },
+  // tableNotice bg (1a1a00) is a unique shade, not an exact warnDeep match —
+  // left literal, see PR description.
+  tableNotice: { backgroundColor: '#1a1a00', borderRadius: 12, padding: 16, marginTop: 16, marginHorizontal: 32, borderWidth: 1, borderColor: COLORS.warn, alignItems: 'center' },
+  tableNoticeTitle: { color: COLORS.warn, fontWeight: '800', fontSize: 15, marginBottom: 6 },
   tableNoticeText: { color: '#aaa', fontSize: 13, textAlign: 'center', lineHeight: 18 },
-  doneBtn: { marginTop: 28, backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 48 },
-  doneBtnText: { color: '#fff', fontWeight: '800', fontSize: 17 },
+  doneBtn: { marginTop: 28, backgroundColor: COLORS.brand, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 48 },
+  doneBtnText: { color: COLORS.text, fontWeight: '800', fontSize: 17 },
   // Review screen
-  reviewCard: { backgroundColor: '#161616', borderRadius: 20, padding: 28, margin: 24, borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', width: '88%' },
+  reviewCard: { backgroundColor: COLORS.surface, borderRadius: 20, padding: 28, margin: 24, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', width: '88%' },
   reviewTitle: { fontSize: 16, fontWeight: '700', color: '#888', marginBottom: 12, letterSpacing: 1 },
-  reviewAmount: { fontSize: 56, fontWeight: '800', color: '#2a7a5a', marginBottom: 4 },
-  reviewGuest: { fontSize: 20, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  reviewAmount: { fontSize: 56, fontWeight: '800', color: COLORS.brand, marginBottom: 4 },
+  reviewGuest: { fontSize: 20, fontWeight: '700', color: COLORS.text, marginBottom: 4 },
   reviewCardName: { fontSize: 14, color: '#888', marginBottom: 4 },
-  reviewType: { fontSize: 13, color: '#555', marginBottom: 16 },
-  idRequiredBadge: { backgroundColor: '#0d1f16', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 20, borderWidth: 1, borderColor: '#2a7a5a' },
+  reviewType: { fontSize: 13, color: COLORS.subtext, marginBottom: 16 },
+  idRequiredBadge: { backgroundColor: COLORS.goDeep, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 20, borderWidth: 1, borderColor: COLORS.go },
   idRequiredText: { color: '#4ade80', fontSize: 13, fontWeight: '600' },
   reviewActions: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 16 },
-  reviewCancelBtn: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: '#2a1a1a', alignItems: 'center', borderWidth: 1, borderColor: '#cc3333' },
-  reviewCancelText: { color: '#cc3333', fontWeight: '800', fontSize: 16 },
-  reviewAcceptBtn: { flex: 2, paddingVertical: 16, borderRadius: 14, backgroundColor: '#2a7a5a', alignItems: 'center' },
-  reviewAcceptText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  reviewCancelBtn: { flex: 1, paddingVertical: 16, borderRadius: 14, backgroundColor: COLORS.stopDeep, alignItems: 'center', borderWidth: 1, borderColor: COLORS.stop },
+  reviewCancelText: { color: COLORS.stop, fontWeight: '800', fontSize: 16 },
+  reviewAcceptBtn: { flex: 2, paddingVertical: 16, borderRadius: 14, backgroundColor: COLORS.brand, alignItems: 'center' },
+  reviewAcceptText: { color: COLORS.text, fontWeight: '800', fontSize: 16 },
   reviewNote: { fontSize: 11, color: '#444', textAlign: 'center' },
 });

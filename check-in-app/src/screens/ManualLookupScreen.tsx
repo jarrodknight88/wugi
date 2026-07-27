@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useSession } from '../context/SessionContext';
+import { COLORS, PASS_FALLBACK } from '../constants/colors';
 
 
 function formatPhone(raw: string): string {
@@ -21,7 +22,12 @@ function formatPhone(raw: string): string {
 const TAP_TO_PAY_ENABLED = true;
 type PaymentMode = any;
 
-const COLORS = [
+// Ticket/pass colour swatches offered to staff in the "Change Ticket Color"
+// sheet — these set pass.passColor directly (see applyColor below) and are
+// part of the cross-app ticket-colour contract (getPassStyle), NOT UI
+// chrome. Do not fold into constants/colors.ts; two entries coincidentally
+// match chrome tokens (brand/warn) today but must stay independent.
+const PASS_COLOR_SWATCHES = [
   '#ef4444','#f97316','#f59e0b','#eab308',
   '#84cc16','#22c55e','#10b981','#14b8a6',
   '#06b6d4','#0ea5e9','#3b82f6','#6366f1',
@@ -46,7 +52,7 @@ function passToTicket(d: any, eventId: string): Ticket {
     holderPhone:     d.data().holderPhone || '',
     ticketTypeName:  d.data().ticketTypeName || '',
     ticketTypeId:    d.data().ticketTypeId || '',
-    color:           d.data().passColor || '#2a7a5a',
+    color:           d.data().passColor || PASS_FALLBACK,
     quantity:        1,
     checkedIn:       d.data().scanStatus === 'scanned',
     balanceDue:      d.data().balanceDue ?? 0,
@@ -70,7 +76,7 @@ function ColorPickerModal({ visible, onSelect, onClose, selectedColor }:
         <Text style={s.sheetTitle}>Change Ticket Color</Text>
         <Text style={s.sheetSub}>Updates Apple Wallet pass immediately</Text>
         <View style={s.palette}>
-          {COLORS.map(c => (
+          {PASS_COLOR_SWATCHES.map(c => (
             <TouchableOpacity key={c} onPress={() => onSelect(c)}
               style={[s.swatch, { backgroundColor: c }, selectedColor === c && s.swatchSelected]} />
           ))}
@@ -143,18 +149,18 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, venueTables, e
           {/* Guest info */}
           <Text style={s.guestLabel}>Guest Name *</Text>
           <TextInput style={s.guestInput} value={name} onChangeText={setName}
-            placeholder="Full name" placeholderTextColor="#555" autoCapitalize="words"
+            placeholder="Full name" placeholderTextColor={COLORS.subtext} autoCapitalize="words"
             returnKeyType="next" onSubmitEditing={() => guestEmailRef.current?.focus()} blurOnSubmit={false} />
 
           <Text style={s.guestLabel}>Email (optional)</Text>
           <TextInput ref={guestEmailRef} style={s.guestInput} value={email} onChangeText={setEmail}
-            placeholder="guest@email.com" placeholderTextColor="#555"
+            placeholder="guest@email.com" placeholderTextColor={COLORS.subtext}
             keyboardType="email-address" autoCapitalize="none"
             returnKeyType="next" onSubmitEditing={() => guestPhoneRef.current?.focus()} blurOnSubmit={false} />
 
           <Text style={s.guestLabel}>Phone (optional)</Text>
           <TextInput ref={guestPhoneRef} style={s.guestInput} value={phone} onChangeText={v => setPhone(formatPhone(v))}
-            placeholder="(555) 000-0000" placeholderTextColor="#555"
+            placeholder="(555) 000-0000" placeholderTextColor={COLORS.subtext}
             keyboardType="phone-pad"
             returnKeyType="next" onSubmitEditing={() => guestTableRef.current?.focus()} blurOnSubmit={false} />
 
@@ -171,14 +177,14 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, venueTables, e
             </ScrollView>
           ) : (
             <TextInput ref={guestTableRef} style={s.guestInput} value={table} onChangeText={setTable}
-              placeholder="e.g. Table 5" placeholderTextColor="#555"
+              placeholder="e.g. Table 5" placeholderTextColor={COLORS.subtext}
               returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
           )}
 
           {/* Ticket type selection */}
           <Text style={s.guestLabel}>Ticket Type *</Text>
           {allTypes.length === 0 ? (
-            <Text style={{ color: '#555', fontSize: 13, marginBottom: 16 }}>No ticket types available</Text>
+            <Text style={{ color: COLORS.subtext, fontSize: 13, marginBottom: 16 }}>No ticket types available</Text>
           ) : (
             <View style={s.typeList}>
               {allTypes.map(tt => (
@@ -191,7 +197,7 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, venueTables, e
                     </View>
                     <Text style={s.typePrice}>${(tt.price / 100).toFixed(2)}</Text>
                   </View>
-                  {picked?.id === tt.id && <Text style={{ color: '#2a7a5a', fontSize: 18 }}>✓</Text>}
+                  {picked?.id === tt.id && <Text style={{ color: COLORS.brand, fontSize: 18 }}>✓</Text>}
                 </TouchableOpacity>
               ))}
             </View>
@@ -202,17 +208,17 @@ function AddGuestModal({ visible, onClose, onCharge, ticketTypes, venueTables, e
             <View style={s.customRow}>
               <TouchableOpacity onPress={() => setUseCustom(v => !v)} style={s.customToggle}>
                 <View style={[s.customCheck, useCustom && s.customCheckOn]}>
-                  {useCustom && <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text>}
+                  {useCustom && <Text style={{ color: COLORS.text, fontSize: 12 }}>✓</Text>}
                 </View>
                 <Text style={s.customLabel}>Use custom amount instead</Text>
               </TouchableOpacity>
               {useCustom && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                  <Text style={{ color: '#fff', fontSize: 24, fontWeight: '700' }}>$</Text>
+                  <Text style={{ color: COLORS.text, fontSize: 24, fontWeight: '700' }}>$</Text>
                   <TextInput style={[s.guestInput, { flex: 1, marginBottom: 0 }]}
                     value={custom} onChangeText={setCustom}
                     placeholder={`${(picked.price / 100).toFixed(2)}`}
-                    placeholderTextColor="#555" keyboardType="decimal-pad" />
+                    placeholderTextColor={COLORS.subtext} keyboardType="decimal-pad" />
                 </View>
               )}
             </View>
@@ -261,7 +267,7 @@ export default function ManualLookupScreen() {
           id: d.id,
           name: d.data().name || '',
           price: d.data().price || 0,
-          color: d.data().color || '#2a7a5a',
+          color: d.data().color || PASS_FALLBACK,
           remaining: d.data().remaining ?? d.data().capacity ?? 0,
           walkUp: d.data().walkUp || false,
           active: d.data().active !== false,
@@ -411,7 +417,7 @@ export default function ManualLookupScreen() {
             {isSelected && <Text style={s.checkmark}>✓</Text>}
           </View>
         ) : (
-          <View style={[s.colorBar, { backgroundColor: item.color || '#2a7a5a' }]} />
+          <View style={[s.colorBar, { backgroundColor: item.color || PASS_FALLBACK }]} />
         )}
         <View style={s.cardBody}>
           <View style={s.cardTop}>
@@ -492,7 +498,7 @@ export default function ManualLookupScreen() {
 
       {/* Search */}
       <View style={s.searchRow}>
-        <TextInput style={s.input} placeholder="Search by name…" placeholderTextColor="#555"
+        <TextInput style={s.input} placeholder="Search by name…" placeholderTextColor={COLORS.subtext}
           value={query} onChangeText={setQuery} onSubmitEditing={handleSearch}
           returnKeyType="search" autoCapitalize="words" />
         <TouchableOpacity style={s.searchBtn} onPress={handleSearch}>
@@ -504,7 +510,7 @@ export default function ManualLookupScreen() {
         <Text style={s.hint}>Long press a ticket to select multiple</Text>
       )}
 
-      {loading ? <ActivityIndicator color="#2a7a5a" style={{ marginTop: 40 }} /> : (
+      {loading ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} /> : (
         <SectionList sections={sections} keyExtractor={t => t.id}
           renderItem={renderTicket} renderSectionHeader={renderSectionHeader}
           contentContainerStyle={s.list} stickySectionHeadersEnabled={false}
@@ -519,7 +525,7 @@ export default function ManualLookupScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={[s.colorBtn, (selected.size === 0 || saving) && s.colorBtnDisabled]}
             onPress={() => setColorPicker(true)} disabled={selected.size === 0 || saving}>
-            {saving ? <ActivityIndicator color="#fff" size="small" />
+            {saving ? <ActivityIndicator color={COLORS.text} size="small" />
               : <Text style={s.colorBtnText}>🎨  Change Color ({selected.size})</Text>}
           </TouchableOpacity>
         </View>
@@ -531,87 +537,87 @@ export default function ManualLookupScreen() {
 }
 
 const s = StyleSheet.create({
-  container:        { flex: 1, backgroundColor: '#0a0a0a', paddingTop: 56 },
+  container:        { flex: 1, backgroundColor: COLORS.bg, paddingTop: 56 },
   headerRow:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, marginBottom: 16 },
-  title:            { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 2 },
+  title:            { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 2 },
   subtitle:         { fontSize: 13, color: '#888' },
-  addBtn:           { backgroundColor: '#2a7a5a', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  addBtnText:       { color: '#fff', fontWeight: '700', fontSize: 14 },
+  addBtn:           { backgroundColor: COLORS.brand, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  addBtnText:       { color: COLORS.text, fontWeight: '700', fontSize: 14 },
   hint:             { fontSize: 11, color: '#444', paddingHorizontal: 20, marginBottom: 8, fontStyle: 'italic' },
   searchRow:        { flexDirection: 'row', paddingHorizontal: 20, gap: 10, marginBottom: 12 },
-  input:            { flex: 1, backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: '#fff', fontSize: 16, borderWidth: 1, borderColor: '#2a2a2a' },
-  searchBtn:        { backgroundColor: '#2a7a5a', borderRadius: 12, paddingHorizontal: 18, justifyContent: 'center' },
-  searchBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+  input:            { flex: 1, backgroundColor: COLORS.card, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: COLORS.text, fontSize: 16, borderWidth: 1, borderColor: COLORS.border },
+  searchBtn:        { backgroundColor: COLORS.brand, borderRadius: 12, paddingHorizontal: 18, justifyContent: 'center' },
+  searchBtnText:    { color: COLORS.text, fontWeight: '700', fontSize: 15 },
   list:             { paddingHorizontal: 16, paddingBottom: 100 },
   sectionHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, paddingVertical: 8, marginTop: 8 },
-  sectionTitle:     { fontSize: 11, fontWeight: '700', color: '#555', letterSpacing: 1 },
-  selectAllBtn:     { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#2a7a5a' },
-  selectAllText:    { fontSize: 12, color: '#2a7a5a', fontWeight: '600' },
-  card:             { flexDirection: 'row', backgroundColor: '#161616', borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: '#222', overflow: 'hidden' },
+  sectionTitle:     { fontSize: 11, fontWeight: '700', color: COLORS.subtext, letterSpacing: 1 },
+  selectAllBtn:     { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: COLORS.brand },
+  selectAllText:    { fontSize: 12, color: COLORS.brand, fontWeight: '600' },
+  card:             { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: COLORS.divider, overflow: 'hidden' },
   cardChecked:      { opacity: 0.5 },
-  cardSelected:     { borderColor: '#2a7a5a', backgroundColor: '#0d1f16' },
+  cardSelected:     { borderColor: COLORS.go, backgroundColor: COLORS.goDeep },
   colorBar:         { width: 5 },
   checkbox:         { width: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },
-  checkboxSelected: { backgroundColor: '#2a7a5a' },
-  checkmark:        { color: '#fff', fontSize: 16, fontWeight: '800' },
+  checkboxSelected: { backgroundColor: COLORS.brand },
+  checkmark:        { color: COLORS.text, fontSize: 16, fontWeight: '800' },
   cardBody:         { flex: 1, padding: 14 },
   cardTop:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardLeft:         { flex: 1 },
-  name:             { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 2 },
+  name:             { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 2 },
   sub:              { fontSize: 12, color: '#666', marginBottom: 4 },
-  type:             { fontSize: 13, color: '#2a7a5a', fontWeight: '500' },
-  checkInBtn:       { backgroundColor: '#2a7a5a', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16 },
+  type:             { fontSize: 13, color: COLORS.brand, fontWeight: '500' },
+  checkInBtn:       { backgroundColor: COLORS.brand, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16 },
   checkInDone:      { backgroundColor: '#1a3d2a' },
-  checkInText:      { color: '#fff', fontWeight: '700', fontSize: 14 },
-  balanceRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#2a2a2a' },
-  balanceText:      { fontSize: 13, color: '#e6a817', fontWeight: '700' },
-  chargeBtn:        { backgroundColor: '#e6a817', borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
+  checkInText:      { color: COLORS.text, fontWeight: '700', fontSize: 14 },
+  balanceRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.border },
+  balanceText:      { fontSize: 13, color: COLORS.warn, fontWeight: '700' },
+  chargeBtn:        { backgroundColor: COLORS.warn, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
   chargeText:       { color: '#000', fontWeight: '800', fontSize: 13 },
-  empty:            { color: '#555', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  empty:            { color: COLORS.subtext, textAlign: 'center', marginTop: 40, fontSize: 15 },
   // Multi-select action bar
-  actionBar:        { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', gap: 10, padding: 16, paddingBottom: 32, backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#222' },
-  cancelSelectBtn:  { paddingVertical: 14, paddingHorizontal: 20, borderRadius: 12, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
+  actionBar:        { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', gap: 10, padding: 16, paddingBottom: 32, backgroundColor: '#111', borderTopWidth: 1, borderTopColor: COLORS.divider },
+  cancelSelectBtn:  { paddingVertical: 14, paddingHorizontal: 20, borderRadius: 12, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
   cancelSelectText: { color: '#888', fontWeight: '600', fontSize: 14 },
-  colorBtn:         { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#2a7a5a', alignItems: 'center' },
+  colorBtn:         { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: COLORS.brand, alignItems: 'center' },
   colorBtnDisabled: { opacity: 0.4 },
-  colorBtnText:     { color: '#fff', fontWeight: '800', fontSize: 15 },
+  colorBtnText:     { color: COLORS.text, fontWeight: '800', fontSize: 15 },
   // Color picker sheet
   overlay:          { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet:            { backgroundColor: '#111', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 48 },
   sheetHandle:      { width: 40, height: 4, backgroundColor: '#333', borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  sheetTitle:       { fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 4, textAlign: 'center' },
+  sheetTitle:       { fontSize: 18, fontWeight: '800', color: COLORS.text, marginBottom: 4, textAlign: 'center' },
   sheetSub:         { fontSize: 13, color: '#888', textAlign: 'center', marginBottom: 20 },
   palette:          { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginBottom: 20 },
   swatch:           { width: 44, height: 44, borderRadius: 22 },
-  swatchSelected:   { transform: [{ scale: 1.25 }], borderWidth: 3, borderColor: '#fff' },
-  cancelSheetBtn:   { alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
+  swatchSelected:   { transform: [{ scale: 1.25 }], borderWidth: 3, borderColor: COLORS.text },
+  cancelSheetBtn:   { alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
   cancelSheetText:  { color: '#888', fontWeight: '600', fontSize: 15 },
   // Add Guest modal
-  guestModal:       { flex: 1, backgroundColor: '#0a0a0a' },
-  guestHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  guestTitle:       { fontSize: 22, fontWeight: '800', color: '#fff' },
-  guestClose:       { fontSize: 20, color: '#555', padding: 4 },
+  guestModal:       { flex: 1, backgroundColor: COLORS.bg },
+  guestHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: COLORS.card },
+  guestTitle:       { fontSize: 22, fontWeight: '800', color: COLORS.text },
+  guestClose:       { fontSize: 20, color: COLORS.subtext, padding: 4 },
   guestBody:        { padding: 20, paddingBottom: 60 },
-  guestEvent:       { fontSize: 13, color: '#2a7a5a', fontWeight: '600', marginBottom: 20 },
+  guestEvent:       { fontSize: 13, color: COLORS.brand, fontWeight: '600', marginBottom: 20 },
   guestLabel:       { fontSize: 13, fontWeight: '600', color: '#aaa', marginBottom: 6, marginTop: 14 },
-  guestInput:       { backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, color: '#fff', fontSize: 16, borderWidth: 1, borderColor: '#2a2a2a', marginBottom: 4 },
+  guestInput:       { backgroundColor: COLORS.card, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, color: COLORS.text, fontSize: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 4 },
   typeList:         { gap: 8, marginBottom: 4 },
-  typeCard:         { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161616', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#222' },
-  typeCardSelected: { borderColor: '#2a7a5a', backgroundColor: '#0d1f16' },
-  typeName:         { fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 2 },
+  typeCard:         { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: COLORS.divider },
+  typeCardSelected: { borderColor: COLORS.go, backgroundColor: COLORS.goDeep },
+  typeName:         { fontSize: 15, fontWeight: '700', color: COLORS.text, marginBottom: 2 },
   typePrice:        { fontSize: 13, color: '#888' },
-  walkUpBadge:      { backgroundColor: '#2a1a00', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#e6a817' },
-  walkUpText:       { fontSize: 9, fontWeight: '800', color: '#e6a817', letterSpacing: 0.5 },
-  customRow:        { backgroundColor: '#111', borderRadius: 12, padding: 14, marginTop: 14, borderWidth: 1, borderColor: '#222' },
+  walkUpBadge:      { backgroundColor: COLORS.warnDeep, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: COLORS.warn },
+  walkUpText:       { fontSize: 9, fontWeight: '800', color: COLORS.warn, letterSpacing: 0.5 },
+  customRow:        { backgroundColor: '#111', borderRadius: 12, padding: 14, marginTop: 14, borderWidth: 1, borderColor: COLORS.divider },
   customToggle:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
   customCheck:      { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#333', alignItems: 'center', justifyContent: 'center' },
-  customCheckOn:    { backgroundColor: '#2a7a5a', borderColor: '#2a7a5a' },
+  customCheckOn:    { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
   customLabel:      { fontSize: 14, color: '#aaa', fontWeight: '500' },
-  chargeGuestBtn:   { backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
+  chargeGuestBtn:   { backgroundColor: COLORS.brand, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
   chargeGuestBtnDisabled: { opacity: 0.4 },
-  chargeGuestText:  { color: '#fff', fontSize: 18, fontWeight: '800' },
-  tableChip:        { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a' },
-  tableChipSelected:{ backgroundColor: '#0d1f16', borderColor: '#2a7a5a' },
-  tableChipText:    { color: '#555', fontSize: 14, fontWeight: '600' },
-  tableChipTextSelected: { color: '#2a7a5a' },
+  chargeGuestText:  { color: COLORS.text, fontSize: 18, fontWeight: '800' },
+  tableChip:        { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  tableChipSelected:{ backgroundColor: COLORS.goDeep, borderColor: COLORS.go },
+  tableChipText:    { color: COLORS.subtext, fontSize: 14, fontWeight: '600' },
+  tableChipTextSelected: { color: COLORS.go },
 });

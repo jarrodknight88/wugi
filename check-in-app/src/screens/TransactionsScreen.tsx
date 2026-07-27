@@ -11,6 +11,7 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import { useSession } from '../context/SessionContext';
+import { COLORS } from '../constants/colors';
 
 interface Transaction {
   id: string;
@@ -138,10 +139,10 @@ export default function TransactionsScreen() {
   }
 
   function statusColor(status: string): string {
-    if (status === 'succeeded') return '#2a7a5a';
-    if (status === 'refunded') return '#cc3333';
-    if (status === 'pending') return '#e6a817';
-    return '#555';
+    if (status === 'succeeded') return COLORS.go;
+    if (status === 'refunded') return COLORS.stop;
+    if (status === 'pending') return COLORS.warn;
+    return COLORS.subtext;
   }
 
   function statusLabel(tx: Transaction): string {
@@ -173,7 +174,7 @@ export default function TransactionsScreen() {
   if (loading) {
     return (
       <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator color="#2a7a5a" size="large" />
+        <ActivityIndicator color={COLORS.brand} size="large" />
       </View>
     );
   }
@@ -228,7 +229,7 @@ export default function TransactionsScreen() {
                 onPress={() => handleRefund(selected)}
                 disabled={actionLoading}>
                 {actionLoading
-                  ? <ActivityIndicator color="#fff" />
+                  ? <ActivityIndicator color={COLORS.text} />
                   : <Text style={styles.refundBtnText}>↩ Issue Refund</Text>
                 }
               </TouchableOpacity>
@@ -254,7 +255,7 @@ export default function TransactionsScreen() {
         <TextInput
           style={styles.searchInput}
           placeholder="Search by name or last 4 of card…"
-          placeholderTextColor="#555"
+          placeholderTextColor={COLORS.subtext}
           value={searchQuery}
           onChangeText={setSearchQuery}
           autoCapitalize="none"
@@ -270,7 +271,7 @@ export default function TransactionsScreen() {
             <Text style={styles.summaryLabel}>Completed</Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={[styles.summaryNum, { color: '#2a7a5a' }]}>${(totalRevenue / 100).toFixed(0)}</Text>
+            <Text style={[styles.summaryNum, { color: COLORS.brand }]}>${(totalRevenue / 100).toFixed(0)}</Text>
             <Text style={styles.summaryLabel}>Charged</Text>
           </View>
           <View style={styles.summaryCard}>
@@ -290,7 +291,7 @@ export default function TransactionsScreen() {
         <FlatList
           data={filteredTransactions}
           keyExtractor={t => t.id}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor="#2a7a5a" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={COLORS.brand} />}
           contentContainerStyle={{ paddingBottom: 40 }}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.txRow} onPress={() => setSelected(item)}>
@@ -298,7 +299,7 @@ export default function TransactionsScreen() {
               <View style={styles.txBody}>
                 <View style={styles.txTop}>
                   <Text style={styles.txName}>{item.holderName || 'Walk-up guest'}</Text>
-                  <Text style={[styles.txAmount, { color: item.status === 'refunded' ? '#555' : '#fff' }]}>
+                  <Text style={[styles.txAmount, { color: item.status === 'refunded' ? COLORS.subtext : COLORS.text }]}>
                     {item.status === 'refunded' ? '—' : ''} ${(item.amountCents / 100).toFixed(2)}
                   </Text>
                 </View>
@@ -328,47 +329,47 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   centered: { alignItems: 'center', justifyContent: 'center' },
   header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#fff' },
-  headerSub: { fontSize: 13, color: '#555', marginTop: 2 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: COLORS.text },
+  headerSub: { fontSize: 13, color: COLORS.subtext, marginTop: 2 },
   summaryRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, marginBottom: 16 },
-  summaryCard: { flex: 1, backgroundColor: '#161616', borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#222' },
-  summaryNum: { fontSize: 24, fontWeight: '800', color: '#fff' },
-  summaryLabel: { fontSize: 10, color: '#555', marginTop: 2 },
-  txRow: { flexDirection: 'row', backgroundColor: '#111', marginHorizontal: 16, marginBottom: 8, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#1a1a1a', alignItems: 'center' },
+  summaryCard: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: COLORS.divider },
+  summaryNum: { fontSize: 24, fontWeight: '800', color: COLORS.text },
+  summaryLabel: { fontSize: 10, color: COLORS.subtext, marginTop: 2 },
+  txRow: { flexDirection: 'row', backgroundColor: '#111', marginHorizontal: 16, marginBottom: 8, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.card, alignItems: 'center' },
   txDot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   txBody: { flex: 1 },
   txTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  txName: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  txName: { fontSize: 15, fontWeight: '700', color: COLORS.text },
   txAmount: { fontSize: 16, fontWeight: '800' },
   txBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  txType: { fontSize: 12, color: '#555' },
+  txType: { fontSize: 12, color: COLORS.subtext },
   txMeta: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   txStatus: { fontSize: 11, fontWeight: '700' },
   txTime: { fontSize: 11, color: '#333' },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyText: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 6 },
-  emptySub: { fontSize: 13, color: '#555', textAlign: 'center', paddingHorizontal: 40 },
+  emptyText: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: 6 },
+  emptySub: { fontSize: 13, color: COLORS.subtext, textAlign: 'center', paddingHorizontal: 40 },
   // Detail modal
-  detailContainer: { flex: 1, backgroundColor: '#0a0a0a', padding: 24, paddingTop: 56 },
+  detailContainer: { flex: 1, backgroundColor: COLORS.bg, padding: 24, paddingTop: 56 },
   detailHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  detailTitle: { fontSize: 20, fontWeight: '800', color: '#fff' },
-  detailClose: { fontSize: 20, color: '#555', fontWeight: '700' },
-  detailCard: { backgroundColor: '#161616', borderRadius: 20, padding: 24, alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#2a2a2a' },
-  detailAmount: { fontSize: 48, fontWeight: '800', color: '#fff', marginBottom: 4 },
+  detailTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text },
+  detailClose: { fontSize: 20, color: COLORS.subtext, fontWeight: '700' },
+  detailCard: { backgroundColor: COLORS.surface, borderRadius: 20, padding: 24, alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: COLORS.border },
+  detailAmount: { fontSize: 48, fontWeight: '800', color: COLORS.text, marginBottom: 4 },
   detailStatus: { fontSize: 13, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },
-  detailGuest: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 2 },
-  detailType: { fontSize: 13, color: '#555' },
-  detailRows: { backgroundColor: '#111', borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: '#1a1a1a' },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  detailRowLabel: { fontSize: 13, color: '#555' },
-  detailRowValue: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  refundBtn: { backgroundColor: '#2a1a1a', borderRadius: 14, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#cc3333', marginBottom: 12 },
-  refundBtnText: { color: '#cc3333', fontWeight: '800', fontSize: 16 },
-  refundedBadge: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 14, alignItems: 'center' },
-  refundedText: { color: '#555', fontSize: 13 },
+  detailGuest: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: 2 },
+  detailType: { fontSize: 13, color: COLORS.subtext },
+  detailRows: { backgroundColor: '#111', borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: COLORS.card },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.card },
+  detailRowLabel: { fontSize: 13, color: COLORS.subtext },
+  detailRowValue: { fontSize: 13, color: COLORS.text, fontWeight: '600' },
+  refundBtn: { backgroundColor: COLORS.stopDeep, borderRadius: 14, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: COLORS.stop, marginBottom: 12 },
+  refundBtnText: { color: COLORS.stop, fontWeight: '800', fontSize: 16 },
+  refundedBadge: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, alignItems: 'center' },
+  refundedText: { color: COLORS.subtext, fontSize: 13 },
   searchRow: { paddingHorizontal: 16, paddingBottom: 12 },
-  searchInput: { backgroundColor: '#161616', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: '#fff', fontSize: 15, borderWidth: 1, borderColor: '#2a2a2a' },
+  searchInput: { backgroundColor: COLORS.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, color: COLORS.text, fontSize: 15, borderWidth: 1, borderColor: COLORS.border },
 });
