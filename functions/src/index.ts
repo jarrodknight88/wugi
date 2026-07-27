@@ -22,6 +22,7 @@ export { releaseReserves } from './stripe/releaseReserves';
 export { onVenueChargebackUpdate } from './venues/chargebackSuspension';
 export { onTicketTypeSold } from './tickets/updateInventory';
 export { generateDoorPin }      from './door/generateDoorPin';
+export { checkInPass }          from './door/checkInPass';
 export { validateSuperAdminPin } from './door/validateSuperAdminPin';
 export { createDashboardUser }  from './users/createDashboardUser';
 export { onUserCreated }        from './users/onUserCreated';
