@@ -14,6 +14,7 @@ import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
 import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
 import { parseClaimToken } from '../utils/deepLink';
+import { logBreadcrumb } from '../lib/crashlyticsService';
 
 // Screens
 import { SplashScreen }         from '../screens/SplashScreen';
@@ -114,9 +115,23 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
   const [stack,     setStack]     = useState<NavEntry[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
 
-  const push = (entry: NavEntry) => setStack(prev => [...prev, entry]);
+  // Screen trail breadcrumb — so a crash report shows how the user got
+  // there, not just where it happened. Tab switches and stack push/pop are
+  // the only two ways this in-memory navigator changes screens.
+  useEffect(() => { logBreadcrumb(`nav: tab → ${activeTab}`); }, [activeTab]);
+
+  const push = (entry: NavEntry) => {
+    logBreadcrumb(`nav: push → ${entry.screen}`);
+    setStack(prev => [...prev, entry]);
+  };
   // Pop one screen — if stack becomes empty, tabs are revealed
-  const pop  = () => setStack(prev => prev.slice(0, -1));
+  const pop = () => {
+    setStack(prev => {
+      const next = prev.slice(0, -1);
+      logBreadcrumb(`nav: pop → ${next.length > 0 ? next[next.length - 1].screen : `tab:${activeTab}`}`);
+      return next;
+    });
+  };
 
   const navigateToEvent   = (event: EventData)    => push({ screen: 'event', event });
   const navigateToVenue   = (venue: VenueData)    => push({ screen: 'venue', venue });

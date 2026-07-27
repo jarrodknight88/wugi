@@ -14,6 +14,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { logCrash } from '../../lib/crashLogger';
+import { recordNonFatal } from '../../lib/crashlyticsService';
 
 type Props = {
   children: React.ReactNode;
@@ -39,6 +40,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     // Local console for dev; never re-thrown.
     console.log('ErrorBoundary caught:', this.props.label || this.props.screen || 'screen', error?.message);
+    // Also record as a Crashlytics non-fatal — same crash, but visible on
+    // the dashboard immediately instead of requiring a Firestore query.
+    recordNonFatal(`ErrorBoundary:${this.props.screen || this.props.label || 'unknown'}`, error);
     // Fire-and-forget crash log to Firestore. logCrash is wrapped in
     // its own try-catch and never throws — safe to await without guard.
     logCrash({

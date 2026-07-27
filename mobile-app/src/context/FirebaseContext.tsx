@@ -31,6 +31,7 @@ import {
   getUserProfile,
   markEmailVerified,
 } from '../../firestoreService';
+import { setCrashUserId } from '../lib/crashlyticsService';
 
 const auth = getAuth();
 
@@ -114,6 +115,9 @@ export function FirebaseProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
+      // uid only — a crash can be traced to an account without ever
+      // logging email/name/phone to the dashboard.
+      setCrashUserId(firebaseUser?.uid ?? null);
 
       if (firebaseUser) {
         try {

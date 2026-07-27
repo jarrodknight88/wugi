@@ -1,5 +1,7 @@
 {
   "react-native": {
-    "messaging_ios_auto_registration_for_remote_messages": false
+    "messaging_ios_auto_registration_for_remote_messages": false,
+    "crashlytics_auto_collection_enabled": false,
+    "crashlytics_debug_enabled": false
   }
 }
