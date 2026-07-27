@@ -17,10 +17,24 @@
  *   node importPlaces.js --instagram-only                  (run all missing)
  *   node importPlaces.js --close --docId="opera-atlanta" --replacedBy="gp_xyz"
  *
- * Status model:
- *   pending_review — confidence < 80, needs manual approval
- *   unclaimed      — confidence ≥ 80, live in app with claim CTA
- *   approved       — venue claimed and verified
+ * Status model (four-state ladder — see docs/DOOR-REDESIGN-SPEC.md-style
+ * decision recorded 2026-07-26): confidence alone is never the visibility
+ * gate. Confidence measures data COMPLETENESS, not nightlife RELEVANCE —
+ * restaurants routinely out-score bars/clubs on confidence because chains
+ * have better websites/hours/photos than dive bars. A venue only reaches
+ * `published` (searchable + in discovery) when it *also* carries a STRONG
+ * nightlife signal (primaryType/primaryCategory — a name-regex match alone
+ * is not enough).
+ *
+ *   pending_review — not searchable, not in discovery
+ *                    (relevance weak OR confidence < 60)
+ *   listed         — searchable by name, NOT in discovery
+ *                    (confidence 60-79, or nightlife-weak categories e.g.
+ *                    Restaurant/Cafe)
+ *   published      — searchable AND in discovery
+ *                    (confidence >= 80 AND a STRONG nightlife signal)
+ *   featured       — editorial surfaces — NEVER set by this script, human only
+ *   approved       — venue claimed and verified (set by claim flow, not this script)
  *   closed         — permanently closed, shows closure banner, not in discovery
  *   disabled       — hidden completely (duplicates, bad data)
  */
@@ -365,6 +379,82 @@ const NIGHTLIFE_PRIMARY_TYPES = new Set(['pub', 'wine_bar', 'casino', 'comedy_cl
 
 const POSITIVE_NAME_RE = /\b(lounge|club|bar|tavern|pub|hookah|cocktail|speakeasy|cabaret|comedy|music hall|live|saloon|distillery|brewery|taproom|rooftop|karaoke|revue|gentlemen)\b/i;
 
+// ── Status ladder (visibility gate) ──────────────────────────────────
+// Confidence (above) scores data completeness and must never be the sole
+// gate for visibility — see file header. This section decides where a
+// venue lands on the four-state ladder: pending_review / listed /
+// published / featured (featured is human-only, never set here).
+
+// A STRONG nightlife signal requires primaryType or primaryCategory to be
+// unambiguously nightlife. A name-regex match ("...Country Club of the
+// South", "LA Fitness Health Club") is deliberately excluded — it's a
+// signal, not proof, so it can only earn `listed`, never `published`.
+const STRONG_NIGHTLIFE_PRIMARY_TYPES = new Set([
+  'bar', 'night_club', 'pub', 'wine_bar', 'casino', 'comedy_club', 'karaoke',
+]);
+const STRONG_NIGHTLIFE_CATEGORIES = new Set([
+  'Bar', 'Nightclub', 'Lounge', 'Live Music', 'Comedy', 'Adult',
+  'Brewery/Distillery', 'Hotel Bar/Rooftop Pool',
+]);
+
+// Restaurants/cafes routinely out-score nightlife venues on confidence
+// (better websites/hours/photos) without being nightlife-relevant, so they
+// get a dedicated, lower ceiling: `listed` at best, never `published`.
+const RESTAURANT_CAFE_CATEGORIES     = new Set(['Restaurant', 'Cafe']);
+const RESTAURANT_CAFE_MIN_RATING_COUNT = 25;
+
+// inferPrimaryCategory's Bar branch and its unconditional final fallback
+// both return 'Bar' — so a totally unclassifiable place (no matching type,
+// no matching name pattern) still ends up with primaryCategory 'Bar'.
+// Blindly trusting primaryCategory === 'Bar' as a strong signal would make
+// that fallback masquerade as evidence (exactly how "Country Club of the
+// South" and "LA Fitness Health Club" would wrongly read as strong). Only
+// count it when the underlying type data actually says bar/pub.
+function hasGenuineBarTypeSignal(place) {
+  const types       = (place.types || []).map(t => t.toLowerCase());
+  const primaryType = (place.primaryType || '').toLowerCase();
+  return primaryType === 'bar' || primaryType === 'pub' || types.includes('bar') || types.includes('pub');
+}
+
+function evaluateNightlifeSignal(place, primaryCategory) {
+  const primaryType = (place.primaryType || '').toLowerCase();
+  const name         = place.displayName?.text || '';
+
+  const signals = [];
+  if (STRONG_NIGHTLIFE_PRIMARY_TYPES.has(primaryType)) signals.push('primaryType');
+
+  const categoryIsGenuineSignal = primaryCategory === 'Bar'
+    ? hasGenuineBarTypeSignal(place)
+    : STRONG_NIGHTLIFE_CATEGORIES.has(primaryCategory);
+  if (categoryIsGenuineSignal) signals.push('primaryCategory');
+
+  const strong = signals.length > 0;
+
+  if (POSITIVE_NAME_RE.test(name)) signals.push('name');
+
+  return {
+    strong,
+    relevancePass: strong || signals.includes('name'),
+    signals,
+  };
+}
+
+// Persists the INPUTS (relevancePass/relevanceSignals/confidence), not just
+// the outcome, so thresholds can be retuned later without re-scraping.
+function determineStatus({ primaryCategory, confidenceOverall, nightlifeSignal, userRatingCount }) {
+  if (RESTAURANT_CAFE_CATEGORIES.has(primaryCategory)) {
+    if (confidenceOverall >= AUTO_APPROVE_THRESHOLD && (userRatingCount || 0) >= RESTAURANT_CAFE_MIN_RATING_COUNT) {
+      return 'listed';
+    }
+    return 'pending_review';
+  }
+
+  if (!nightlifeSignal.relevancePass)        return 'pending_review';
+  if (confidenceOverall < VISIBILITY_THRESHOLD) return 'pending_review';
+  if (nightlifeSignal.strong && confidenceOverall >= AUTO_APPROVE_THRESHOLD) return 'published';
+  return 'listed';
+}
+
 function evaluateRelevance(place) {
   const types       = (place.types || []).map(t => t.toLowerCase());
   const primaryType = (place.primaryType || '').toLowerCase();
@@ -486,6 +576,7 @@ async function searchPlaces(query, center) {
       'X-Goog-FieldMask': [
         'places.id','places.displayName','places.formattedAddress',
         'places.nationalPhoneNumber','places.websiteUri','places.rating',
+        'places.userRatingCount',
         'places.priceLevel','places.types','places.primaryType','places.location',
         'places.currentOpeningHours','places.regularOpeningHours',
         'places.photos.name','places.photos.widthPx','places.photos.heightPx',
@@ -509,7 +600,7 @@ async function getPlaceById(placeId) {
       'X-Goog-Api-Key': GKEY,
       'X-Goog-FieldMask': [
         'id','displayName','formattedAddress','nationalPhoneNumber',
-        'websiteUri','rating','priceLevel','types','primaryType','location',
+        'websiteUri','rating','userRatingCount','priceLevel','types','primaryType','location',
         'currentOpeningHours','regularOpeningHours',
         'photos.name','photos.widthPx','photos.heightPx','photos.authorAttributions',
         'businessStatus','parkingOptions','editorialSummary',
@@ -550,12 +641,21 @@ async function buildVenue(place, neighborhood, skipInstagram = false) {
 
   const fields     = { name, address: place.formattedAddress, phone: place.nationalPhoneNumber, website: place.websiteUri, hours, photos: media, instagram: instagramData, parking };
   const confidence = calculateConfidence(fields);
-  const status     = confidence.overall >= AUTO_APPROVE_THRESHOLD ? 'unclaimed' : 'pending_review';
+
+  const primaryCategory  = assertPrimaryCategory(inferPrimaryCategory(types, primaryType, name));
+  const userRatingCount  = place.userRatingCount || 0;
+  const nightlifeSignal  = evaluateNightlifeSignal(place, primaryCategory);
+  const status = determineStatus({
+    primaryCategory,
+    confidenceOverall: confidence.overall,
+    nightlifeSignal,
+    userRatingCount,
+  });
 
   return {
     name,
     category:          mapCategory(types, name),
-    primaryCategory:   assertPrimaryCategory(inferPrimaryCategory(types, primaryType, name)),
+    primaryCategory,
     address:           place.formattedAddress || '',
     phone:             place.nationalPhoneNumber || '',
     website:           place.websiteUri || '',
@@ -577,11 +677,14 @@ async function buildVenue(place, neighborhood, skipInstagram = false) {
     hoursVisible:  true,
     specialHours:  [],
     parking,
-    rating:        place.rating || null,
+    rating:          place.rating || null,
+    userRatingCount,
     priceLevel:    mapPriceLevel(price),
     googlePlaceId: place.id,
     vibes:         mapVibes(types, price, name),
     confidence,
+    relevancePass:    nightlifeSignal.relevancePass,
+    relevanceSignals: nightlifeSignal.signals,
     status,
     isClaimed:     false,
     claimedBy:     null,
@@ -734,23 +837,31 @@ async function runInstagramOnly() {
 }
 
 // ── REFRESH MODE ──────────────────────────────────────────────────────
+// 'status' is protected here (never in checkFields, never rewritten below)
+// specifically so refresh can NEVER downgrade a human decision. The
+// reviewedBy/reviewedAt/manualVerifiedBy/demoFlags markers are also listed
+// so any future field that keys off them stays covered by the same
+// protection instead of growing a parallel mechanism.
 const OWNER_FIELDS = new Set([
   'instagram', 'about', 'attributes', 'menuDescription',
   'isFeatured', 'isClaimed', 'claimedBy', 'claimedAt',
   'status', 'vibes', 'specialHours', 'hoursVisible',
+  'reviewedBy', 'reviewedAt', 'manualVerifiedBy', 'demoFlags',
 ]);
 
 function diff(existing, updated) {
   const changes = {};
-  const checkFields = ['name', 'address', 'phone', 'website', 'hours', 'parking', 'rating', 'isActive', 'media'];
+  const checkFields = ['name', 'address', 'phone', 'website', 'hours', 'parking', 'rating', 'userRatingCount', 'isActive', 'media'];
   for (const field of checkFields) {
     const oldVal = JSON.stringify(existing[field] ?? null);
     const newVal = JSON.stringify(updated[field] ?? null);
     if (oldVal !== newVal) changes[field] = { from: existing[field], to: updated[field] };
   }
   if (Object.keys(changes).length > 0) {
-    changes.confidence = { from: existing.confidence?.overall, to: updated.confidence?.overall };
-    changes.updatedAt  = { from: null, to: 'now' };
+    changes.confidence       = { from: existing.confidence?.overall, to: updated.confidence?.overall };
+    changes.relevancePass    = { from: existing.relevancePass, to: updated.relevancePass };
+    changes.relevanceSignals = { from: existing.relevanceSignals, to: updated.relevanceSignals };
+    changes.updatedAt        = { from: null, to: 'now' };
   }
   return changes;
 }
@@ -859,7 +970,7 @@ async function importNeighborhood(neighborhood, seenIds, isDryRun = false) {
   console.log(`📍 ${neighborhood.name.toUpperCase()}${isDryRun ? '  [DRY RUN]' : ''}`);
   console.log(`${'═'.repeat(60)}`);
 
-  let added = 0, pendingReview = 0, errors = 0, rejected = 0;
+  let added = 0, pendingReview = 0, listed = 0, published = 0, errors = 0, rejected = 0;
   const skipped = [];
 
   for (const venueType of neighborhood.searchQueries) {
@@ -897,18 +1008,20 @@ async function importNeighborhood(neighborhood, seenIds, isDryRun = false) {
           const venue = await buildVenue(place, neighborhood, true);
 
           if (isDryRun) {
-            console.log(`     📝 [dry-run] would write gp_${place.id} — ${venue.name} (status=${venue.status}, primaryCategory=${venue.primaryCategory}, needsPhotoRepull=${venue.needsPhotoRepull})`);
+            console.log(`     📝 [dry-run] would write gp_${place.id} — ${venue.name} (status=${venue.status}, primaryCategory=${venue.primaryCategory}, relevancePass=${venue.relevancePass}, relevanceSignals=[${venue.relevanceSignals.join(',')}], needsPhotoRepull=${venue.needsPhotoRepull})`);
           } else {
             await db.collection('venues').doc(`gp_${place.id}`).set(venue, { merge: true });
           }
           seenIds.add(place.id);
           added++;
           if (venue.status === 'pending_review') pendingReview++;
+          else if (venue.status === 'listed')    listed++;
+          else if (venue.status === 'published') published++;
 
-          const statusIcon = venue.status === 'pending_review' ? '⚠️ ' : '✅';
+          const statusIcon = venue.status === 'published' ? '✅' : venue.status === 'listed' ? '👁️ ' : '⚠️ ';
           const hrIcon     = venue.hours.length > 0 ? '🕐' : '  ';
           const pkIcon     = Object.values(venue.parking || {}).some(v => v) ? '🅿️' : '  ';
-          console.log(`     ${statusIcon} ${hrIcon}${pkIcon} [${venue.confidence.overall}] ${venue.name}`);
+          console.log(`     ${statusIcon} ${hrIcon}${pkIcon} [${venue.confidence.overall}] ${venue.name} — ${venue.status}`);
 
           await new Promise(r => setTimeout(r, 100));
         } catch (e) {
@@ -936,9 +1049,9 @@ async function importNeighborhood(neighborhood, seenIds, isDryRun = false) {
     }
   }
 
-  console.log(`\n  📊 ${neighborhood.name}: ${added} added · ${rejected} rejected (relevance) · ${pendingReview} need review · ${skipped.length} skipped · ${errors} errors`);
+  console.log(`\n  📊 ${neighborhood.name}: ${added} added (${published} published · ${listed} listed · ${pendingReview} pending_review) · ${rejected} rejected (relevance) · ${skipped.length} skipped · ${errors} errors`);
   console.log(`  💡 Run --instagram-only to add Instagram handles for new venues`);
-  return { added, skipped: skipped.length, pendingReview, errors, rejected };
+  return { added, skipped: skipped.length, pendingReview, listed, published, errors, rejected };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -954,10 +1067,12 @@ async function main() {
     console.log('  node importPlaces.js --close --docId="opera-atlanta"');
     console.log('  node importPlaces.js --close --docId="opera-atlanta" --replacedBy="gp_xyz"');
     console.log('  node importPlaces.js --all --dry-run              (log every would-be write/reject, zero writes)\n');
-    console.log('Status model:');
-    console.log('  pending_review — needs manual approval (confidence < 80)');
-    console.log('  unclaimed      — live in app with claim CTA');
-    console.log('  approved       — venue claimed and verified');
+    console.log('Status model (four-state ladder):');
+    console.log('  pending_review — not searchable, not in discovery      (relevance weak OR confidence < 60)');
+    console.log('  listed         — searchable by name, NOT in discovery (confidence 60-79, or nightlife-weak categories e.g. Restaurant/Cafe)');
+    console.log('  published      — searchable AND in discovery          (confidence >= 80 AND a STRONG nightlife signal)');
+    console.log('  featured       — editorial surfaces                   NEVER set by this script — human only');
+    console.log('  approved       — venue claimed and verified (set by claim flow, not this script)');
     console.log('  closed         — permanently closed, shows banner in app');
     console.log('  disabled       — hidden completely\n');
     console.log('Available neighborhoods:');
@@ -997,7 +1112,7 @@ async function main() {
   console.log(`🌆 Wugi — Google Places Atlanta Import v5${dryRun ? '  [DRY RUN — zero Firestore writes]' : ''}\n`);
   console.log('Note: Instagram lookup skipped during import — run separately after:');
   console.log('      node importPlaces.js --instagram-only --test\n');
-  console.log('Legend: ✅ unclaimed · ⚠️  needs review · 🕐 hours · 🅿️ parking · [##] confidence\n');
+  console.log('Legend: ✅ published · 👁️  listed (searchable, not in discovery) · ⚠️  pending_review · 🕐 hours · 🅿️ parking · [##] confidence\n');
 
   const seenIds  = new Set();
   const existing = await db.collection('venues').get();
@@ -1013,15 +1128,17 @@ async function main() {
     return [found];
   })();
 
-  let totalAdded = 0, totalPending = 0, totalSkipped = 0, totalErrors = 0, totalRejected = 0;
+  let totalAdded = 0, totalPending = 0, totalListed = 0, totalPublished = 0, totalSkipped = 0, totalErrors = 0, totalRejected = 0;
 
   for (const neighborhood of toRun) {
     const r = await importNeighborhood(neighborhood, seenIds, dryRun);
-    totalAdded    += r.added;
-    totalPending  += r.pendingReview;
-    totalSkipped  += r.skipped;
-    totalErrors   += r.errors;
-    totalRejected += r.rejected;
+    totalAdded     += r.added;
+    totalPending   += r.pendingReview;
+    totalListed    += r.listed;
+    totalPublished += r.published;
+    totalSkipped   += r.skipped;
+    totalErrors    += r.errors;
+    totalRejected  += r.rejected;
   }
 
   if (totalPending > 0 && !dryRun) {
@@ -1034,8 +1151,10 @@ async function main() {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(dryRun ? '🎊 DRY RUN COMPLETE — nothing written' : '🎊 DONE');
   console.log(`   ✅ ${totalAdded} venues ${dryRun ? 'would be imported' : 'imported'}`);
+  console.log(`      🌟 ${totalPublished} published (searchable + discovery)`);
+  console.log(`      👁️  ${totalListed} listed (searchable only)`);
+  console.log(`      ⚠️  ${totalPending} pending_review (needs manual approval)`);
   console.log(`   🚫 ${totalRejected} rejected (relevance gate)`);
-  console.log(`   ⚠️  ${totalPending} need review`);
   console.log(`   ⏭  ${totalSkipped} skipped`);
   console.log(`   ❌ ${totalErrors} errors`);
   console.log('\nNext steps:');
