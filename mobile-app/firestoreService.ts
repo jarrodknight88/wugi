@@ -45,6 +45,7 @@ import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import type {
   EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc,
 } from './src/types';
+import { recordNonFatal } from './src/lib/crashlyticsService';
 
 // Cursor type used by the *Page() variants for cursor-based pagination.
 // Holds the last DocumentSnapshot from the previous page (Firestore's
@@ -262,6 +263,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
     return { uid, ...snap.data() } as UserProfile;
   } catch (e) {
     console.log('getUserProfile error:', e);
+    recordNonFatal('getUserProfile', e);
     return null;
   }
 }
@@ -471,6 +473,7 @@ export async function getApprovedEvents(
     return feed.slice(0, max);
   } catch (e) {
     console.log('getApprovedEvents error:', e);
+    recordNonFatal('getApprovedEvents', e);
     return [];
   }
 }
@@ -497,6 +500,7 @@ export async function getEventsForVenue(
       .filter(notTestVenue);
   } catch (e) {
     console.log('getEventsForVenue error:', e);
+    recordNonFatal('getEventsForVenue', e);
     return [];
   }
 }
@@ -508,6 +512,7 @@ export async function getEventById(eventId: string): Promise<FSEvent | null> {
     return { id: snap.id, ...snap.data() } as FSEvent;
   } catch (e) {
     console.log('getEventById error:', e);
+    recordNonFatal('getEventById', e);
     return null;
   }
 }
@@ -570,6 +575,7 @@ export async function getApprovedVenues(
     return results.slice(0, max);
   } catch (e) {
     console.log('getApprovedVenues error:', e);
+    recordNonFatal('getApprovedVenues', e);
     return [];
   }
 }
@@ -583,6 +589,7 @@ export async function getVenueById(venueId: string): Promise<FSVenue | null> {
     return data;
   } catch (e) {
     console.log('getVenueById error:', e);
+    recordNonFatal('getVenueById', e);
     return null;
   }
 }
@@ -624,6 +631,7 @@ export async function getApprovedVenuesPage(args: {
     };
   } catch (e) {
     console.log('getApprovedVenuesPage error:', e);
+    recordNonFatal('getApprovedVenuesPage', e);
     return { venues: [], nextCursor: null, hasMore: false };
   }
 }
@@ -668,6 +676,7 @@ export async function getApprovedEventsPage(args: {
     };
   } catch (e) {
     console.log('getApprovedEventsPage error:', e);
+    recordNonFatal('getApprovedEventsPage', e);
     return { events: [], nextCursor: null, hasMore: false };
   }
 }
@@ -711,6 +720,7 @@ export async function getVenuesByNeighborhood(
     return results.slice(0, max);
   } catch (e) {
     console.log('getVenuesByNeighborhood error:', e);
+    recordNonFatal('getVenuesByNeighborhood', e);
     return [];
   }
 }
@@ -735,6 +745,7 @@ export async function getActiveDeals(
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
   } catch (e) {
     console.log('getActiveDeals error:', e);
+    recordNonFatal('getActiveDeals', e);
     return [];
   }
 }
@@ -754,6 +765,7 @@ export async function getDealsForVenue(
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
   } catch (e) {
     console.log('getDealsForVenue error:', e);
+    recordNonFatal('getDealsForVenue', e);
     return [];
   }
 }
@@ -767,6 +779,7 @@ export async function getDealsBrowse(max: number = 50): Promise<FSDeal[]> {
     return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as FSDeal));
   } catch (e) {
     console.log('getDealsBrowse error:', e);
+    recordNonFatal('getDealsBrowse', e);
     return [];
   }
 }
@@ -831,6 +844,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDoc[]> {
     return snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => d.data() as FavoriteDoc);
   } catch (e) {
     console.log('listFavorites error:', e);
+    recordNonFatal('listFavorites', e);
     return [];
   }
 }
@@ -851,6 +865,7 @@ export async function listFavoritesByType(
     return snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => d.data() as FavoriteDoc);
   } catch (e) {
     console.log('listFavoritesByType error:', e);
+    recordNonFatal('listFavoritesByType', e);
     return [];
   }
 }
@@ -918,6 +933,7 @@ export async function listMyUnlocks(userId: string): Promise<UnlockDoc[]> {
     );
   } catch (e) {
     console.log('listMyUnlocks error:', e);
+    recordNonFatal('listMyUnlocks', e);
     return [];
   }
 }
@@ -977,6 +993,7 @@ export async function createReport(
     return ref.id;
   } catch (e) {
     console.log('createReport error:', e);
+    recordNonFatal('createReport', e);
     return null;
   }
 }
@@ -1017,6 +1034,7 @@ export async function getEditorialShelves(): Promise<EditorialShelf[]> {
     return shelves;
   } catch (e) {
     console.log('getEditorialShelves error:', e);
+    recordNonFatal('getEditorialShelves', e);
     return [];
   }
 }
@@ -1030,6 +1048,7 @@ export async function getGalleryById(galleryId: string): Promise<GalleryDoc | nu
     return { ...(snap.data() as object), id: snap.id } as GalleryDoc;
   } catch (e) {
     console.log('getGalleryById error:', e);
+    recordNonFatal('getGalleryById', e);
     return null;
   }
 }
@@ -1052,6 +1071,7 @@ export async function getGalleriesByEvent(eventId: string, max: number = 20): Pr
     return docs;
   } catch (e) {
     console.log('getGalleriesByEvent error:', e);
+    recordNonFatal('getGalleriesByEvent', e);
     return [];
   }
 }
@@ -1084,6 +1104,7 @@ export async function getGalleriesBySeries(seriesId: string, max: number = 20): 
     return docs;
   } catch (e) {
     console.log('getGalleriesBySeries error:', e);
+    recordNonFatal('getGalleriesBySeries', e);
     return [];
   }
 }
@@ -1097,6 +1118,7 @@ export async function getItineraryById(itineraryId: string): Promise<ItineraryDo
     return { ...(snap.data() as object), id: snap.id } as ItineraryDoc;
   } catch (e) {
     console.log('getItineraryById error:', e);
+    recordNonFatal('getItineraryById', e);
     return null;
   }
 }
@@ -1114,6 +1136,7 @@ export async function getApprovedGalleries(max: number = 50): Promise<GalleryDoc
     return snap.docs.map(d => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
   } catch (e) {
     console.log('getApprovedGalleries error:', e);
+    recordNonFatal('getApprovedGalleries', e);
     return [];
   }
 }
@@ -1133,6 +1156,7 @@ export async function getFilterTaxonomy(name: 'vibes' | 'amenities'): Promise<st
     return data.values.filter(v => typeof v === 'string' && v.length > 0);
   } catch (e) {
     console.log(`getFilterTaxonomy(${name}) error:`, e);
+    recordNonFatal(`getFilterTaxonomy(${name})`, e);
     return null;
   }
 }
