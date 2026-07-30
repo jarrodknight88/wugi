@@ -9,7 +9,9 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test:grammar": "tsc && node scripts/test-inbound-grammar.js"
+    "test:grammar": "tsc && node scripts/test-inbound-grammar.js",
+    "test:apify-normalize": "npm run build && node scripts/test-apify-normalize.js",
+    "test": "npm run build && node scripts/test-apify-normalize.js && node scripts/test-inbound-grammar.js"
   },
   "engines": {
     "node": "20"

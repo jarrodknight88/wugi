@@ -366,6 +366,14 @@ service cloud.firestore {
       allow write: if isStaff();
     }
 
+    // ── Venue Intel (Apify ingest staging) ───────────────────────────
+    // venueIntel/{docId} — normalized Instagram scrape items staged for
+    // human review (Cloud Function apifyWebhook). Server-only: no client
+    // ever reads or writes this collection directly.
+    match /venueIntel/{docId} {
+      allow read, write: if false;
+    }
+
     // ── Catch-all ────────────────────────────────────────────────────
     // Collections still relying on this fallback (isAuth()-gated read, no
     // write) rather than an explicit match block of their own: `photos`
