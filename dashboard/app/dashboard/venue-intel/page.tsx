@@ -12,6 +12,7 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   promoter: "Promoter",
   photographer: "Photographer",
   dj_artist: "DJ / Artist",
+  staff: "Staff",
 }
 
 const CAPTION_TRUNCATE = 140
@@ -242,7 +243,16 @@ function CandidateRow({ candidate, accountTypes, onDecide }: { candidate: Discov
 
   return (
     <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
-      <td style={{ padding: "12px 16px", fontWeight: 600, color: "#111827", fontSize: 14 }}>@{candidate.handle}</td>
+      <td style={{ padding: "12px 16px", fontWeight: 600, fontSize: 14 }}>
+        <a
+          href={`https://www.instagram.com/${candidate.handle}/`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#111827" }}
+        >
+          @{candidate.handle}
+        </a>
+      </td>
       <td style={{ padding: "12px 16px", fontSize: 13, color: "#6b7280" }}>{candidate.count}</td>
       <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151", maxWidth: 340 }}>
         {candidate.sampleCaption ? (candidate.sampleCaption.length > 100 ? `${candidate.sampleCaption.slice(0, 100)}…` : candidate.sampleCaption) : <span style={{ color: "#9ca3af" }}>—</span>}
@@ -287,7 +297,7 @@ export default function VenueIntelPage() {
   const [groups, setGroups] = useState<VenueIntelGroup[]>([])
   const [counts, setCounts] = useState({ pending: 0, approved: 0, dismissed: 0 })
   const [candidates, setCandidates] = useState<DiscoveredAccount[]>([])
-  const [accountTypes, setAccountTypes] = useState<readonly AccountType[]>(["venue", "promoter", "photographer", "dj_artist"])
+  const [accountTypes, setAccountTypes] = useState<readonly AccountType[]>(["venue", "promoter", "photographer", "dj_artist", "staff"])
   const [fetching, setFetching] = useState(true)
   const [error, setError] = useState("")
 
