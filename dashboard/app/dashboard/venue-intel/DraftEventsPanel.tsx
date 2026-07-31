@@ -1,6 +1,5 @@
 "use client"
 import { useCallback, useEffect, useState } from "react"
-import { auth } from "@/lib/firebase"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
@@ -22,53 +21,85 @@ const RIGHTS_BADGE: Record<string, { bg: string; color: string; label: string }>
   wugi_partner: { bg: "#dcfce7", color: "#15803d", label: "Wugi partner" },
 }
 
-// IG/FB CDN thumbnails need the authed proxy (hotlink-blocked, same reasoning
-// as PostRow in the parent page); gallery photos and the venue hero are
-// public Storage URLs and render directly.
-function Thumb({ src, proxied, selected, onClick }: { src: string; proxied?: boolean; selected: boolean; onClick: () => void }) {
-  const [resolved, setResolved] = useState(proxied ? "" : src)
+function scopeBtnStyle(active: boolean) {
+  return {
+    padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12,
+    fontWeight: active ? 600 : 500, background: active ? "#fff" : "transparent",
+    color: active ? "#111827" : "#6b7280", boxShadow: active ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+  }
+}
 
-  useEffect(() => {
-    if (!proxied) { setResolved(src); return }
-    let objectUrl: string | null = null
-    let cancelled = false
-    async function load() {
-      try {
-        const token = await auth.currentUser?.getIdToken()
-        const res = await fetch(`/api/venue-intel/image?src=${encodeURIComponent(src)}`, { headers: { Authorization: `Bearer ${token}` } })
-        if (!res.ok) throw new Error("proxy fetch failed")
-        const blob = await res.blob()
-        if (cancelled) return
-        objectUrl = URL.createObjectURL(blob)
-        setResolved(objectUrl)
-      } catch {
-        if (!cancelled) setResolved("")
-      }
-    }
-    load()
-    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [src, proxied])
-
+// Every URL rendered here (venue hero, gallery photos, staged mediaAssets) is
+// either a Storage signed URL minted server-side or a public gallery URL —
+// never a hotlink-blocked external CDN URL — so it always renders directly,
+// no proxy. See the 7/31 PM hotfix commit for why that distinction matters.
+function Thumb({ src, selected, onSelect, onOpen }: { src: string; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onClick} style={{
-      position: "relative", padding: 0, border: selected ? "3px solid #2a7a5a" : "3px solid transparent",
-      borderRadius: 10, overflow: "hidden", cursor: "pointer", width: 84, height: 84, flexShrink: 0, background: "#f3f4f6",
-    }}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- external/volatile URLs, same as the parent page's proxy pattern */}
-      {resolved && <img src={resolved} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
-      {selected && (
-        <span style={{ position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: "50%", background: "#2a7a5a", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
-      )}
-    </button>
+    <div style={{ position: "relative", width: 84, height: 84, flexShrink: 0 }}>
+      <button type="button" onClick={onOpen} style={{
+        padding: 0, border: selected ? "3px solid #2a7a5a" : "3px solid transparent",
+        borderRadius: 10, overflow: "hidden", cursor: "zoom-in", width: "100%", height: "100%", background: "#f3f4f6", display: "block",
+      }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
+        <img src={src} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSelect() }}
+        aria-label={selected ? "Deselect" : "Select"}
+        style={{
+          position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", padding: 0,
+          background: selected ? "#2a7a5a" : "rgba(255,255,255,0.85)", color: selected ? "#fff" : "#374151",
+          border: selected ? "none" : "1px solid #d1d5db", fontSize: 11, fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >{selected ? "✓" : ""}</button>
+    </div>
   )
 }
 
-function MediaSection({ title, options, proxied, selectedUris, onToggle, emptyText }: {
+type LightboxState = { options: MediaOption[]; index: number }
+
+// Plain fixed-position overlay — no new packages. Prev/next stay scoped to
+// whichever section's options it was opened from.
+function Lightbox({ options, index, onIndexChange, onClose }: { options: MediaOption[]; index: number; onIndexChange: (i: number) => void; onClose: () => void }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose()
+      else if (e.key === "ArrowLeft") onIndexChange((index - 1 + options.length) % options.length)
+      else if (e.key === "ArrowRight") onIndexChange((index + 1) % options.length)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [index, options.length, onClose, onIndexChange])
+
+  const opt = options[index]
+  if (!opt) return null
+
+  const navBtn = { position: "absolute" as const, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.15)", color: "#fff", border: "none", borderRadius: "50%", width: 44, height: 44, fontSize: 22, cursor: "pointer" }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }} onClick={onClose}>
+      <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 20, right: 24, background: "none", border: "none", color: "#fff", fontSize: 30, cursor: "pointer" }}>×</button>
+      {options.length > 1 && (
+        <button onClick={(e) => { e.stopPropagation(); onIndexChange((index - 1 + options.length) % options.length) }} style={{ ...navBtn, left: 20 }} aria-label="Previous">‹</button>
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
+      <img src={opt.url} alt="" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "88vw", maxHeight: "82vh", objectFit: "contain", borderRadius: 8 }} />
+      {options.length > 1 && (
+        <button onClick={(e) => { e.stopPropagation(); onIndexChange((index + 1) % options.length) }} style={{ ...navBtn, right: 20 }} aria-label="Next">›</button>
+      )}
+      <div style={{ position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)", color: "#fff", fontSize: 13 }}>{index + 1} / {options.length}</div>
+    </div>
+  )
+}
+
+function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyText }: {
   title: string
   options: MediaOption[]
-  proxied?: boolean
   selectedUris: string[]
   onToggle: (opt: MediaOption) => void
+  onOpen: (index: number) => void
   emptyText: string
 }) {
   return (
@@ -78,9 +109,72 @@ function MediaSection({ title, options, proxied, selectedUris, onToggle, emptyTe
         <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>{emptyText}</p>
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {options.map((opt) => (
+          {options.map((opt, i) => (
             <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} proxied={proxied} selected={selectedUris.includes(opt.url)} onClick={() => onToggle(opt)} />
+              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
+              {opt.rightsStatus && (
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
+                  {RIGHTS_BADGE[opt.rightsStatus].label}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// "This post" is the mediaAssets doc tied to this draft's own source IG post
+// (fast path, already loaded with the publish context). "All venue assets"
+// lazy-loads every staged asset backfilled with this venue's id — e.g. a
+// flyer staged under a different post than the one that generated this
+// draft.
+function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen }: {
+  draftId: string
+  thisPost: MediaOption[]
+  selectedUris: string[]
+  onToggle: (opt: MediaOption) => void
+  onOpen: (options: MediaOption[], index: number) => void
+}) {
+  const [scope, setScope] = useState<"post" | "venue">("post")
+  const [venueAssets, setVenueAssets] = useState<MediaOption[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  async function showVenueAssets() {
+    setScope("venue")
+    if (venueAssets !== null || loading) return
+    setLoading(true); setError("")
+    try {
+      const res = await authedFetch(`/api/draft-events/${draftId}/venue-assets`)
+      setVenueAssets(res.assets)
+    } catch (e) { setError(errorMessage(e)) } finally { setLoading(false) }
+  }
+
+  const options = scope === "post" ? thisPost : (venueAssets || [])
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <p style={{ ...LABEL, margin: 0 }}>Staged scraped assets</p>
+        <div style={{ display: "flex", background: "#f3f4f6", borderRadius: 8, padding: 2, gap: 2 }}>
+          <button type="button" onClick={() => setScope("post")} style={scopeBtnStyle(scope === "post")}>This post</button>
+          <button type="button" onClick={showVenueAssets} style={scopeBtnStyle(scope === "venue")}>All venue assets</button>
+        </div>
+      </div>
+      {error && <p style={{ fontSize: 12, color: "#b91c1c", margin: "0 0 8px" }}>{error}</p>}
+      {scope === "venue" && loading ? (
+        <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>Loading venue assets…</p>
+      ) : options.length === 0 ? (
+        <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>
+          {scope === "post" ? "No staged assets for this post yet." : "No staged assets found for this venue yet."}
+        </p>
+      ) : (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {options.map((opt, i) => (
+            <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
               {opt.rightsStatus && (
                 <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
                   {RIGHTS_BADGE[opt.rightsStatus].label}
@@ -95,6 +189,84 @@ function MediaSection({ title, options, proxied, selectedUris, onToggle, emptyTe
 }
 
 type SelectedMedia = { uri: string; type: "image" | "video"; rightsStatus?: string }
+
+function toggleSelectedMedia(current: SelectedMedia[], opt: MediaOption): SelectedMedia[] {
+  const already = current.some((m) => m.uri === opt.url)
+  if (already) return current.filter((m) => m.uri !== opt.url)
+  if (opt.rightsStatus === "unverified" && !confirm("Rights not verified — use anyway?")) return current
+  return [...current, { uri: opt.url, type: "image", rightsStatus: opt.rightsStatus }]
+}
+
+function reorderSelectedMedia(items: SelectedMedia[], from: number, to: number): SelectedMedia[] {
+  if (to < 0 || to >= items.length) return items
+  const copy = [...items]
+  const [item] = copy.splice(from, 1)
+  copy.splice(to, 0, item)
+  return copy
+}
+
+// Selection is an ORDERED list — index 0 is the hero, persisted that way
+// into the event's media array. Reordering here is the only way to change
+// hero/order; clicking a thumb only adds/removes from the end.
+function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[]; onMove: (from: number, to: number) => void; onRemove: (uri: string) => void }) {
+  if (items.length === 0) return null
+  return (
+    <div>
+      <p style={{ ...LABEL, marginBottom: 8 }}>Selected media ({items.length}) — first is the hero</p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {items.map((m, i) => (
+          <div key={m.uri} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 84 }}>
+            <div style={{ position: "relative", width: 84, height: 84, borderRadius: 10, overflow: "hidden", background: "#f3f4f6" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
+              <img src={m.uri} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              {i === 0 && (
+                <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>HERO</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 3 }}>
+              <button type="button" disabled={i === 0} onClick={() => onMove(i, i - 1)} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
+              <button type="button" disabled={i === items.length - 1} onClick={() => onMove(i, i + 1)} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === items.length - 1 ? "default" : "pointer", opacity: i === items.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
+              <button type="button" onClick={() => onRemove(m.uri)} title="Remove" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 11 }}>✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Shared by the Publish modal and the Edit Media modal — same three sections
+// (venue hero, gallery photos, staged assets w/ venue-wide browse), same
+// hero+order strip, same lightbox. Selection state is owned by the caller.
+function MediaPicker({ draftId, media, selectedMedia, onToggle, onMove, onRemove }: {
+  draftId: string
+  media: { venueHero: string | null; galleryPhotos: MediaOption[]; stagedAssets: MediaOption[] }
+  selectedMedia: SelectedMedia[]
+  onToggle: (opt: MediaOption) => void
+  onMove: (from: number, to: number) => void
+  onRemove: (uri: string) => void
+}) {
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null)
+  const selectedUris = selectedMedia.map((m) => m.uri)
+  const venueHeroOptions: MediaOption[] = media.venueHero ? [{ url: media.venueHero, thumbUrl: media.venueHero, rightsStatus: "wugi_partner" }] : []
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <SelectedMediaStrip items={selectedMedia} onMove={onMove} onRemove={onRemove} />
+      <MediaSection title="Venue hero" options={venueHeroOptions} selectedUris={selectedUris} onToggle={onToggle} onOpen={(i) => setLightbox({ options: venueHeroOptions, index: i })} emptyText="No venue hero image on file." />
+      <MediaSection title="Gallery photos" options={media.galleryPhotos} selectedUris={selectedUris} onToggle={onToggle} onOpen={(i) => setLightbox({ options: media.galleryPhotos, index: i })} emptyText="No permissioned gallery photos for this venue yet." />
+      <StagedAssetsSection draftId={draftId} thisPost={media.stagedAssets} selectedUris={selectedUris} onToggle={onToggle} onOpen={(options, i) => setLightbox({ options, index: i })} />
+      {lightbox && (
+        <Lightbox
+          options={lightbox.options}
+          index={lightbox.index}
+          onIndexChange={(i) => setLightbox((lb) => (lb ? { ...lb, index: i } : lb))}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </div>
+  )
+}
 
 function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onClose: () => void; onPublished: (eventId: string) => void }) {
   const [title, setTitle] = useState(ctx.draft.cleanedTitle)
@@ -118,10 +290,13 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   const seriesOptions: SelectOption[] = ctx.eventSeries.map((s) => ({ id: s.id, label: s.name, sub: `${s.day} · ${s.frequency}` }))
 
   function toggleMedia(opt: MediaOption) {
-    const already = selectedMedia.some((m) => m.uri === opt.url)
-    if (already) { setSelectedMedia((m) => m.filter((x) => x.uri !== opt.url)); return }
-    if (opt.rightsStatus === "unverified" && !confirm("Rights not verified — publish anyway?")) return
-    setSelectedMedia((m) => [...m, { uri: opt.url, type: "image", rightsStatus: opt.rightsStatus }])
+    setSelectedMedia((m) => toggleSelectedMedia(m, opt))
+  }
+  function moveMedia(from: number, to: number) {
+    setSelectedMedia((m) => reorderSelectedMedia(m, from, to))
+  }
+  function removeMedia(uri: string) {
+    setSelectedMedia((m) => m.filter((x) => x.uri !== uri))
   }
 
   async function generateAI() {
@@ -228,9 +403,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
           {/* Media picker */}
           <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
             <label style={LABEL}>Media</label>
-            <MediaSection title="Venue hero" options={ctx.media.venueHero ? [{ url: ctx.media.venueHero, thumbUrl: ctx.media.venueHero, rightsStatus: "wugi_partner" }] : []} selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No venue hero image on file." />
-            <MediaSection title="Gallery photos" options={ctx.media.galleryPhotos} selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No permissioned gallery photos for this venue yet." />
-            <MediaSection title="Staged scraped assets" options={ctx.media.stagedAssets} selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No staged assets yet." />
+            <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={selectedMedia} onToggle={toggleMedia} onMove={moveMedia} onRemove={removeMedia} />
           </div>
 
           {/* Series */}
@@ -277,6 +450,68 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   )
 }
 
+// Same picker, wired to the live published event instead of a not-yet-created
+// one: preloaded from ctx.currentMedia, saves via PATCH .../media rather than
+// POST .../publish. draftEvents stays "published" — only events/{id}.media
+// changes.
+function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClose: () => void; onSaved: () => void }) {
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>(
+    ctx.currentMedia.map((m) => ({ uri: m.uri, type: m.type, rightsStatus: m.rightsStatus }))
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  function toggleMedia(opt: MediaOption) {
+    setSelectedMedia((m) => toggleSelectedMedia(m, opt))
+  }
+  function moveMedia(from: number, to: number) {
+    setSelectedMedia((m) => reorderSelectedMedia(m, from, to))
+  }
+  function removeMedia(uri: string) {
+    setSelectedMedia((m) => m.filter((x) => x.uri !== uri))
+  }
+
+  async function save() {
+    setSaving(true); setError("")
+    try {
+      await authedFetch(`/api/draft-events/${ctx.draft.id}/media`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          media: selectedMedia,
+          confirmedUnverifiedRights: selectedMedia.some((m) => m.rightsStatus === "unverified"),
+        }),
+      })
+      onSaved()
+    } catch (e) { setError(errorMessage(e)) } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={OVERLAY} onClick={onClose}>
+      <div style={MODAL} onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: "24px 28px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Edit Media</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9ca3af" }}>{ctx.draft.cleanedTitle} · {ctx.venue.name}</p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af" }}>×</button>
+        </div>
+
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {error && <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13 }}>{error}</div>}
+          <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={selectedMedia} onToggle={toggleMedia} onMove={moveMedia} onRemove={removeMedia} />
+        </div>
+
+        <div style={{ padding: "16px 28px", borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button onClick={onClose} style={{ padding: "10px 20px", borderRadius: 8, background: "#f3f4f6", border: "none", cursor: "pointer", fontSize: 14 }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: "10px 24px", borderRadius: 8, background: "#1d4ed8", color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "Saving…" : "Save media"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CaptionCell({ caption }: { caption: string }) {
   const [expanded, setExpanded] = useState(false)
   if (!caption) return <span style={{ color: "#9ca3af" }}>—</span>
@@ -300,6 +535,7 @@ function formatDateISO(iso: string | null) {
 }
 
 export default function DraftEventsPanel() {
+  const [tab, setTab] = useState<"draft" | "published">("draft")
   const [drafts, setDrafts] = useState<DraftEventListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -307,17 +543,17 @@ export default function DraftEventsPanel() {
   const [dismissing, setDismissing] = useState<string | null>(null)
   const [publishCtx, setPublishCtx] = useState<PublishContext | null>(null)
 
-  const load = useCallback(async () => {
-    const data = await authedFetch("/api/draft-events")
+  const load = useCallback(async (status: "draft" | "published") => {
+    const data = await authedFetch(`/api/draft-events?status=${status}`)
     setDrafts(data.drafts)
   }, [])
 
   useEffect(() => {
     setLoading(true)
-    load().catch((e) => setError(errorMessage(e))).finally(() => setLoading(false))
-  }, [load])
+    load(tab).catch((e) => setError(errorMessage(e))).finally(() => setLoading(false))
+  }, [load, tab])
 
-  async function openPublish(id: string) {
+  async function openItem(id: string) {
     setOpening(id); setError("")
     try {
       const ctx: PublishContext = await authedFetch(`/api/draft-events/${id}`)
@@ -338,8 +574,22 @@ export default function DraftEventsPanel() {
     setPublishCtx(null)
   }
 
+  function handleMediaSaved() {
+    setPublishCtx(null)
+  }
+
   return (
     <div>
+      <div style={{ display: "flex", background: "#f3f4f6", borderRadius: 9, padding: 3, gap: 2, width: "fit-content", marginBottom: 16 }}>
+        {([["draft", "Drafts"], ["published", "Published"]] as const).map(([key, lbl]) => (
+          <button key={key} type="button" onClick={() => setTab(key)} style={{
+            padding: "7px 18px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13,
+            fontWeight: tab === key ? 600 : 500, background: tab === key ? "#fff" : "transparent",
+            color: tab === key ? "#111827" : "#6b7280", boxShadow: tab === key ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+          }}>{lbl}</button>
+        ))}
+      </div>
+
       {error && (
         <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>{error}</div>
       )}
@@ -348,7 +598,7 @@ export default function DraftEventsPanel() {
         <p style={{ color: "#9ca3af", fontSize: 14 }}>Loading…</p>
       ) : drafts.length === 0 ? (
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
-          No draft events. All caught up.
+          {tab === "draft" ? "No draft events. All caught up." : "No published events yet."}
         </div>
       ) : (
         <div className="dash-table-wrap">
@@ -376,12 +626,20 @@ export default function DraftEventsPanel() {
                   <td style={{ padding: "12px 16px", maxWidth: 320 }}><CaptionCell caption={d.caption} /></td>
                   <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => openPublish(d.id)} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#dcfce7", color: "#15803d", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
-                        {opening === d.id ? "…" : "Publish"}
-                      </button>
-                      <button onClick={() => dismiss(d.id)} disabled={dismissing === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fee2e2", color: "#b91c1c", fontWeight: 600, opacity: dismissing === d.id ? 0.6 : 1 }}>
-                        {dismissing === d.id ? "…" : "Dismiss"}
-                      </button>
+                      {tab === "draft" ? (
+                        <>
+                          <button onClick={() => openItem(d.id)} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#dcfce7", color: "#15803d", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
+                            {opening === d.id ? "…" : "Publish"}
+                          </button>
+                          <button onClick={() => dismiss(d.id)} disabled={dismissing === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fee2e2", color: "#b91c1c", fontWeight: 600, opacity: dismissing === d.id ? 0.6 : 1 }}>
+                            {dismissing === d.id ? "…" : "Dismiss"}
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => openItem(d.id)} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#e0e7ff", color: "#4338ca", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
+                          {opening === d.id ? "…" : "Edit media"}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -391,7 +649,11 @@ export default function DraftEventsPanel() {
         </div>
       )}
 
-      {publishCtx && <PublishModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onPublished={handlePublished} />}
+      {publishCtx && (
+        publishCtx.draft.status === "published"
+          ? <EditMediaModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onSaved={handleMediaSaved} />
+          : <PublishModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onPublished={handlePublished} />
+      )}
     </div>
   )
 }

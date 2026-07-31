@@ -17,16 +17,19 @@ export type DraftEventListItem = {
   postUrl: string
   likesCount: number
   commentsCount: number
+  publishedEventId: string | null
 }
 
-// GET /api/draft-events — draftEvents with status=='draft', sorted by date
-// (soonest first). draftEvents is server-only (firestore.rules: allow read,
-// write: if false) — same lazy-admin pattern as /api/venue-intel.
+// GET /api/draft-events — draftEvents filtered by status ('draft', the
+// default, or 'published' for the Edit Media tab), sorted by date (soonest
+// first). draftEvents is server-only (firestore.rules: allow read, write: if
+// false) — same lazy-admin pattern as /api/venue-intel.
 export async function GET(req: NextRequest) {
   const auth = await requireVenueIntelStaff(req)
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const snap = await getAdminDb().collection("draftEvents").where("status", "==", "draft").get()
+  const status = new URL(req.url).searchParams.get("status") === "published" ? "published" : "draft"
+  const snap = await getAdminDb().collection("draftEvents").where("status", "==", status).get()
 
   const drafts: DraftEventListItem[] = snap.docs.map((d) => {
     const data = d.data()
@@ -45,6 +48,7 @@ export async function GET(req: NextRequest) {
       postUrl: data.sourceAttribution?.postUrl || "",
       likesCount: typeof data.likesCount === "number" ? data.likesCount : 0,
       commentsCount: typeof data.commentsCount === "number" ? data.commentsCount : 0,
+      publishedEventId: data.publishedEventId || null,
     }
   })
 
