@@ -128,6 +128,50 @@ check('unparseable/missing timestamp yields a null postedAt instead of throwing'
   assert.equal(result.doc.postedAt, null);
 });
 
+// ── seedAccount attribution ─────────────────────────────────────────
+
+check('seedAccount is parsed from inputUrl', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/SEED/',
+      ownerUsername: 'chuckyfoto',
+      inputUrl: 'https://www.instagram.com/chuckyfoto/',
+    },
+    'run_1'
+  );
+  assert.equal(result.doc.seedAccount, 'chuckyfoto');
+  assert.equal(result.doc.sourceAccount, 'chuckyfoto');
+});
+
+check('collab post: seedAccount (scraped profile) differs from sourceAccount (post owner)', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/COLLAB/',
+      ownerUsername: 'havananightclubatl',
+      inputUrl: 'https://www.instagram.com/chuckyfoto/',
+    },
+    'run_1'
+  );
+  assert.equal(result.doc.seedAccount, 'chuckyfoto');
+  assert.equal(result.doc.sourceAccount, 'havananightclubatl');
+});
+
+check('missing inputUrl yields an empty seedAccount', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    { url: 'https://www.instagram.com/p/NOSEED/', ownerUsername: 'atl_nightlife' },
+    'run_1'
+  );
+  assert.equal(result.doc.seedAccount, '');
+});
+
+check('unparseable inputUrl yields an empty seedAccount', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    { url: 'https://www.instagram.com/p/BADSEED/', inputUrl: 'not-a-url' },
+    'run_1'
+  );
+  assert.equal(result.doc.seedAccount, '');
+});
+
 console.log(`\n${passed} check(s) passed`);
 if (process.exitCode) {
   console.error('\nSome checks FAILED — see above.');
