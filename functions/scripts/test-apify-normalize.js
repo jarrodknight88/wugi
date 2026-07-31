@@ -109,6 +109,30 @@ check('falls back to displayUrl when no images array is present', () => {
   assert.deepEqual(result.doc.mediaUrls, ['https://cdn.example.com/main.jpg']);
 });
 
+check('extracts videoUrl from a video post (scope item 1: "videoUrl / type video")', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/VID/',
+      displayUrl: 'https://cdn.example.com/poster.jpg',
+      videoUrl: 'https://cdn.example.com/clip.mp4',
+      type: 'Video',
+    },
+    'run_1'
+  );
+  assert.equal(result.doc.videoUrl, 'https://cdn.example.com/clip.mp4');
+  // The poster still flows through mediaUrls regardless of videoUrl — a
+  // video post never loses its cover-frame image because of this field.
+  assert.deepEqual(result.doc.mediaUrls, ['https://cdn.example.com/poster.jpg', 'https://cdn.example.com/clip.mp4']);
+});
+
+check('missing videoUrl (image-only post) yields null, not undefined', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    { url: 'https://www.instagram.com/p/IMG/', images: ['https://cdn.example.com/1.jpg'] },
+    'run_1'
+  );
+  assert.equal(result.doc.videoUrl, null);
+});
+
 check('extracts mediaUrls from childPosts (carousel) when present', () => {
   const result = mapApifyItemToVenueIntelDoc(
     {

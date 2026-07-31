@@ -5,11 +5,16 @@ import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
 import { extractVenueLatLng } from "@/lib/venueLatLng"
 import { cleanDraftTitle, cleanDraftAbout, isoToDatePickerString } from "@/lib/draftEventText"
-import { signStoragePaths, normalizeRightsStatus } from "@/lib/mediaSignedUrls"
+import { signMediaAssets, assetEntriesFromMediaDoc, normalizeRightsStatus } from "@/lib/mediaSignedUrls"
 
 export const dynamic = "force-dynamic"
 
-export type MediaOption = { url: string; thumbUrl: string; rightsStatus?: "unverified" | "permission_granted" | "wugi_partner" }
+export type MediaOption = {
+  url: string
+  thumbUrl: string
+  rightsStatus?: "unverified" | "permission_granted" | "wugi_partner"
+  type?: "image" | "video"
+}
 export type SeriesOption = { id: string; name: string; day: string; frequency: string; time: string }
 export type CurrentMediaItem = { uri: string; type: "image" | "video"; rightsStatus: "unverified" | "permission_granted" | "wugi_partner" }
 
@@ -100,20 +105,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   // Staged scraped assets — written by functions/src/intel/intelMedia.ts as
-  // { storagePaths: string[], rightsStatus }, one doc per venueIntel post.
-  // Storage objects are deny-all to clients, so we mint short-lived v4 read
-  // signed URLs here. The doc may not exist yet, or a path may fail to
-  // sign; both degrade to empty/partial results rather than a 500.
+  // a typed `assets` array (images and, since the video-capture feature,
+  // an optional video paired with its poster), one doc per venueIntel post.
+  // Docs from before that deploy only carry the legacy `storagePaths`
+  // (images only) — assetEntriesFromMediaDoc reads either shape. Storage
+  // objects are deny-all to clients, so we mint short-lived v4 read signed
+  // URLs here. The doc may not exist yet, or a path may fail to sign; both
+  // degrade to empty/partial results rather than a 500.
   const stagedAssets: MediaOption[] = []
   if (mediaAssetSnap.exists) {
     const mediaData = mediaAssetSnap.data()
-    const storagePaths = mediaData?.storagePaths
     const rightsStatus = normalizeRightsStatus(mediaData?.rightsStatus)
+    const entries = assetEntriesFromMediaDoc(mediaData)
 
-    if (Array.isArray(storagePaths) && storagePaths.length) {
-      const signedUrls = await signStoragePaths(storagePaths)
-      for (const url of signedUrls) {
-        stagedAssets.push({ url, thumbUrl: url, rightsStatus })
+    if (entries.length) {
+      const signedAssets = await signMediaAssets(entries)
+      for (const asset of signedAssets) {
+        stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type })
       }
     }
   }

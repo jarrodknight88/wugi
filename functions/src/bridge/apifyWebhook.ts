@@ -21,7 +21,13 @@ import { defineSecret } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
-import { selectCandidateMediaUrls, downloadAndStoreIntelMedia, buildMediaAssetDoc } from '../intel/intelMedia';
+import {
+  selectCandidateMediaUrls,
+  downloadAndStoreIntelMedia,
+  downloadAndStoreIntelVideo,
+  buildMediaAssetDoc,
+  MediaAsset,
+} from '../intel/intelMedia';
 
 const apifyToken = defineSecret('APIFY_TOKEN');
 
@@ -43,6 +49,12 @@ export interface VenueIntelDoc {
   likesCount: number;
   commentsCount: number;
   mediaUrls: string[];
+  // Top-level item.videoUrl only (scope item 1: "the Apify item carries a
+  // video (videoUrl / type video)") — a per-slide video nested in a
+  // childPosts carousel entry is not captured in v1. mediaUrls already
+  // carries the post's cover-frame image regardless of this field, so a
+  // video post never loses its poster even when videoUrl download fails.
+  videoUrl: string | null;
   runId: string;
 }
 
@@ -125,6 +137,7 @@ export function mapApifyItemToVenueIntelDoc(item: any, runId: string): MappedVen
       likesCount: toNonNegativeInt(item?.likesCount),
       commentsCount: toNonNegativeInt(item?.commentsCount),
       mediaUrls: extractMediaUrls(item),
+      videoUrl: firstNonEmptyString(item?.videoUrl),
       runId,
     },
   };
@@ -221,11 +234,14 @@ async function writeVenueIntelDocs(
 
 /**
  * Media persistence for newly-ingested posts (scope item 1-2): downloads
- * each post's first few image mediaUrls to Storage and writes the
- * mediaAssets/{docId} tracking doc. Runs after the venueIntel batch write
+ * each post's first few image mediaUrls, plus its video if the item carries
+ * one, to Storage and writes the mediaAssets/{docId} tracking doc (typed
+ * `assets`, see intelMedia.ts). Runs after the venueIntel batch write
  * commits, entirely best-effort — every failure (a single post's media, or
  * the whole pass) is caught and logged here so it can never affect the
- * webhook's response to Apify.
+ * webhook's response to Apify. The poster/image path is unaffected by
+ * whether the video download succeeds — a skipped/oversized video still
+ * leaves the poster stored, per scope item 1.
  */
 async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<void> {
   if (newItems.length === 0) return;
@@ -235,11 +251,28 @@ async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<v
 
   for (const item of newItems) {
     const candidateUrls = selectCandidateMediaUrls(item.doc.mediaUrls);
-    if (candidateUrls.length === 0) continue;
+    if (candidateUrls.length === 0 && !item.doc.videoUrl) continue;
 
     try {
-      const { storagePaths } = await downloadAndStoreIntelMedia(bucket, item.docId, candidateUrls);
-      if (storagePaths.length === 0) continue;
+      const { storagePaths } =
+        candidateUrls.length > 0
+          ? await downloadAndStoreIntelMedia(bucket, item.docId, candidateUrls)
+          : { storagePaths: [] as string[] };
+
+      let videoAsset: MediaAsset | null = null;
+      if (item.doc.videoUrl) {
+        const videoResult = await downloadAndStoreIntelVideo(bucket, item.docId, item.doc.videoUrl, 0);
+        if (videoResult.path) {
+          videoAsset = { path: videoResult.path, type: 'video', posterPath: storagePaths[0] };
+        }
+      }
+
+      if (storagePaths.length === 0 && !videoAsset) continue;
+
+      const assets: MediaAsset[] = [
+        ...storagePaths.map((path): MediaAsset => ({ path, type: 'image' })),
+        ...(videoAsset ? [videoAsset] : []),
+      ];
 
       await db
         .collection('mediaAssets')
@@ -252,6 +285,7 @@ async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<v
               seedAccount: item.doc.seedAccount,
               postUrl: item.doc.postUrl,
               storagePaths,
+              assets,
             },
             admin.firestore.FieldValue.serverTimestamp()
           )
@@ -269,10 +303,13 @@ export const apifyWebhook = onRequest(
     secrets: [apifyToken],
     region: 'us-central1',
     // Dataset pagination + batched Firestore writes, plus (since media
-    // persistence landed) downloading/uploading up to 3 images per new
-    // post, can take a while for a large scrape run.
+    // persistence landed) downloading/uploading up to 3 images and one video
+    // (up to MAX_VIDEO_BYTES, ~60MB) per new post, can take a while for a
+    // large scrape run. Memory bumped from 512MiB alongside the video path —
+    // media is downloaded sequentially (one buffer in flight at a time), but
+    // a 60MB video buffer plus the full dataset items array needs headroom.
     timeoutSeconds: 540,
-    memory: '512MiB',
+    memory: '1GiB',
   },
   async (req, res) => {
     const payload = req.body ?? {};

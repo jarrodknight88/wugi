@@ -19,6 +19,11 @@ import * as logger from 'firebase-functions/logger';
 
 export const INTEL_MEDIA_PREFIX = 'intel-media';
 export const MAX_MEDIA_PER_POST = 3;
+// Video posts' CDN URLs expire within hours (vs. images, which last much
+// longer) — capturing the video at ingest is the only chance to keep it.
+// Anything over this cap is skipped (poster still stored) rather than risk a
+// runaway download in a 512MiB function.
+export const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // ~60MB
 
 // Obvious video files never make it to the fetch step at all — the real
 // images-only gate is the response Content-Type check in
@@ -49,6 +54,11 @@ export function buildIntelMediaPath(venueIntelDocId: string, index: number): str
   return `${INTEL_MEDIA_PREFIX}/${venueIntelDocId}/${index}.jpg`;
 }
 
+/** Storage object path for the Nth (0-indexed) video downloaded for a venueIntel doc. */
+export function buildIntelMediaVideoPath(venueIntelDocId: string, index: number): string {
+  return `${INTEL_MEDIA_PREFIX}/${venueIntelDocId}/video${index}.mp4`;
+}
+
 /**
  * Pure pre-filter: strings only, drop obvious video URLs, cap to the first
  * N (scope: first 3 per post). Order preserved — mediaUrls is already in
@@ -61,22 +71,46 @@ export function selectCandidateMediaUrls(mediaUrls: unknown, cap: number = MAX_M
   return imagesOnly.slice(0, cap);
 }
 
+/**
+ * Typed media entry (schema evolution, scope item 2). `path`/`posterPath` are
+ * Storage object paths, not URLs — dashboard readers mint short-lived signed
+ * URLs from these at request time, same as the legacy `storagePaths` shape.
+ */
+export interface MediaAsset {
+  path: string;
+  type: 'image' | 'video';
+  posterPath?: string;
+}
+
 export interface MediaAssetDocInput {
   venueIntelId: string;
   sourceAccount: string;
   seedAccount: string;
   postUrl: string;
+  // Images only — kept as-is for backward compatibility with readers that
+  // haven't migrated to `assets` yet (dashboard/lib/mediaSignedUrls.ts and
+  // its two callers HAVE migrated, in this same PR; storagePaths is kept as
+  // the on-disk source of truth for images either way).
   storagePaths: string[];
+  // Typed superset of storagePaths, plus any video. Optional on input:
+  // callers that only ever produced images (e.g. the one-time
+  // scripts/backfill-intel-media.js, which never got a video code path)
+  // don't need updating — buildMediaAssetDoc derives it from storagePaths
+  // when omitted, so every doc still ends up with a usable `assets` array.
+  assets?: MediaAsset[];
 }
 
 /** The `createdAt` value is left to the caller (FieldValue.serverTimestamp() in prod, a fixed value in tests). */
 export function buildMediaAssetDoc(input: MediaAssetDocInput, createdAt: unknown) {
+  const assets: MediaAsset[] =
+    input.assets ?? input.storagePaths.map((path) => ({ path, type: 'image' as const }));
   return {
     venueIntelId: input.venueIntelId,
     sourceAccount: input.sourceAccount,
     seedAccount: input.seedAccount,
     postUrl: input.postUrl,
     storagePaths: input.storagePaths,
+    assets,
     rightsStatus: 'unverified' as const,
     venueId: null,
     createdAt,
@@ -122,4 +156,72 @@ export async function downloadAndStoreIntelMedia(
   }
 
   return { storagePaths, attempted: candidateUrls.length, failed };
+}
+
+export type IntelVideoSkipReason = 'too_large' | 'fetch_failed' | 'bad_content_type';
+
+export interface DownloadedIntelVideo {
+  path: string | null;
+  sizeBytes?: number;
+  skippedReason?: IntelVideoSkipReason;
+}
+
+/**
+ * Fetches a single video URL and, if it's under MAX_VIDEO_BYTES, uploads it
+ * to intel-media/{venueIntelDocId}/video{index}.mp4. The Content-Length
+ * header is checked first so an oversized file is skipped without buffering
+ * it into memory; if the CDN omits that header, the downloaded buffer's
+ * actual size is checked as a fallback before the Storage write. Never
+ * throws — a failed/oversized video degrades to { path: null }, and the
+ * poster (downloaded separately via downloadAndStoreIntelMedia) is
+ * unaffected either way.
+ */
+export async function downloadAndStoreIntelVideo(
+  bucket: IntelMediaBucket,
+  venueIntelDocId: string,
+  videoUrl: string,
+  index: number = 0
+): Promise<DownloadedIntelVideo> {
+  try {
+    const res = await fetch(videoUrl);
+    if (!res.ok) {
+      logger.warn('intelMedia: video fetch failed', { venueIntelDocId, index, status: res.status });
+      return { path: null, skippedReason: 'fetch_failed' };
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType && !contentType.startsWith('video/') && !contentType.startsWith('application/octet-stream')) {
+      logger.warn('intelMedia: skipping non-video media', { venueIntelDocId, index, contentType });
+      return { path: null, skippedReason: 'bad_content_type' };
+    }
+
+    const declaredSize = Number(res.headers.get('content-length') || NaN);
+    if (Number.isFinite(declaredSize) && declaredSize > MAX_VIDEO_BYTES) {
+      logger.info('intelMedia: skipping oversized video', {
+        venueIntelDocId,
+        index,
+        sizeBytes: declaredSize,
+        capBytes: MAX_VIDEO_BYTES,
+      });
+      return { path: null, sizeBytes: declaredSize, skippedReason: 'too_large' };
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.byteLength > MAX_VIDEO_BYTES) {
+      logger.info('intelMedia: skipping oversized video (measured after download — no usable Content-Length)', {
+        venueIntelDocId,
+        index,
+        sizeBytes: buffer.byteLength,
+        capBytes: MAX_VIDEO_BYTES,
+      });
+      return { path: null, sizeBytes: buffer.byteLength, skippedReason: 'too_large' };
+    }
+
+    const storagePath = buildIntelMediaVideoPath(venueIntelDocId, index);
+    await bucket.file(storagePath).save(buffer, { contentType: 'video/mp4' });
+    return { path: storagePath, sizeBytes: buffer.byteLength };
+  } catch (err) {
+    logger.warn('intelMedia: video download/store failed', { venueIntelDocId, index, url: videoUrl, err: String(err) });
+    return { path: null, skippedReason: 'fetch_failed' };
+  }
 }

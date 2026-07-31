@@ -10,10 +10,10 @@
 //
 // or just: npm run test:intel-media
 //
-// downloadAndStoreIntelMedia (fetch + Storage write) is the effectful
-// boundary and is intentionally NOT covered here — same split as
-// apifyWebhook's fetchApifyRun/fetchDatasetItems, which also have no unit
-// coverage in this repo's Node-script test style.
+// downloadAndStoreIntelMedia and downloadAndStoreIntelVideo (fetch + Storage
+// write) are the effectful boundary and are intentionally NOT covered here —
+// same split as apifyWebhook's fetchApifyRun/fetchDatasetItems, which also
+// have no unit coverage in this repo's Node-script test style.
 // ─────────────────────────────────────────────────────────────────────
 'use strict';
 
@@ -22,9 +22,11 @@ const path = require('node:path');
 
 const {
   buildIntelMediaPath,
+  buildIntelMediaVideoPath,
   selectCandidateMediaUrls,
   buildMediaAssetDoc,
   MAX_MEDIA_PER_POST,
+  MAX_VIDEO_BYTES,
 } = require(path.join(__dirname, '..', 'lib', 'intel', 'intelMedia.js'));
 
 let passed = 0;
@@ -45,6 +47,17 @@ function check(label, fn) {
 check('builds the intel-media storage path for a given index', () => {
   assert.equal(buildIntelMediaPath('abc123', 0), 'intel-media/abc123/0.jpg');
   assert.equal(buildIntelMediaPath('abc123', 2), 'intel-media/abc123/2.jpg');
+});
+
+// ── buildIntelMediaVideoPath ─────────────────────────────────────────
+
+check('builds the intel-media video storage path for a given index', () => {
+  assert.equal(buildIntelMediaVideoPath('abc123', 0), 'intel-media/abc123/video0.mp4');
+  assert.equal(buildIntelMediaVideoPath('abc123', 2), 'intel-media/abc123/video2.mp4');
+});
+
+check('MAX_VIDEO_BYTES is the documented ~60MB cap', () => {
+  assert.equal(MAX_VIDEO_BYTES, 60 * 1024 * 1024);
 });
 
 // ── selectCandidateMediaUrls ────────────────────────────────────────
@@ -106,10 +119,49 @@ check('builds a mediaAssets doc with rightsStatus unverified and venueId null', 
     seedAccount: 'chuckyfoto',
     postUrl: 'https://www.instagram.com/p/ABC/',
     storagePaths: ['intel-media/intel1/0.jpg', 'intel-media/intel1/1.jpg'],
+    assets: [
+      { path: 'intel-media/intel1/0.jpg', type: 'image' },
+      { path: 'intel-media/intel1/1.jpg', type: 'image' },
+    ],
     rightsStatus: 'unverified',
     venueId: null,
     createdAt,
   });
+});
+
+check('omitted assets defaults to storagePaths mapped to image entries (backward-compat callers, e.g. the backfill script)', () => {
+  const doc = buildMediaAssetDoc(
+    {
+      venueIntelId: 'intel2',
+      sourceAccount: 'atl_nightlife',
+      seedAccount: 'chuckyfoto',
+      postUrl: 'https://www.instagram.com/p/DEF/',
+      storagePaths: ['intel-media/intel2/0.jpg'],
+    },
+    'ts'
+  );
+  assert.deepEqual(doc.assets, [{ path: 'intel-media/intel2/0.jpg', type: 'image' }]);
+});
+
+check('explicit assets (with a video entry) are passed through as-is, not re-derived from storagePaths', () => {
+  const assets = [
+    { path: 'intel-media/intel3/0.jpg', type: 'image' },
+    { path: 'intel-media/intel3/video0.mp4', type: 'video', posterPath: 'intel-media/intel3/0.jpg' },
+  ];
+  const doc = buildMediaAssetDoc(
+    {
+      venueIntelId: 'intel3',
+      sourceAccount: 'atl_nightlife',
+      seedAccount: 'chuckyfoto',
+      postUrl: 'https://www.instagram.com/p/GHI/',
+      storagePaths: ['intel-media/intel3/0.jpg'],
+      assets,
+    },
+    'ts'
+  );
+  assert.deepEqual(doc.assets, assets);
+  // storagePaths (images only) stays the backward-compat field regardless.
+  assert.deepEqual(doc.storagePaths, ['intel-media/intel3/0.jpg']);
 });
 
 console.log(`\n${passed} check(s) passed`);

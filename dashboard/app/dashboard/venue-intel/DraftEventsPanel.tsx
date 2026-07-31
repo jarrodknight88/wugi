@@ -29,19 +29,40 @@ function scopeBtnStyle(active: boolean) {
   }
 }
 
+// Small centered play triangle overlay — marks a thumb as a video (the
+// image shown is always its poster frame, never the video itself; see
+// signMediaAssets in lib/mediaSignedUrls.ts).
+function PlayBadge() {
+  return (
+    <div style={{
+      position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none",
+    }}>
+      <div style={{
+        width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <div style={{ width: 0, height: 0, marginLeft: 2, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "9px solid #fff" }} />
+      </div>
+    </div>
+  )
+}
+
 // Every URL rendered here (venue hero, gallery photos, staged mediaAssets) is
 // either a Storage signed URL minted server-side or a public gallery URL —
 // never a hotlink-blocked external CDN URL — so it always renders directly,
 // no proxy. See the 7/31 PM hotfix commit for why that distinction matters.
-function Thumb({ src, selected, onSelect, onOpen }: { src: string; selected: boolean; onSelect: () => void; onOpen: () => void }) {
+// `src` is always an image (for a video option this is the signed poster
+// URL, never the mp4 itself — see MediaOption.thumbUrl).
+function Thumb({ src, selected, isVideo, onSelect, onOpen }: { src: string; selected: boolean; isVideo?: boolean; onSelect: () => void; onOpen: () => void }) {
   return (
     <div style={{ position: "relative", width: 84, height: 84, flexShrink: 0 }}>
       <button type="button" onClick={onOpen} style={{
-        padding: 0, border: selected ? "3px solid #2a7a5a" : "3px solid transparent",
+        position: "relative", padding: 0, border: selected ? "3px solid #2a7a5a" : "3px solid transparent",
         borderRadius: 10, overflow: "hidden", cursor: "zoom-in", width: "100%", height: "100%", background: "#f3f4f6", display: "block",
       }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
         <img src={src} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        {isVideo && <PlayBadge />}
       </button>
       <button
         type="button"
@@ -84,8 +105,23 @@ function Lightbox({ options, index, onIndexChange, onClose }: { options: MediaOp
       {options.length > 1 && (
         <button onClick={(e) => { e.stopPropagation(); onIndexChange((index - 1 + options.length) % options.length) }} style={{ ...navBtn, left: 20 }} aria-label="Previous">‹</button>
       )}
-      {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
-      <img src={opt.url} alt="" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "88vw", maxHeight: "82vh", objectFit: "contain", borderRadius: 8 }} />
+      {opt.type === "video" ? (
+        // key forces a fresh <video> element per asset — otherwise the
+        // browser can keep playing the previous URL's buffered frame while
+        // the new src loads.
+        <video
+          key={opt.url}
+          src={opt.url}
+          poster={opt.thumbUrl}
+          controls
+          autoPlay
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: "88vw", maxHeight: "82vh", borderRadius: 8 }}
+        />
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */
+        <img src={opt.url} alt="" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "88vw", maxHeight: "82vh", objectFit: "contain", borderRadius: 8 }} />
+      )}
       {options.length > 1 && (
         <button onClick={(e) => { e.stopPropagation(); onIndexChange((index + 1) % options.length) }} style={{ ...navBtn, right: 20 }} aria-label="Next">›</button>
       )}
@@ -111,7 +147,7 @@ function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyTex
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {options.map((opt, i) => (
             <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
+              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
               {opt.rightsStatus && (
                 <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
                   {RIGHTS_BADGE[opt.rightsStatus].label}
@@ -174,7 +210,7 @@ function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {options.map((opt, i) => (
             <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
+              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
               {opt.rightsStatus && (
                 <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
                   {RIGHTS_BADGE[opt.rightsStatus].label}
@@ -188,13 +224,17 @@ function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen
   )
 }
 
-type SelectedMedia = { uri: string; type: "image" | "video"; rightsStatus?: string }
+// thumbUrl is carried along purely for display in SelectedMediaStrip (a
+// poster frame for video, so the strip never has to decode a <video> just to
+// show a thumbnail) — it's not part of what gets persisted; the publish/media
+// routes only read uri + type off this shape.
+type SelectedMedia = { uri: string; type: "image" | "video"; thumbUrl?: string; rightsStatus?: string }
 
 function toggleSelectedMedia(current: SelectedMedia[], opt: MediaOption): SelectedMedia[] {
   const already = current.some((m) => m.uri === opt.url)
   if (already) return current.filter((m) => m.uri !== opt.url)
   if (opt.rightsStatus === "unverified" && !confirm("Rights not verified — use anyway?")) return current
-  return [...current, { uri: opt.url, type: "image", rightsStatus: opt.rightsStatus }]
+  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus }]
 }
 
 function reorderSelectedMedia(items: SelectedMedia[], from: number, to: number): SelectedMedia[] {
@@ -217,8 +257,22 @@ function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[
         {items.map((m, i) => (
           <div key={m.uri} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 84 }}>
             <div style={{ position: "relative", width: 84, height: 84, borderRadius: 10, overflow: "hidden", background: "#f3f4f6" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
-              <img src={m.uri} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              {m.type === "video" ? (
+                m.thumbUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- signed/external URLs
+                  <img src={m.thumbUrl} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                ) : (
+                  // No poster known (e.g. preloaded from an already-published
+                  // event's media, which only stores {uri, type} — no
+                  // posterPath) — the browser renders the video's first frame
+                  // as a thumbnail without playing it.
+                  <video src={m.uri} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                )
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */
+                <img src={m.uri} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              )}
+              {m.type === "video" && <PlayBadge />}
               {i === 0 && (
                 <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>HERO</span>
               )}
