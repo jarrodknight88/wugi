@@ -26,6 +26,7 @@ import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
   SafeAreaView, Dimensions, ActivityIndicator, StyleSheet,
   ActionSheetIOS, Platform, Alert, Share, Linking,
+  Image as RNImage,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -44,10 +45,14 @@ import { useEventGalleriesByEventId } from '../hooks/useEventGalleriesByEventId'
 import { useEventGalleriesBySeriesId } from '../hooks/useEventGalleriesBySeriesId';
 import { useVenueById } from '../hooks/useVenueById';
 import { ErrorBoundary } from '../components/error/ErrorBoundary';
+import { formatEventDateLabel, formatEventTimeLabel } from '../utils/eventDateTime';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-// Design hero: aspectRatio 0.95 → height = width / 0.95
-const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 0.95);
+// Design hero: default aspectRatio 0.95 → height = width / 0.95. Used for
+// landscape/square flyers, and as the fallback until the real aspect ratio
+// resolves (see heroAspectRatio state below).
+const DEFAULT_HERO_ASPECT_RATIO = 0.95;
+const DEFAULT_HERO_HEIGHT = Math.round(SCREEN_WIDTH / DEFAULT_HERO_ASPECT_RATIO);
 
 // Purple used for the GALLERIES eyebrow (matches design --tag-photos)
 const GALLERY_PURPLE = '#9b59b6';
@@ -120,6 +125,34 @@ function EventScreenInner({
 
   // Defensive: media may be missing/empty on incomplete docs
   const media = Array.isArray(event.media) ? event.media : [];
+
+  // Dynamic hero sizing — portrait flyers (aspectRatio < 1, common in
+  // nightlife) must display FULLY instead of being cropped by the fixed
+  // default height. Landscape/square media keep the default crop (unchanged
+  // visual). Only the first media item drives sizing — it's the primary
+  // flyer for the carousel.
+  const [heroAspectRatio, setHeroAspectRatio] = useState(DEFAULT_HERO_ASPECT_RATIO);
+  useEffect(() => {
+    const first = media[0];
+    if (!first || first.type === 'video' || !first.uri) {
+      setHeroAspectRatio(DEFAULT_HERO_ASPECT_RATIO);
+      return;
+    }
+    let cancelled = false;
+    RNImage.getSize(
+      first.uri,
+      (w, h) => { if (!cancelled && w > 0 && h > 0) setHeroAspectRatio(w / h); },
+      () => { if (!cancelled) setHeroAspectRatio(DEFAULT_HERO_ASPECT_RATIO); },
+    );
+    return () => { cancelled = true; };
+  }, [media[0]?.uri, media[0]?.type]);
+
+  // Portrait: size the hero to the image's real aspect ratio so it renders
+  // fully (no crop) and the chips row below sits clear of the image bounds.
+  const isPortraitHero = heroAspectRatio < 1;
+  const HERO_HEIGHT = isPortraitHero
+    ? Math.round(SCREEN_WIDTH / heroAspectRatio)
+    : DEFAULT_HERO_HEIGHT;
 
   // Related events — real approved events on the SAME date as this one
   // (excluding this event), non-empty media, capped at 6. While loading, on
@@ -320,8 +353,10 @@ function EventScreenInner({
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
 
-        {/* ── Hero — marginBottom:-24 bleeds into content for seamless seam ── */}
-        <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT, marginBottom: -24 }}>
+        {/* ── Hero — marginBottom:-24 bleeds into content for seamless seam.
+             Dropped for portrait flyers so the chips row never overlaps the
+             fully-visible image. ── */}
+        <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT, marginBottom: isPortraitHero ? 0 : -24 }}>
           {/* Media carousel — empty state */}
           {media.length === 0 && (
             <View style={StyleSheet.absoluteFillObject}>
@@ -468,7 +503,7 @@ function EventScreenInner({
         {/* ── Date / Time / Age chips ─────────────────────────────────── */}
         {(event.date || event.time || event.age) && (
           <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8, zIndex: 2 }}>
-            {[event.date ?? '—', event.time ?? '—', event.age ?? '21+'].map((val, i) => (
+            {[formatEventDateLabel(event.date) || '—', formatEventTimeLabel(event.time) || '—', event.age ?? '21+'].map((val, i) => (
               <View
                 key={i}
                 style={{
@@ -557,8 +592,10 @@ function EventScreenInner({
 
         {/* ── Menu ── engrained section matching About's eyeline. Header row:
              "MENU" eyebrow (left) + "View All →" link (right, → MenuScreen).
-             Description below uses real venue menu data; dropped when absent. ── */}
-        {venue && onMenuPress && (
+             Gated on menuDesc (not just venue+onMenuPress) — otherwise the
+             header + View All row rendered with no content when the venue
+             has no menuDescription/menuAttributes. ── */}
+        {!!menuDesc && onMenuPress && (
           <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5 }}>
