@@ -390,6 +390,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // mediaAssets/{venueIntelDocId} — rights-tracking doc for media staged
+    // to Storage at intel-media/{venueIntelDocId}/ by apifyWebhook /
+    // scripts/backfill-intel-media.js (issue #141). rightsStatus starts
+    // 'unverified' and is updated by Jarrod as he secures permissions —
+    // out of scope here beyond the field existing, so there is no client
+    // write path yet. Server-only, same pattern as venueIntel.
+    match /mediaAssets/{docId} {
+      allow read, write: if false;
+    }
+
     // ── Catch-all ────────────────────────────────────────────────────
     // Collections still relying on this fallback (isAuth()-gated read, no
     // write) rather than an explicit match block of their own: `photos`
