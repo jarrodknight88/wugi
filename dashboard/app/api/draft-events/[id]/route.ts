@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { FieldValue } from "firebase-admin/firestore"
-import { getAdminDb } from "@/lib/firebase-admin"
+import { getAdminDb, getAdminStorage, STORAGE_BUCKET } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
 import { extractVenueLatLng } from "@/lib/venueLatLng"
@@ -86,17 +86,40 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   }
 
-  // Staged scraped assets — companion functions task owns writing these.
-  // The doc may not exist yet; empty-state is fine.
+  // Staged scraped assets — written by functions/src/intel/intelMedia.ts as
+  // { storagePaths: string[], rightsStatus }, one doc per venueIntel post.
+  // Storage objects are deny-all to clients, so we mint short-lived v4 read
+  // signed URLs here. The doc may not exist yet, or a path may fail to
+  // sign; both degrade to empty/partial results rather than a 500.
   const stagedAssets: MediaOption[] = []
   if (mediaAssetSnap.exists) {
-    const assets = mediaAssetSnap.data()?.assets
-    if (Array.isArray(assets)) {
-      for (const a of assets) {
-        if (!a || typeof a.url !== "string" || !a.url) continue
-        const rightsStatus =
-          a.rightsStatus === "permission_granted" || a.rightsStatus === "wugi_partner" ? a.rightsStatus : "unverified"
-        stagedAssets.push({ url: a.url, thumbUrl: typeof a.thumbUrl === "string" && a.thumbUrl ? a.thumbUrl : a.url, rightsStatus })
+    const mediaData = mediaAssetSnap.data()
+    const storagePaths = mediaData?.storagePaths
+    const rightsStatus: MediaOption["rightsStatus"] =
+      mediaData?.rightsStatus === "permission_granted" || mediaData?.rightsStatus === "wugi_partner"
+        ? mediaData.rightsStatus
+        : "unverified"
+
+    if (Array.isArray(storagePaths) && storagePaths.length) {
+      const bucket = getAdminStorage().bucket(STORAGE_BUCKET)
+      const signedUrls = await Promise.all(
+        storagePaths.map(async (storagePath) => {
+          if (typeof storagePath !== "string" || !storagePath) return null
+          try {
+            const [url] = await bucket.file(storagePath).getSignedUrl({
+              version: "v4",
+              action: "read",
+              expires: Date.now() + 60 * 60 * 1000, // 60 min
+            })
+            return url
+          } catch (err) {
+            console.warn(`draft-events/[id]: signed URL failed for ${storagePath}`, err)
+            return null
+          }
+        })
+      )
+      for (const url of signedUrls) {
+        if (url) stagedAssets.push({ url, thumbUrl: url, rightsStatus })
       }
     }
   }

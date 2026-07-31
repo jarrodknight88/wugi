@@ -1,6 +1,12 @@
 import { initializeApp, getApps, cert, type App } from "firebase-admin/app"
 import { getFirestore, type Firestore } from "firebase-admin/firestore"
 import { getAuth, type Auth } from "firebase-admin/auth"
+import { getStorage, type Storage } from "firebase-admin/storage"
+
+// wugi-prod's default bucket is 'wugi-prod.firebasestorage.app', NOT the
+// legacy '.appspot.com' domain — mixing the two silently 404s signed URLs.
+// See the 7/31 PM hotfix commit on main (media backfill script fix).
+export const STORAGE_BUCKET = "wugi-prod.firebasestorage.app"
 
 // Lazy init: nothing here may run at module scope. Next.js imports route
 // modules during build-time page-data collection, where
@@ -27,4 +33,8 @@ export function getAdminDb(): Firestore {
 
 export function getAdminAuth(): Auth {
   return getAuth(ensureApp())
+}
+
+export function getAdminStorage(): Storage {
+  return getStorage(ensureApp())
 }
