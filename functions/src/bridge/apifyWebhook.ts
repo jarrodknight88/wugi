@@ -35,6 +35,7 @@ const WRITE_BATCH_SIZE = 400;
 
 export interface VenueIntelDoc {
   sourceAccount: string;
+  seedAccount: string;
   postUrl: string;
   caption: string;
   postedAt: admin.firestore.Timestamp | null;
@@ -59,6 +60,24 @@ function firstNonEmptyString(...values: unknown[]): string | null {
 function toNonNegativeInt(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0;
+}
+
+/**
+ * Instagram collab posts are owned by the co-author, so scraping one seed
+ * profile can surface items whose ownerUsername is a different account.
+ * seedAccount records which profile the scraper was actually pointed at
+ * (item.inputUrl), independent of sourceAccount (the post's owner).
+ */
+function parseSeedAccountFromInputUrl(inputUrl: unknown): string {
+  if (typeof inputUrl !== 'string') return '';
+  let parsed: URL;
+  try {
+    parsed = new URL(inputUrl);
+  } catch {
+    return '';
+  }
+  const [username] = parsed.pathname.split('/').filter(Boolean);
+  return username ?? '';
 }
 
 function extractMediaUrls(item: any): string[] {
@@ -98,6 +117,7 @@ export function mapApifyItemToVenueIntelDoc(item: any, runId: string): MappedVen
     docId,
     doc: {
       sourceAccount: firstNonEmptyString(item?.ownerUsername, item?.username) ?? '',
+      seedAccount: parseSeedAccountFromInputUrl(item?.inputUrl),
       postUrl,
       caption: item?.caption ?? '',
       postedAt,
