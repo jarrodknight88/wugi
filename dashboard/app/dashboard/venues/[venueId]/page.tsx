@@ -12,7 +12,9 @@ import { useAuthContext } from "@/context/AuthContext"
 import DashboardLayout from "@/components/DashboardLayout"
 import DoorAccessPanel from "@/components/DoorAccessPanel"
 import TableGroupManager from "@/components/TableGroupManager"
+import VenueMediaPanel from "./VenueMediaPanel"
 import Link from "next/link"
+import { authedFetch, errorMessage } from "@/lib/authedFetch"
 
 type Venue = {
   id: string; name: string; category: string; address: string
@@ -133,11 +135,14 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   const { user, loading, hasDashboardAccess, canWrite, canManageTables } = useAuthContext()
   const [venueId, setVenueId] = useState("")
   const [venue, setVenue] = useState<Venue | null>(null)
-  const [tab, setTab] = useState<"info" | "door" | "tables" | "payments">("info")
+  const [tab, setTab] = useState<"info" | "media" | "door" | "tables" | "payments">("info")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<Venue>>({})
+  const [aiAvailable, setAiAvailable] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   useEffect(() => {
     params.then(p => setVenueId(p.venueId))
@@ -183,6 +188,26 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
     }
   }
 
+  useEffect(() => {
+    if (!venueId || !canWrite) return
+    authedFetch(`/api/venues/${venueId}/generate`)
+      .then((res) => setAiAvailable(Boolean(res.aiAvailable)))
+      .catch(() => setAiAvailable(false))
+  }, [venueId, canWrite])
+
+  async function generateAbout() {
+    if (!venueId) return
+    setGenerating(true); setGenerateError(null)
+    try {
+      const res = await authedFetch(`/api/venues/${venueId}/generate`, { method: "POST" })
+      setForm((f) => ({ ...f, about: res.about }))
+    } catch (e) {
+      setGenerateError(errorMessage(e))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   if (loading || !user || !hasDashboardAccess) return null
   if (!venue) return (
     <DashboardLayout>
@@ -192,6 +217,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
 
   const TABS = [
     { key: "info",     label: "Venue Info" },
+    { key: "media",    label: "Media" },
     { key: "door",     label: "Door Access" },
     { key: "tables",   label: "Tables" },
     { key: "payments", label: "Payments & ID" },
@@ -274,8 +300,17 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
                 <input style={INPUT} value={form.instagram || ""} onChange={e => setForm(f => ({ ...f, instagram: e.target.value }))} />
               </div>
               <div style={{ gridColumn: "1/-1" }}>
-                <label style={LABEL}>About</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label style={{ ...LABEL, marginBottom: 0 }}>About</label>
+                  {canWrite && aiAvailable && (
+                    <button type="button" onClick={generateAbout} disabled={generating} style={{
+                      padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", opacity: generating ? 0.6 : 1,
+                    }}>{generating ? "Generating…" : "✨ Generate"}</button>
+                  )}
+                </div>
                 <textarea style={{ ...INPUT, minHeight: 80, resize: "vertical" }} value={form.about || ""} onChange={e => setForm(f => ({ ...f, about: e.target.value }))} />
+                {generateError && <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>⚠️ {generateError}</p>}
               </div>
               <div>
                 <label style={LABEL}>Status</label>
@@ -309,6 +344,11 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
               )}
             </div>
           </div>
+        )}
+
+        {/* ── Media Tab ── */}
+        {tab === "media" && (
+          <VenueMediaPanel venueId={venueId} canWrite={canWrite} />
         )}
 
         {/* ── Door Access Tab ── */}
