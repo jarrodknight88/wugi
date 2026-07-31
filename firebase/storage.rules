@@ -11,6 +11,13 @@ service firebase.storage {
       return segment == 'lens-ingest' || segment == 'lens-quarantine';
     }
 
+    // intel-media/** (issue #141) — scraped post media staged for staff
+    // review, same "carve out of the public catch-all" reasoning as the
+    // Lens prefixes above.
+    function isIntelMediaPrefix(segment) {
+      return segment == 'intel-media';
+    }
+
     // ── Lens ingest ──────────────────────────────────────────────────
     // lens-ingest/{deviceId}/{galleryId}/{filename}
     // Hardware capture devices authenticate as dedicated Firebase Auth users
@@ -31,6 +38,25 @@ service firebase.storage {
       allow read, write: if false;
     }
 
+    // ── Intel media (Apify scrape staging) ──────────────────────────
+    // intel-media/{venueIntelDocId}/{index}.jpg — media downloaded from
+    // scraped IG posts (apifyWebhook / scripts/backfill-intel-media.js),
+    // tracked per-asset in Firestore mediaAssets/{venueIntelDocId} with
+    // rightsStatus starting 'unverified'. Not yet cleared for any
+    // consumer- or dashboard-client-facing use, so client reads are
+    // denied outright here — no existing dashboard-staff Storage rule
+    // pattern to match (checked: dashboard's only comparable route,
+    // venue-intel/image, proxies the external IG CDN, not Firebase
+    // Storage). When the dashboard needs to display these, it should add
+    // an authed server route that reads via the Admin SDK (bypasses these
+    // rules) and streams the bytes back, gated by the existing
+    // requireVenueIntelStaff() check — same shape as that IG-CDN proxy
+    // route, just backed by admin.storage() instead of fetch(). Write is
+    // Cloud Function / Admin SDK only.
+    match /intel-media/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     // Web/thumb renditions written by the ingest function (Admin SDK).
     // Publicly readable like all other Wugi media; never client-written.
     match /lens-renditions/{allPaths=**} {
@@ -44,11 +70,12 @@ service firebase.storage {
     // With rules_version 2, {allPaths=**} matches zero or more segments, so
     // this covers root-level objects too.
     match /{topLevel}/{allPaths=**} {
-      allow read: if !isLensPrefix(topLevel);
+      allow read: if !isLensPrefix(topLevel) && !isIntelMediaPrefix(topLevel);
       // lens-renditions stays publicly readable but is function-written only,
       // so it must also be excluded from the legacy any-authed-write grant.
       allow write: if request.auth != null
         && !isLensPrefix(topLevel)
+        && !isIntelMediaPrefix(topLevel)
         && topLevel != 'lens-renditions';
     }
 

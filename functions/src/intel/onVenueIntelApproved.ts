@@ -64,6 +64,24 @@ async function resolveAccountType(
   return typeof accountType === 'string' ? (accountType as AccountType) : undefined;
 }
 
+/**
+ * Media persistence (issue #141) stages a mediaAssets/{intelId} doc for
+ * posts whose media was downloaded at scrape time — but back then no venue
+ * was known yet. Once routing resolves a venue (draft_event or
+ * night_observation, never needs_classification), backfill it onto the
+ * asset doc if one exists. Best-effort: a missing/pre-existing asset doc
+ * is a normal no-op, never worth failing the approval transition over.
+ */
+async function linkMediaAssetVenue(db: admin.firestore.Firestore, intelId: string, venueId: string): Promise<void> {
+  try {
+    const ref = db.collection('mediaAssets').doc(intelId);
+    const snap = await ref.get();
+    if (snap.exists) await ref.set({ venueId }, { merge: true });
+  } catch (err) {
+    logger.warn('onVenueIntelApproved: mediaAssets venue link failed', { intelId, venueId, err: String(err) });
+  }
+}
+
 export const onVenueIntelApproved = onDocumentUpdated('venueIntel/{id}', async (event) => {
   const change = event.data;
   if (!change) return;
@@ -121,6 +139,7 @@ export const onVenueIntelApproved = onDocumentUpdated('venueIntel/{id}', async (
     );
 
     await intelRef.set({ transform: { processedAt: now, outcome: 'draft_event', refId: docId } }, { merge: true });
+    await linkMediaAssetVenue(db, intelId, result.venue.id);
     logger.info('onVenueIntelApproved: draft_event', { intelId, refId: docId, venueId: result.venue.id });
     return;
   }
@@ -155,6 +174,7 @@ export const onVenueIntelApproved = onDocumentUpdated('venueIntel/{id}', async (
       { transform: { processedAt: now, outcome: 'night_observation', refId: obsRef.id } },
       { merge: true }
     );
+    await linkMediaAssetVenue(db, intelId, result.venue.id);
     logger.info('onVenueIntelApproved: night_observation', { intelId, refId: obsRef.id, venueId: result.venue.id });
     return;
   }

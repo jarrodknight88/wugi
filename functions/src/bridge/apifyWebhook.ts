@@ -21,6 +21,7 @@ import { defineSecret } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
+import { selectCandidateMediaUrls, downloadAndStoreIntelMedia, buildMediaAssetDoc } from '../intel/intelMedia';
 
 const apifyToken = defineSecret('APIFY_TOKEN');
 
@@ -173,13 +174,19 @@ function chunk<T>(items: T[], size: number): T[][] {
  * update engagement counts without duplicating docs. `status` is only
  * included in the write payload for docs that don't exist yet — merge
  * semantics mean an omitted field is left untouched, so an existing
- * reviewed status is never clobbered by a later re-scrape.
+ * reviewed status is never clobbered by a later re-scrape. Also returns
+ * the subset of items that were genuinely new in this run — media
+ * download only ever runs for those (never on a re-merge of an existing
+ * docId), per scope item 1.
  */
-async function writeVenueIntelDocs(mapped: MappedVenueIntelItem[]): Promise<{ ingested: number; errors: number }> {
+async function writeVenueIntelDocs(
+  mapped: MappedVenueIntelItem[]
+): Promise<{ ingested: number; errors: number; newItems: MappedVenueIntelItem[] }> {
   const db = admin.firestore();
   const collection = db.collection(VENUE_INTEL_COLLECTION);
   let ingested = 0;
   let errors = 0;
+  const newItems: MappedVenueIntelItem[] = [];
 
   for (const batchItems of chunk(mapped, WRITE_BATCH_SIZE)) {
     const refs = batchItems.map((m) => collection.doc(m.docId));
@@ -190,6 +197,7 @@ async function writeVenueIntelDocs(mapped: MappedVenueIntelItem[]): Promise<{ in
       const batch = db.batch();
       batchItems.forEach((m, i) => {
         const isNew = !existingIds.has(m.docId);
+        if (isNew) newItems.push(m);
         batch.set(
           refs[i],
           {
@@ -208,7 +216,50 @@ async function writeVenueIntelDocs(mapped: MappedVenueIntelItem[]): Promise<{ in
     }
   }
 
-  return { ingested, errors };
+  return { ingested, errors, newItems };
+}
+
+/**
+ * Media persistence for newly-ingested posts (scope item 1-2): downloads
+ * each post's first few image mediaUrls to Storage and writes the
+ * mediaAssets/{docId} tracking doc. Runs after the venueIntel batch write
+ * commits, entirely best-effort — every failure (a single post's media, or
+ * the whole pass) is caught and logged here so it can never affect the
+ * webhook's response to Apify.
+ */
+async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<void> {
+  if (newItems.length === 0) return;
+
+  const db = admin.firestore();
+  const bucket = admin.storage().bucket();
+
+  for (const item of newItems) {
+    const candidateUrls = selectCandidateMediaUrls(item.doc.mediaUrls);
+    if (candidateUrls.length === 0) continue;
+
+    try {
+      const { storagePaths } = await downloadAndStoreIntelMedia(bucket, item.docId, candidateUrls);
+      if (storagePaths.length === 0) continue;
+
+      await db
+        .collection('mediaAssets')
+        .doc(item.docId)
+        .set(
+          buildMediaAssetDoc(
+            {
+              venueIntelId: item.docId,
+              sourceAccount: item.doc.sourceAccount,
+              seedAccount: item.doc.seedAccount,
+              postUrl: item.doc.postUrl,
+              storagePaths,
+            },
+            admin.firestore.FieldValue.serverTimestamp()
+          )
+        );
+    } catch (err) {
+      logger.warn('apifyWebhook: media persistence failed for post', { docId: item.docId, err: String(err) });
+    }
+  }
 }
 
 // ── Main Cloud Function ──────────────────────────────────────────────
@@ -217,10 +268,11 @@ export const apifyWebhook = onRequest(
   {
     secrets: [apifyToken],
     region: 'us-central1',
-    // Dataset pagination + batched Firestore writes can take a while for a
-    // large scrape run.
-    timeoutSeconds: 300,
-    memory: '256MiB',
+    // Dataset pagination + batched Firestore writes, plus (since media
+    // persistence landed) downloading/uploading up to 3 images per new
+    // post, can take a while for a large scrape run.
+    timeoutSeconds: 540,
+    memory: '512MiB',
   },
   async (req, res) => {
     const payload = req.body ?? {};
@@ -263,7 +315,7 @@ export const apifyWebhook = onRequest(
         else unmappable++;
       }
 
-      const { ingested, errors } = await writeVenueIntelDocs(mapped);
+      const { ingested, errors, newItems } = await writeVenueIntelDocs(mapped);
       const skipped = unmappable + errors;
 
       logger.info('apifyWebhook: run summary', {
@@ -271,7 +323,14 @@ export const apifyWebhook = onRequest(
         itemCount: items.length,
         ingested,
         errors,
+        newItems: newItems.length,
       });
+
+      // Best-effort, isolated from the response: media staging failures
+      // must never turn a successful ingest into a 5xx for Apify.
+      await persistNewIntelMedia(newItems).catch((err) =>
+        logger.error('apifyWebhook: media persistence pass failed', { runId, err: String(err) })
+      );
 
       res.status(200).json({ ingested, skipped });
     } catch (err) {
