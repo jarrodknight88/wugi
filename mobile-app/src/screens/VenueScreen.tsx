@@ -44,6 +44,7 @@ import { BackIcon, ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon, 
 import { FONTS, MONO } from '../constants/fonts';
 import { DealCard } from '../components/DealCard';
 import { orderDealsForDisplay } from '../utils/deals';
+import { formatEventDateLabel } from '../utils/eventDateTime';
 import { makeGallery } from '../constants/mockData';
 import { logVenueViewed } from '../analytics/analyticsService';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
@@ -271,7 +272,7 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
         data={visible} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
         renderItem={({ item }) => (
-          <VibeEventCard event={item} label={item.date} theme={theme} onPress={() => onEventPress(item)}/>
+          <VibeEventCard event={item} label={formatEventDateLabel(item.date)} theme={theme} onPress={() => onEventPress(item)}/>
         )}
       />
     </>
