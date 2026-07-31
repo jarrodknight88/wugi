@@ -6,6 +6,7 @@ import { logAuditServer } from "@/lib/serverAuditLog"
 import { extractVenueLatLng } from "@/lib/venueLatLng"
 import { DAY_TO_DOW, dayNameForDateISO, toEventSlug } from "@/lib/draftEventText"
 import { tryGenerateSeriesEvents } from "@/lib/generateSeriesEvents"
+import { findDateClaimConflict } from "@/lib/seriesDateClaim"
 
 export const dynamic = "force-dynamic"
 
@@ -23,12 +24,27 @@ type MediaInput = { type?: string; uri?: string; rightsStatus?: string }
 //   - "attach":      seriesId = an existing eventSeries id; isSeriesAnchor:
 //                    false (every generated instance carries false — the
 //                    consumer feed computes the anchor at query time).
+//                    `attachMode` ("edition" default, or "typical") decides
+//                    whose title/about/age/time/vibes/media the occurrence
+//                    gets — the draft's own (edition) or the series
+//                    template's (typical, draft is source-attribution only
+//                    via draftEvents.publishedEventId).
 //   - "new-series":  creates the eventSeries doc (same shape as
 //                    series/page.tsx's create path) plus this occurrence as
 //                    its first instance, using the SAME deterministic id
 //                    convention (`${seriesSlug}-${dateISO}`) the generator
 //                    uses, so a later generateSeriesEvents run treats it as
 //                    already-created rather than double-booking the date.
+//                    `newSeries.editionMode` ("typical" default, or
+//                    "special") decides where the SERIES' own name/title/
+//                    about/media come from: "typical" seeds the template
+//                    from this draft (existing behavior); "special" takes a
+//                    separately-collected `newSeries.generic` identity for
+//                    the series while the occurrence being published here
+//                    keeps this draft's own title/about/media — template
+//                    isolation falls out for free since generateSeriesEvents.ts
+//                    always reads the series doc's own fields for future
+//                    occurrences, never a sibling occurrence's.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireVenueIntelStaff(req)
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -110,13 +126,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!attachSeriesId) return NextResponse.json({ error: "attachSeriesId is required" }, { status: 400 })
     const seriesSnap = await db.collection("eventSeries").doc(attachSeriesId).get()
     if (!seriesSnap.exists) return NextResponse.json({ error: "Series not found" }, { status: 404 })
-    if (seriesSnap.data()?.venueId !== venueId) {
+    const seriesData = seriesSnap.data()!
+    if (seriesData.venueId !== venueId) {
       return NextResponse.json({ error: "Series belongs to a different venue" }, { status: 400 })
     }
     seriesId = attachSeriesId
+
+    if (dateISO) {
+      const conflictId = await findDateClaimConflict(db, seriesId, dateISO)
+      if (conflictId) {
+        return NextResponse.json({ error: "This series already has an event on that date" }, { status: 409 })
+      }
+    }
+
+    // "edition" (default) keeps this draft's own identity — the existing
+    // behavior. "typical" adopts the series template's identity instead;
+    // the draft is source attribution only (draftEvents.publishedEventId
+    // is still the link back to it).
+    const attachMode = body.attachMode === "typical" ? "typical" : "edition"
+    const templateOverride =
+      attachMode === "typical"
+        ? {
+            title: (typeof seriesData.title === "string" && seriesData.title) || (typeof seriesData.name === "string" && seriesData.name) || title,
+            about: typeof seriesData.about === "string" ? seriesData.about : about,
+            age: typeof seriesData.age === "string" && seriesData.age ? seriesData.age : age,
+            time: typeof seriesData.time === "string" && seriesData.time ? seriesData.time : time,
+            vibes: Array.isArray(seriesData.vibes) ? seriesData.vibes : vibes,
+            media: Array.isArray(seriesData.media) ? seriesData.media : media,
+          }
+        : {}
+
     eventRef = db.collection("events").doc()
     batch.set(eventRef, {
       ...eventDataBase,
+      ...templateOverride,
       seriesId,
       isSeriesAnchor: false,
       ...(dateISO ? { dateISO } : {}), // keeps generateSeriesEvents.ts's dedupe-by-dateISO correct for this series
@@ -124,32 +167,71 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } else if (seriesMode === "new-series") {
     const day = typeof body.newSeries?.day === "string" && body.newSeries.day ? body.newSeries.day : dayNameForDateISO(dateISO || "")
     const frequency = typeof body.newSeries?.frequency === "string" && body.newSeries.frequency ? body.newSeries.frequency : "weekly"
+    // "typical" (default): this draft seeds the series template — existing
+    // behavior. "special": this draft is a special edition — it publishes
+    // under its own identity (below, eventDataBase is unchanged) while the
+    // series gets a separately-collected GENERIC identity so future weeks
+    // don't inherit tonight's one-off theme.
+    const editionMode = body.newSeries?.editionMode === "special" ? "special" : "typical"
+
+    let seriesName = title
+    let seriesTitle = title
+    let seriesAbout = about
+    let seriesMedia = media
+
+    if (editionMode === "special") {
+      const generic = body.newSeries?.generic && typeof body.newSeries.generic === "object" ? body.newSeries.generic : {}
+      const genericName = String(generic.name || "").trim()
+      if (!genericName) {
+        return NextResponse.json({ error: "Series name is required for a special edition" }, { status: 400 })
+      }
+      const genericTitle = typeof generic.title === "string" && generic.title.trim() ? generic.title.trim() : genericName
+      const genericAbout = typeof generic.about === "string" ? generic.about : ""
+
+      const rawGenericMedia: MediaInput[] = Array.isArray(generic.media) ? generic.media : []
+      const genericHasUnverified = rawGenericMedia.some((m) => m?.rightsStatus === "unverified")
+      if (genericHasUnverified && body.confirmedUnverifiedRights !== true) {
+        return NextResponse.json({ error: "Selected media includes unverified rights — confirm before publishing" }, { status: 400 })
+      }
+      const genericMedia = rawGenericMedia
+        .filter((m) => typeof m.uri === "string" && m.uri)
+        .map((m) => ({ type: m.type === "video" ? "video" : "image", uri: m.uri as string }))
+
+      seriesName = genericName
+      seriesTitle = genericTitle
+      seriesAbout = genericAbout
+      seriesMedia = genericMedia
+    }
+
     const seriesRef = db.collection("eventSeries").doc()
-    const seriesSlug = toEventSlug(`${title}-${venueName}`)
+    const seriesSlug = toEventSlug(`${seriesName}-${venueName}`)
     seriesId = seriesRef.id
     batch.set(seriesRef, {
-      name: title,
+      name: seriesName,
       venueId,
       venueName,
       day,
       frequency,
       time,
       age,
-      about,
+      about: seriesAbout,
       vibes,
       status: "active",
-      coverImage: media[0]?.uri || "",
+      coverImage: seriesMedia[0]?.uri || "",
       startDate: dateISO || "",
       endDate: "",
       promoterId: "",
-      title, // generator instance docs read title || name (series/page.tsx save())
+      title: seriesTitle, // generator instance docs read title || name (series/page.tsx save())
       seriesSlug,
-      media,
+      media: seriesMedia,
       recurrence: { dayOfWeek: DAY_TO_DOW[day] ?? 5, frequency, timezone: "America/New_York" },
       totalGenerated: 0,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     })
+    // The occurrence being published keeps THIS draft's own title/about/media
+    // (eventDataBase, unchanged) — for a typical week that's the same as the
+    // series identity above; for a special edition it's deliberately not.
     eventRef = dateISO ? db.collection("events").doc(`${seriesSlug}-${dateISO}`) : db.collection("events").doc()
     batch.set(eventRef, {
       ...eventDataBase,
