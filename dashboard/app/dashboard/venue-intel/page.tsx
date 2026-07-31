@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 import { useAuthContext } from "@/context/AuthContext"
 import DashboardLayout from "@/components/DashboardLayout"
 import { auth } from "@/lib/firebase"
-import type { VenueIntelGroup, VenueIntelPost } from "@/app/api/venue-intel/route"
+import type { VenueIntelGroup, VenueIntelNeedsAttentionPost, VenueIntelPost, VenueIntelReasonGroup } from "@/app/api/venue-intel/route"
 import type { DiscoveredAccount, AccountType } from "@/app/api/venue-intel-accounts/route"
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
@@ -66,14 +66,13 @@ function CaptionCell({ caption }: { caption: string }) {
   )
 }
 
-function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: string, status: "approved" | "dismissed") => void }) {
-  const [busy, setBusy] = useState<"approved" | "dismissed" | null>(null)
+// <img src> can't carry the Authorization header the proxy requires, so
+// fetch the thumbnail through it client-side and render the blob via an
+// object URL. The returned setter lets callers fall back to the
+// placeholder on onError (bad/undecodable image data).
+function useProxyThumbnail(mediaUrl: string | undefined): [string, (thumb: string) => void] {
   const [thumb, setThumb] = useState(PLACEHOLDER_THUMB)
-  const mediaUrl = post.mediaUrls[0]
 
-  // <img src> can't carry the Authorization header the proxy requires, so
-  // fetch the thumbnail through it client-side and render the blob via an
-  // object URL. onError below still catches bad/undecodable image data.
   useEffect(() => {
     if (!mediaUrl) {
       setThumb(PLACEHOLDER_THUMB)
@@ -105,6 +104,52 @@ function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: stri
     }
   }, [mediaUrl])
 
+  return [thumb, setThumb]
+}
+
+function ThumbCell({ mediaUrl }: { mediaUrl: string | undefined }) {
+  const [thumb, setThumb] = useProxyThumbnail(mediaUrl)
+  return (
+    <td style={{ padding: "12px 16px", width: 72 }}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- external, volatile IG CDN URLs */}
+      <img
+        src={thumb}
+        alt=""
+        width={64}
+        height={64}
+        onError={() => setThumb(PLACEHOLDER_THUMB)}
+        style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, background: "#f3f4f6" }}
+      />
+    </td>
+  )
+}
+
+function IGProfileLink({ handle }: { handle: string }) {
+  return (
+    <a
+      href={`https://www.instagram.com/${handle}/`}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ color: "#111827", fontWeight: 600 }}
+    >
+      @{handle || "unknown"}
+    </a>
+  )
+}
+
+function ReasonBadge({ reason }: { reason: string }) {
+  const label = reason.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  return (
+    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: "#ede9fe", color: "#6d28d9", whiteSpace: "nowrap" }}>
+      {label}
+    </span>
+  )
+}
+
+function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: string, status: "approved" | "dismissed") => void }) {
+  const [busy, setBusy] = useState<"approved" | "dismissed" | null>(null)
+  const mediaUrl = post.mediaUrls[0]
+
   async function decide(status: "approved" | "dismissed") {
     setBusy(status)
     try {
@@ -116,17 +161,7 @@ function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: stri
 
   return (
     <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
-      <td style={{ padding: "12px 16px", width: 72 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- external, volatile IG CDN URLs */}
-        <img
-          src={thumb}
-          alt=""
-          width={64}
-          height={64}
-          onError={() => setThumb(PLACEHOLDER_THUMB)}
-          style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, background: "#f3f4f6" }}
-        />
-      </td>
+      <ThumbCell mediaUrl={mediaUrl} />
       <td style={{ padding: "12px 16px", maxWidth: 360 }}>
         <CaptionCell caption={post.caption} />
       </td>
@@ -229,6 +264,130 @@ function GroupCard({
   )
 }
 
+function NeedsAttentionRow({
+  post,
+  onDismiss,
+  onRetry,
+}: {
+  post: VenueIntelNeedsAttentionPost
+  onDismiss: (id: string) => Promise<void>
+  onRetry: (id: string) => Promise<void>
+}) {
+  const [busy, setBusy] = useState<"dismiss" | "retry" | null>(null)
+  const mediaUrl = post.mediaUrls[0]
+
+  async function run(action: "dismiss" | "retry") {
+    setBusy(action)
+    try {
+      if (action === "dismiss") await onDismiss(post.id)
+      else await onRetry(post.id)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
+      <ThumbCell mediaUrl={mediaUrl} />
+      <td style={{ padding: "12px 16px", maxWidth: 320 }}>
+        <CaptionCell caption={post.caption} />
+      </td>
+      <td style={{ padding: "12px 16px", fontSize: 13, whiteSpace: "nowrap" }}>
+        <IGProfileLink handle={post.sourceAccount} />
+      </td>
+      <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
+        <ReasonBadge reason={post.classificationReason} />
+      </td>
+      <td style={{ padding: "12px 16px", fontSize: 13, color: "#6b7280", whiteSpace: "nowrap" }}>{formatDate(post.postedAt)}</td>
+      <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
+        {post.postUrl && (
+          <a href={post.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2a7a5a", fontWeight: 600 }}>
+            View post ↗
+          </a>
+        )}
+      </td>
+      <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => run("retry")}
+            disabled={busy !== null}
+            style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#dcfce7", color: "#15803d", fontWeight: 600, opacity: busy !== null ? 0.6 : 1 }}
+          >
+            {busy === "retry" ? "…" : "Retry"}
+          </button>
+          <button
+            onClick={() => run("dismiss")}
+            disabled={busy !== null}
+            style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fee2e2", color: "#b91c1c", fontWeight: 600, opacity: busy !== null ? 0.6 : 1 }}
+          >
+            {busy === "dismiss" ? "…" : "Dismiss"}
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function ReasonGroupCard({
+  group,
+  onDismiss,
+  onRetry,
+  onBulkRetry,
+}: {
+  group: VenueIntelReasonGroup
+  onDismiss: (id: string) => Promise<void>
+  onRetry: (id: string) => Promise<void>
+  onBulkRetry: (reason: string) => Promise<void>
+}) {
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const posts = group.accountGroups.flatMap((ag) => ag.posts)
+
+  async function bulkRetry() {
+    setBulkBusy(true)
+    try {
+      await onBulkRetry(group.reason)
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", overflow: "hidden", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ReasonBadge reason={group.reason} />
+          <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: "#f3f4f6", color: "#6b7280" }}>
+            {group.count} posts
+          </span>
+        </div>
+        <button
+          onClick={bulkRetry}
+          disabled={bulkBusy}
+          style={{ padding: "6px 12px", borderRadius: 6, fontSize: 12, border: "1px solid #bbf7d0", cursor: "pointer", background: "#f0fdf4", color: "#15803d", fontWeight: 600, opacity: bulkBusy ? 0.6 : 1 }}
+        >
+          {bulkBusy ? "Retrying…" : "Retry all"}
+        </button>
+      </div>
+      <div className="dash-table-wrap" style={{ border: "none", borderRadius: 0, boxShadow: "none" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr>
+              {["", "Caption", "Account", "Reason", "Posted", "Link", "Actions"].map((h) => (
+                <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#9ca3af", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map((post) => (
+              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function CandidateRow({ candidate, accountTypes, onDecide }: { candidate: DiscoveredAccount; accountTypes: readonly AccountType[]; onDecide: (handle: string, status: "approved" | "rejected", accountType?: AccountType) => Promise<void> }) {
   const [accountType, setAccountType] = useState<AccountType>(accountTypes[0])
   const [busy, setBusy] = useState<"approved" | "rejected" | null>(null)
@@ -296,7 +455,9 @@ export default function VenueIntelPage() {
   const isVenueIntelStaff = role === "super_admin" || role === "moderator"
 
   const [groups, setGroups] = useState<VenueIntelGroup[]>([])
-  const [counts, setCounts] = useState({ pending: 0, approved: 0, dismissed: 0 })
+  const [needsAttention, setNeedsAttention] = useState<VenueIntelReasonGroup[]>([])
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, dismissed: 0, needsAttention: 0 })
+  const [tab, setTab] = useState<"queue" | "needsAttention">("queue")
   const [candidates, setCandidates] = useState<DiscoveredAccount[]>([])
   const [accountTypes, setAccountTypes] = useState<readonly AccountType[]>(["venue", "promoter", "photographer", "dj_artist", "staff", "influencer"])
   const [fetching, setFetching] = useState(true)
@@ -311,6 +472,7 @@ export default function VenueIntelPage() {
   const loadQueue = useCallback(async () => {
     const data = await authedFetch("/api/venue-intel")
     setGroups(data.groups)
+    setNeedsAttention(data.needsAttention)
     setCounts(data.counts)
   }, [])
 
@@ -358,6 +520,51 @@ export default function VenueIntelPage() {
     }
   }
 
+  function removeNeedsAttentionPostLocally(id: string, status: "approved" | "dismissed") {
+    setNeedsAttention((prev) =>
+      prev
+        .map((g) => ({
+          ...g,
+          count: g.count - (g.accountGroups.some((ag) => ag.posts.some((p) => p.id === id)) ? 1 : 0),
+          accountGroups: g.accountGroups
+            .map((ag) => ({ ...ag, posts: ag.posts.filter((p) => p.id !== id) }))
+            .filter((ag) => ag.posts.length > 0),
+        }))
+        .filter((g) => g.accountGroups.length > 0)
+    )
+    setCounts((c) => ({ ...c, needsAttention: c.needsAttention - 1, [status]: c[status] + 1 }))
+  }
+
+  async function dismissNeedsAttentionPost(id: string) {
+    try {
+      await authedFetch(`/api/venue-intel/${id}`, { method: "PATCH", body: JSON.stringify({ status: "dismissed" }) })
+      removeNeedsAttentionPostLocally(id, "dismissed")
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  async function retryNeedsAttentionPost(id: string) {
+    try {
+      await authedFetch(`/api/venue-intel/${id}`, { method: "PATCH", body: JSON.stringify({ status: "approved", clearTransform: true }) })
+      removeNeedsAttentionPostLocally(id, "approved")
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  async function bulkRetryReason(reason: string) {
+    try {
+      const group = needsAttention.find((g) => g.reason === reason)
+      const affected = group?.count ?? 0
+      await authedFetch("/api/venue-intel/bulk", { method: "POST", body: JSON.stringify({ reason, action: "retry" }) })
+      setNeedsAttention((prev) => prev.filter((g) => g.reason !== reason))
+      setCounts((c) => ({ ...c, needsAttention: c.needsAttention - affected, approved: c.approved + affected }))
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function decideCandidate(handle: string, status: "approved" | "rejected", accountType?: AccountType) {
     try {
       await authedFetch("/api/venue-intel-accounts", { method: "POST", body: JSON.stringify({ handle, status, accountType }) })
@@ -385,14 +592,66 @@ export default function VenueIntelPage() {
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>{counts.pending} pending</span>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#dcfce7", color: "#15803d" }}>{counts.approved} approved</span>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#f3f4f6", color: "#6b7280" }}>{counts.dismissed} dismissed</span>
+          <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#ede9fe", color: "#6d28d9" }}>{counts.needsAttention} needs attention</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid #e5e7eb" }}>
+          {(
+            [
+              { key: "queue", label: `Review queue (${counts.pending})` },
+              { key: "needsAttention", label: `Needs Attention (${counts.needsAttention})` },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                padding: "10px 18px",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 14,
+                fontWeight: tab === t.key ? 600 : 400,
+                background: "transparent",
+                color: tab === t.key ? "#111827" : "#6b7280",
+                borderBottom: tab === t.key ? "2px solid #111827" : "2px solid transparent",
+                marginBottom: -1,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {fetching ? (
           <p style={{ color: "#9ca3af", fontSize: 14 }}>Loading…</p>
+        ) : tab === "needsAttention" ? (
+          <>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>Needs Attention</h2>
+            <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 12px" }}>
+              Posts the transform couldn&apos;t auto-route — approve venue docs or fix source data, then Retry to re-run the trigger.
+            </p>
+            {needsAttention.length === 0 ? (
+              <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
+                Nothing needs attention. All caught up.
+              </div>
+            ) : (
+              <div>
+                {needsAttention.map((g) => (
+                  <ReasonGroupCard
+                    key={g.reason}
+                    group={g}
+                    onDismiss={dismissNeedsAttentionPost}
+                    onRetry={retryNeedsAttentionPost}
+                    onBulkRetry={bulkRetryReason}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : (
           <>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 12px" }}>Post review queue</h2>
@@ -407,7 +666,11 @@ export default function VenueIntelPage() {
                 ))}
               </div>
             )}
+          </>
+        )}
 
+        {!fetching && tab === "queue" && (
+          <>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>Discovered accounts</h2>
             <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 12px" }}>Instagram accounts scraped that aren&apos;t in the current seed list</p>
             {candidates.length === 0 ? (
