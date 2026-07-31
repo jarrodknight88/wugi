@@ -93,6 +93,9 @@ export function parseDateISO(startDateStr: unknown, capturedAt: string | Date | 
  * mention and resolves it the same way parseDateISO does. Used by the
  * venueIntel routing classifier, which has no structured date field to
  * anchor on the way the SerpAPI pipeline does.
+ *
+ * Explicit dates always win: only when none is found does this fall back
+ * to relative-vocabulary parsing (tonight/tomorrow/weekday names) below.
  */
 export function extractDateFromText(text: unknown, anchor: string | Date | number): string | null {
   if (!text || typeof text !== 'string') return null;
@@ -105,7 +108,74 @@ export function extractDateFromText(text: unknown, anchor: string | Date | numbe
     const iso = resolveYearISO(MONTHS[monKey], day, anchor);
     if (iso) return iso;
   }
-  return null;
+  return extractRelativeDateFromText(text, anchor);
+}
+
+// ── Relative date vocabulary ─────────────────────────────────────────
+// Nightlife captions say "TONIGHT" or "this Friday", not "Aug 1" — these
+// resolve relative to the post's own anchor (postedAt) in America/New_York.
+// Deliberately NOT parsed: "this weekend" / "soon" / "next week" — too
+// ambiguous to resolve to a single calendar date.
+const RELATIVE_TODAY_RE = /\b(?:tonight|tonite|2nite|today)\b/i;
+const RELATIVE_TOMORROW_RE = /\b(?:tomorrow|tmrw|tmr)\b/i;
+const WEEKDAY_PATTERNS: Array<{ re: RegExp; dow: number }> = [
+  { re: /\b(?:sunday|sun)\b/i, dow: 0 },
+  { re: /\b(?:monday|mon)\b/i, dow: 1 },
+  { re: /\b(?:tuesday|tue|tues)\b/i, dow: 2 },
+  { re: /\b(?:wednesday|wed)\b/i, dow: 3 },
+  { re: /\b(?:thursday|thu|thur|thurs)\b/i, dow: 4 },
+  { re: /\b(?:friday|fri)\b/i, dow: 5 },
+  { re: /\b(?:saturday|sat)\b/i, dow: 6 },
+];
+
+/** The calendar date (YYYY-MM-DD) a Date instant falls on in the given IANA timezone. */
+export function dateISOInTimeZone(date: Date, tz: string = TIMEZONE): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    date
+  );
+}
+
+function addDaysISO(dateISO: string, days: number): string {
+  const d = new Date(`${dateISO}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Earliest (leftmost) weekday-name/abbreviation mention in text, or null. */
+function findEarliestWeekdayMatch(text: string): number | null {
+  let bestIndex = Infinity;
+  let bestDow: number | null = null;
+  for (const { re, dow } of WEEKDAY_PATTERNS) {
+    const m = text.match(re);
+    if (m && m.index !== undefined && m.index < bestIndex) {
+      bestIndex = m.index;
+      bestDow = dow;
+    }
+  }
+  return bestDow;
+}
+
+/**
+ * Resolves "tonight"/"tomorrow"/weekday-name vocabulary in free text,
+ * anchored to the post's own timestamp and resolved in America/New_York.
+ * A bare or prefixed weekday name ("friday", "this friday", "friday
+ * night", "fri") resolves to its NEXT occurrence relative to the anchor
+ * date — the anchor's own weekday counts as that same day.
+ */
+export function extractRelativeDateFromText(text: unknown, anchor: string | Date | number): string | null {
+  if (!text || typeof text !== 'string') return null;
+  const anchorDate = anchor instanceof Date ? anchor : new Date(anchor);
+  if (Number.isNaN(anchorDate.getTime())) return null;
+  const anchorISO = dateISOInTimeZone(anchorDate, TIMEZONE);
+
+  if (RELATIVE_TODAY_RE.test(text)) return anchorISO;
+  if (RELATIVE_TOMORROW_RE.test(text)) return addDaysISO(anchorISO, 1);
+
+  const targetDow = findEarliestWeekdayMatch(text);
+  if (targetDow === null) return null;
+  const anchorDow = dayOfWeekET(anchorISO);
+  const diff = (targetDow - anchorDow + 7) % 7;
+  return addDaysISO(anchorISO, diff);
 }
 
 // date.when e.g. "Sat, 11 AM – 9 PM" — best-effort start/end time extraction.
