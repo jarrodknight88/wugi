@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { FieldValue } from "firebase-admin/firestore"
-import { adminDb } from "@/lib/firebase-admin"
+import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
 
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "status must be 'approved' or 'dismissed'" }, { status: 400 })
   }
 
-  const snap = await adminDb
+  const snap = await getAdminDb()
     .collection("venueIntel")
     .where("status", "==", "pending_review")
     .where("sourceAccount", "==", sourceAccount)
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   if (snap.empty) return NextResponse.json({ updated: 0 })
 
-  const batch = adminDb.batch()
+  const batch = getAdminDb().batch()
   snap.docs.forEach((d) => {
     batch.update(d.ref, { status, reviewedAt: FieldValue.serverTimestamp() })
   })

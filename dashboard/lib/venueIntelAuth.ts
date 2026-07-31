@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server"
-import { adminAuth, adminDb } from "@/lib/firebase-admin"
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin"
 
 // venueIntel is Wugi-internal only — deliberately narrower than the
 // dashboard's general SUPER_ROLES (which also includes "support").
@@ -16,12 +16,12 @@ export async function requireVenueIntelStaff(req: NextRequest): Promise<StaffAut
 
   let decoded
   try {
-    decoded = await adminAuth.verifyIdToken(token)
+    decoded = await getAdminAuth().verifyIdToken(token)
   } catch {
     return { ok: false, status: 401, error: "Invalid or expired token" }
   }
 
-  const userSnap = await adminDb.collection("users").doc(decoded.uid).get()
+  const userSnap = await getAdminDb().collection("users").doc(decoded.uid).get()
   const role = userSnap.exists ? (userSnap.data()?.role as string | undefined) : undefined
   if (!role || !ALLOWED_ROLES.includes(role)) {
     return { ok: false, status: 403, error: "Staff access required (super_admin or moderator)" }

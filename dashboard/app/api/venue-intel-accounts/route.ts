@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { FieldValue } from "firebase-admin/firestore"
-import { adminDb } from "@/lib/firebase-admin"
+import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
 
@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const [venueIntelSnap, decidedSnap] = await Promise.all([
-    adminDb.collection("venueIntel").select("sourceAccount", "caption").get(),
-    adminDb.collection("venueIntelAccounts").get(),
+    getAdminDb().collection("venueIntel").select("sourceAccount", "caption").get(),
+    getAdminDb().collection("venueIntelAccounts").get(),
   ])
 
   const decidedHandles = new Set(decidedSnap.docs.map((d) => d.id))
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   }
   if (status === "approved") doc.accountType = accountType
 
-  await adminDb.collection("venueIntelAccounts").doc(handle).set(doc)
+  await getAdminDb().collection("venueIntelAccounts").doc(handle).set(doc)
 
   await logAuditServer({
     adminId: auth.uid,

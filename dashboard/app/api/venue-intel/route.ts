@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { adminDb } from "@/lib/firebase-admin"
+import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 
 export const dynamic = "force-dynamic"
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireVenueIntelStaff(req)
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const collection = adminDb.collection("venueIntel")
+  const collection = getAdminDb().collection("venueIntel")
 
   const [pendingSnap, approvedCount, dismissedCount] = await Promise.all([
     collection.where("status", "==", "pending_review").get(),

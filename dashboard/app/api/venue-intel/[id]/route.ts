@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { FieldValue } from "firebase-admin/firestore"
-import { adminDb } from "@/lib/firebase-admin"
+import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
 
@@ -18,7 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "status must be 'approved' or 'dismissed'" }, { status: 400 })
   }
 
-  const ref = adminDb.collection("venueIntel").doc(id)
+  const ref = getAdminDb().collection("venueIntel").doc(id)
   const snap = await ref.get()
   if (!snap.exists) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
