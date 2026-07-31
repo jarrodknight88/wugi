@@ -16,7 +16,7 @@ const SEED_ACCOUNTS = new Set([
   "embrloungeatlanta", "lokeeatl",
 ])
 
-export const ACCOUNT_TYPES = ["venue", "promoter", "photographer", "dj_artist", "staff"] as const
+export const ACCOUNT_TYPES = ["venue", "promoter", "photographer", "dj_artist", "staff", "influencer"] as const
 export type AccountType = (typeof ACCOUNT_TYPES)[number]
 
 export type DiscoveredAccount = {
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   }
   if (status === "approved" && !ACCOUNT_TYPES.includes(accountType)) {
     return NextResponse.json(
-      { error: "accountType is required when approving (venue | promoter | photographer | dj_artist | staff)" },
+      { error: "accountType is required when approving (venue | promoter | photographer | dj_artist | staff | influencer)" },
       { status: 400 }
     )
   }

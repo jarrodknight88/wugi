@@ -13,6 +13,7 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   photographer: "Photographer",
   dj_artist: "DJ / Artist",
   staff: "Staff",
+  influencer: "Influencer",
 }
 
 const CAPTION_TRUNCATE = 140
@@ -297,7 +298,7 @@ export default function VenueIntelPage() {
   const [groups, setGroups] = useState<VenueIntelGroup[]>([])
   const [counts, setCounts] = useState({ pending: 0, approved: 0, dismissed: 0 })
   const [candidates, setCandidates] = useState<DiscoveredAccount[]>([])
-  const [accountTypes, setAccountTypes] = useState<readonly AccountType[]>(["venue", "promoter", "photographer", "dj_artist", "staff"])
+  const [accountTypes, setAccountTypes] = useState<readonly AccountType[]>(["venue", "promoter", "photographer", "dj_artist", "staff", "influencer"])
   const [fetching, setFetching] = useState(true)
   const [error, setError] = useState("")
 
