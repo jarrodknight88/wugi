@@ -69,7 +69,7 @@ async function main() {
   admin.initializeApp({
     ...(sa ? { credential: admin.credential.cert(sa) } : {}),
     projectId: 'wugi-prod',
-    storageBucket: 'wugi-prod.appspot.com',
+    storageBucket: 'wugi-prod.firebasestorage.app',
   });
   const db = admin.firestore();
   const bucket = admin.storage().bucket();
