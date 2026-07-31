@@ -59,6 +59,14 @@ const Icon = {
       <polyline points="10 9 9 9 8 9"/>
     </svg>
   ),
+  VenueIntel: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="20" rx="4"/>
+      <circle cx="8.5" cy="9.5" r="1.5"/>
+      <polyline points="21 15 16 10 5 21"/>
+      <path d="M16 3l1.5 3L21 7.5 18 9l-1.5 3L15 9l-3-1.5L15 6z"/>
+    </svg>
+  ),
 }
 
 const NAV = [
@@ -68,6 +76,7 @@ const NAV = [
   { href: "/dashboard/tickets",   label: "Tickets",    Icon: Icon.Tickets   },
   { href: "/dashboard/series",    label: "Series",     Icon: Icon.Series    },
   { href: "/dashboard/galleries", label: "Galleries",  Icon: Icon.Galleries },
+  { href: "/dashboard/venue-intel", label: "Venue Intel", Icon: Icon.VenueIntel },
   { href: "/dashboard/users",     label: "Users",      Icon: Icon.Users     },
   { href: "/dashboard/audit",     label: "Audit Log",  Icon: Icon.Audit     },
 ]
@@ -77,13 +86,14 @@ const TOPBAR_H = 52 // px — fixed mobile topbar height
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router   = useRouter()
-  const { user, isSuperAdmin, canManageUsers } = useAuthContext()
+  const { user, role, isSuperAdmin, canManageUsers } = useAuthContext()
   const [loggingOut, setLoggingOut] = useState(false)
   const [open, setOpen]             = useState(false)
 
   const visibleNav = NAV.filter(item => {
     if (item.href === "/dashboard/users")  return canManageUsers
     if (item.href === "/dashboard/audit")  return isSuperAdmin
+    if (item.href === "/dashboard/venue-intel") return role === "super_admin" || role === "moderator"
     return true
   })
 
