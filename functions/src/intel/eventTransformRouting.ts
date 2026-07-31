@@ -26,7 +26,7 @@ import {
   matchVenueInCaption,
 } from './eventTransformCore';
 
-export type AccountType = 'venue' | 'promoter' | 'photographer' | 'dj_artist';
+export type AccountType = 'venue' | 'promoter' | 'photographer' | 'dj_artist' | 'staff' | 'influencer';
 
 export interface IntelRoutingInput {
   sourceAccount: string;

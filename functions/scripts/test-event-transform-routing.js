@@ -144,6 +144,26 @@ check('unknown accountType still tries handle match first (defaults like venue)'
   assert.equal(result.venue.id, 'v1');
 });
 
+check('staff account: resolves venue from caption, not handle (non-venue type)', () => {
+  const result = classifyIntelPost(
+    { sourceAccount: 'bartender_kay', caption: 'Come see me at Promoted Lounge Aug 1', postedAt: ANCHOR, accountType: 'staff' },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'draft_event');
+  assert.equal(result.venue.id, 'v2');
+});
+
+check('influencer account: resolves venue from caption, not handle (non-venue type)', () => {
+  const result = classifyIntelPost(
+    { sourceAccount: 'atl_influencer', caption: 'Promoted Lounge Aug 1 pull up', postedAt: ANCHOR, accountType: 'influencer' },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'draft_event');
+  assert.equal(result.venue.id, 'v2');
+});
+
 console.log(`\n${passed} check(s) passed`);
 if (process.exitCode) {
   console.error('\nSome checks FAILED — see above.');
