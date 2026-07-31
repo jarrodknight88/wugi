@@ -59,17 +59,25 @@ const Icon = {
       <polyline points="10 9 9 9 8 9"/>
     </svg>
   ),
+  VenueIntel: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8"/>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      <path d="M8 12l2 2 4-4"/>
+    </svg>
+  ),
 }
 
 const NAV = [
-  { href: "/dashboard",           label: "Overview",   Icon: Icon.Overview  },
-  { href: "/dashboard/venues",    label: "Venues",     Icon: Icon.Venues    },
-  { href: "/dashboard/events",    label: "Events",     Icon: Icon.Events    },
-  { href: "/dashboard/tickets",   label: "Tickets",    Icon: Icon.Tickets   },
-  { href: "/dashboard/series",    label: "Series",     Icon: Icon.Series    },
-  { href: "/dashboard/galleries", label: "Galleries",  Icon: Icon.Galleries },
-  { href: "/dashboard/users",     label: "Users",      Icon: Icon.Users     },
-  { href: "/dashboard/audit",     label: "Audit Log",  Icon: Icon.Audit     },
+  { href: "/dashboard",             label: "Overview",     Icon: Icon.Overview   },
+  { href: "/dashboard/venues",      label: "Venues",       Icon: Icon.Venues     },
+  { href: "/dashboard/events",      label: "Events",       Icon: Icon.Events     },
+  { href: "/dashboard/tickets",     label: "Tickets",      Icon: Icon.Tickets    },
+  { href: "/dashboard/series",      label: "Series",       Icon: Icon.Series     },
+  { href: "/dashboard/galleries",   label: "Galleries",    Icon: Icon.Galleries  },
+  { href: "/dashboard/venue-intel", label: "Venue Intel",  Icon: Icon.VenueIntel },
+  { href: "/dashboard/users",       label: "Users",        Icon: Icon.Users      },
+  { href: "/dashboard/audit",       label: "Audit Log",    Icon: Icon.Audit      },
 ]
 
 const TOPBAR_H = 52 // px — fixed mobile topbar height
@@ -77,13 +85,18 @@ const TOPBAR_H = 52 // px — fixed mobile topbar height
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router   = useRouter()
-  const { user, isSuperAdmin, canManageUsers } = useAuthContext()
+  const { user, role, isSuperAdmin, canManageUsers } = useAuthContext()
   const [loggingOut, setLoggingOut] = useState(false)
   const [open, setOpen]             = useState(false)
 
+  // Venue Intel is Wugi-internal only — deliberately narrower than
+  // isSuperAdmin (which also covers "support").
+  const isVenueIntelStaff = role === "super_admin" || role === "moderator"
+
   const visibleNav = NAV.filter(item => {
-    if (item.href === "/dashboard/users")  return canManageUsers
-    if (item.href === "/dashboard/audit")  return isSuperAdmin
+    if (item.href === "/dashboard/users")       return canManageUsers
+    if (item.href === "/dashboard/audit")       return isSuperAdmin
+    if (item.href === "/dashboard/venue-intel") return isVenueIntelStaff
     return true
   })
 
