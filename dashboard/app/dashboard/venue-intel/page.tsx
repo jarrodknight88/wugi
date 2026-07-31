@@ -66,7 +66,42 @@ function CaptionCell({ caption }: { caption: string }) {
 
 function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: string, status: "approved" | "dismissed") => void }) {
   const [busy, setBusy] = useState<"approved" | "dismissed" | null>(null)
-  const [thumb, setThumb] = useState(post.mediaUrls[0] || PLACEHOLDER_THUMB)
+  const [thumb, setThumb] = useState(PLACEHOLDER_THUMB)
+  const mediaUrl = post.mediaUrls[0]
+
+  // <img src> can't carry the Authorization header the proxy requires, so
+  // fetch the thumbnail through it client-side and render the blob via an
+  // object URL. onError below still catches bad/undecodable image data.
+  useEffect(() => {
+    if (!mediaUrl) {
+      setThumb(PLACEHOLDER_THUMB)
+      return
+    }
+    let objectUrl: string | null = null
+    let cancelled = false
+
+    async function loadThumb() {
+      try {
+        const token = await auth.currentUser?.getIdToken()
+        const res = await fetch(`/api/venue-intel/image?src=${encodeURIComponent(mediaUrl as string)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error(`proxy fetch failed (${res.status})`)
+        const blob = await res.blob()
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setThumb(objectUrl)
+      } catch {
+        if (!cancelled) setThumb(PLACEHOLDER_THUMB)
+      }
+    }
+    loadThumb()
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [mediaUrl])
 
   async function decide(status: "approved" | "dismissed") {
     setBusy(status)
