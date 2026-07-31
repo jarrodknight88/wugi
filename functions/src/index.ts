@@ -35,5 +35,6 @@ export { githubWebhook }      from './bridge/githubWebhook';
 export { twilioInbound }      from './bridge/twilioInbound';
 export { apifyWebhook }       from './bridge/apifyWebhook';
 export { ingestLensUpload }   from './lens/ingestLensUpload';
+export { onVenueIntelApproved } from './intel/onVenueIntelApproved';
 export { spendFreeUnlock }        from './unlocks/spendFreeUnlock';
 export { getPhotographerEarnings } from './unlocks/getPhotographerEarnings';

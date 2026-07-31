@@ -26,6 +26,15 @@
  * a local JSON snapshot instead (array of venue docs, or {venues: [...]});
  * this is checked first and Firestore is never touched if it's present.
  *
+ * Core transform logic (normalizeText, year inference, date parsing,
+ * night-of semantics, venue matching, relevance gate) lives in
+ * functions/src/intel/eventTransformCore.ts — this script requires the
+ * compiled output (same build-output pattern as
+ * functions/scripts/test-apify-normalize.js) so there is ONE source of
+ * truth, shared with the onVenueIntelApproved Cloud Function. Build first:
+ *
+ *   (cd functions && npm run build)
+ *
  * Usage:
  *   node scripts/transform-events.js
  *   node scripts/transform-events.js --events-dir=data/raw/events --venues=scripts/data/venues-snapshot.json --out=scripts/data/events-review.json
@@ -38,7 +47,17 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const TIMEZONE = 'America/New_York';
 const MARKET = 'Atlanta';
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+const {
+  normalizeText,
+  parseDateISO,
+  parseTimes,
+  computeNightOf,
+  looksLikePlaceName,
+  nonNightlifeReason,
+  buildVenueIndex,
+  matchVenue,
+} = require(path.join(ROOT, 'functions', 'lib', 'intel', 'eventTransformCore.js'));
 
 // ── CLI ────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -52,175 +71,6 @@ const OUT_PATH = path.resolve(ROOT, getOpt('out', 'scripts/data/events-review.js
 const VENUES_SNAPSHOT_ARG = getOpt('venues', null);
 const DEFAULT_VENUES_SNAPSHOT = path.join(ROOT, 'scripts/data/venues-snapshot.json');
 const SERVICE_ACCOUNT_PATH = path.join(ROOT, 'mobile-app/scripts/serviceAccount.json');
-
-// ── Small utils ──────────────────────────────────────────────────────────
-function normalizeText(s) {
-  return String(s || '')
-    .toLowerCase()
-    .replace(/&/g, 'and')
-    .replace(/['']/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
-const STOPWORDS = new Set(['the', 'a', 'an', 'of', 'at']);
-function significantWords(normalized) {
-  return normalized.split(' ').filter((w) => w && !STOPWORDS.has(w));
-}
-
-// ── 1. Year inference ─────────────────────────────────────────────────
-// SerpAPI date.start_date is yearless ("Aug 1", "Jul 30"). Anchor on the
-// capturing file's capturedAt; if the same-year candidate lands more than
-// ~30 days BEFORE capturedAt, it must mean next year (Dec capture, "Jan 4").
-const MONTHS = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-const START_DATE_RE = /^([A-Za-z]{3,9})\s+(\d{1,2})\b/;
-
-function parseDateISO(startDateStr, capturedAt) {
-  if (!startDateStr || typeof startDateStr !== 'string') return null;
-  const m = startDateStr.trim().match(START_DATE_RE);
-  if (!m) return null;
-  const monKey = m[1].slice(0, 3).toLowerCase();
-  const day = parseInt(m[2], 10);
-  if (!(monKey in MONTHS) || !Number.isInteger(day) || day < 1 || day > 31) return null;
-  const month = MONTHS[monKey];
-
-  const capturedDate = new Date(capturedAt);
-  if (Number.isNaN(capturedDate.getTime())) return null;
-  const capturedYear = capturedDate.getUTCFullYear();
-
-  let candidate = new Date(Date.UTC(capturedYear, month, day));
-  if (candidate.getUTCMonth() !== month) return null; // invalid day-for-month (e.g. Feb 30)
-
-  if (capturedDate.getTime() - candidate.getTime() > THIRTY_DAYS_MS) {
-    candidate = new Date(Date.UTC(capturedYear + 1, month, day));
-    if (candidate.getUTCMonth() !== month) return null;
-  }
-  return candidate.toISOString().slice(0, 10);
-}
-
-// date.when e.g. "Sat, 11 AM – 9 PM" — best-effort start/end time extraction.
-// Missing/unparseable times are fine; only a missing DATE causes rejection.
-const TIME_RE = /(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])/g;
-function parseTimes(whenStr) {
-  if (!whenStr || typeof whenStr !== 'string') return {};
-  const matches = [...whenStr.matchAll(TIME_RE)];
-  if (!matches.length) return {};
-  const to24h = (match) => {
-    let h = parseInt(match[1], 10);
-    const min = match[2] ? parseInt(match[2], 10) : 0;
-    const meridiem = match[3].toLowerCase();
-    if (meridiem === 'am') { if (h === 12) h = 0; } else if (h !== 12) { h += 12; }
-    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-  };
-  const startTime = to24h(matches[0]);
-  const endTime = matches.length > 1 ? to24h(matches[1]) : undefined;
-  return { startTime, endTime };
-}
-
-// nightOf: the night an event belongs to, 6AM cutoff. An event whose start
-// time is after midnight but before 6AM is still "last night" to a user —
-// without this, a midnight-crossing Friday event vanishes from Friday's feed.
-function computeNightOf(dateISO, startTime) {
-  if (!startTime) return dateISO;
-  const hour = parseInt(startTime.slice(0, 2), 10);
-  if (!Number.isInteger(hour) || hour >= 6) return dateISO;
-  const d = new Date(`${dateISO}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-
-// ── 3. Relevance gate ──────────────────────────────────────────────────
-const PLACE_NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*,\s*[A-Z]{2}$/; // "Atlanta, GA", "Decatur, GA"
-const KNOWN_PLACE_NAMES = new Set([
-  'atlanta', 'decatur', 'buckhead', 'midtown', 'downtown', 'sandy springs',
-  'marietta', 'roswell', 'alpharetta', 'smyrna', 'brookhaven', 'avondale estates',
-]);
-
-function looksLikePlaceName(title) {
-  const trimmed = String(title || '').trim();
-  if (PLACE_NAME_RE.test(trimmed)) return true;
-  return KNOWN_PLACE_NAMES.has(trimmed.toLowerCase());
-}
-
-// Case-insensitive, word-bounded so "class" doesn't hit "classic", "run"
-// doesn't hit "running", etc.
-const NON_NIGHTLIFE_PATTERNS = [
-  /restaurant\s*week/i,
-  /\bbrunch\b/i,
-  /farmers?\s*market/i,
-  /\byoga\b/i,
-  /\bworkshop\b/i,
-  /\bclass(es)?\b/i,
-  /\bkids?\b/i,
-  /\bfamily\b/i,
-  /\b5k\b/i,
-  /\b10k\b/i,
-  /\bfun run\b/i,
-  /\bcareer\s*fair\b/i,
-  /\bjob\s*fair\b/i,
-  /\bconference\b/i,
-  /\bnetworking\b/i,
-  /corporate\s*dinner/i,
-  /regional\s*dinner/i,
-  /\bdog(gie)?\b/i,
-  /\bpuppy\b/i,
-  /\bpaws\b/i,
-  /\bpet(s)?\b/i,
-];
-
-function nonNightlifeReason(title) {
-  return NON_NIGHTLIFE_PATTERNS.some((re) => re.test(title));
-}
-
-// ── 4. Venue matching ────────────────────────────────────────────────
-function buildVenueIndex(venues) {
-  const byName = new Map(); // normalized name/alias -> [venue, ...]
-  for (const v of venues) {
-    const names = [v.name, ...(v.aliases || [])].filter(Boolean);
-    for (const n of names) {
-      const key = normalizeText(n);
-      if (!key) continue;
-      if (!byName.has(key)) byName.set(key, []);
-      byName.get(key).push(v);
-    }
-  }
-  return { byName, all: venues };
-}
-
-function matchVenue(eventVenueName, index) {
-  const key = normalizeText(eventVenueName);
-  if (!key) return { status: 'unmatched' };
-
-  const exact = index.byName.get(key);
-  if (exact) {
-    const uniq = Array.from(new Map(exact.map((v) => [v.id, v])).values());
-    if (uniq.length === 1) return { status: 'matched', venue: uniq[0], via: 'exact' };
-    return { status: 'ambiguous', candidates: uniq };
-  }
-
-  // Alias/contains fallback: word-subset match, ignoring stopwords, only
-  // auto-accepted when exactly one candidate survives — ambiguous otherwise.
-  const eventWords = significantWords(key);
-  if (eventWords.length < 2) return { status: 'unmatched' }; // too generic to fuzzy-match safely
-
-  const candidates = index.all.filter((v) => {
-    const names = [v.name, ...(v.aliases || [])].filter(Boolean);
-    return names.some((n) => {
-      const venueWords = significantWords(normalizeText(n));
-      if (venueWords.length < 2) return false;
-      const isSubset = (a, b) => a.every((w) => b.includes(w));
-      return isSubset(eventWords, venueWords) || isSubset(venueWords, eventWords);
-    });
-  });
-  const uniqCandidates = Array.from(new Map(candidates.map((v) => [v.id, v])).values());
-  if (uniqCandidates.length === 1) return { status: 'matched', venue: uniqCandidates[0], via: 'contains' };
-  if (uniqCandidates.length > 1) return { status: 'ambiguous', candidates: uniqCandidates };
-  return { status: 'unmatched' };
-}
 
 // ── Venue source ─────────────────────────────────────────────────────
 async function loadVenues() {
