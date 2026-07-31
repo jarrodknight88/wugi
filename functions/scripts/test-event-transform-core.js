@@ -89,6 +89,58 @@ check('extractDateFromText skips an invalid candidate and keeps scanning', () =>
   assert.equal(core.extractDateFromText('Zzz 40 but really Aug 1', '2026-07-20T12:00:00.000Z'), '2026-08-01');
 });
 
+// ── extractRelativeDateFromText / relative vocabulary via extractDateFromText ──
+
+// 2026-07-20 is a Monday.
+const MONDAY_ANCHOR = '2026-07-20T12:00:00.000Z';
+
+check('tonight/tonite/2nite/today resolve to the anchor\'s ET date', () => {
+  assert.equal(core.extractDateFromText('Pull up TONIGHT, doors at 10', MONDAY_ANCHOR), '2026-07-20');
+  assert.equal(core.extractDateFromText('tonite is the night', MONDAY_ANCHOR), '2026-07-20');
+  assert.equal(core.extractDateFromText('2nite only!', MONDAY_ANCHOR), '2026-07-20');
+  assert.equal(core.extractDateFromText('Today is the day', MONDAY_ANCHOR), '2026-07-20');
+});
+
+check('tomorrow/tmrw/tmr resolve to anchor + 1 day', () => {
+  assert.equal(core.extractDateFromText('See you tomorrow', MONDAY_ANCHOR), '2026-07-21');
+  assert.equal(core.extractDateFromText('tmrw is the night', MONDAY_ANCHOR), '2026-07-21');
+  assert.equal(core.extractDateFromText('pulling up tmr', MONDAY_ANCHOR), '2026-07-21');
+});
+
+check('weekday name resolves to the next occurrence, same-day case included', () => {
+  // Anchor is Monday 2026-07-20 — "monday"/"mon" on a Monday means today.
+  assert.equal(core.extractDateFromText('Monday madness', MONDAY_ANCHOR), '2026-07-20');
+  assert.equal(core.extractDateFromText('mon night', MONDAY_ANCHOR), '2026-07-20');
+  // "this friday" / "friday night" / bare "fri" all resolve to the same next Friday.
+  assert.equal(core.extractDateFromText('this friday is huge', MONDAY_ANCHOR), '2026-07-24');
+  assert.equal(core.extractDateFromText('friday night vibes', MONDAY_ANCHOR), '2026-07-24');
+  assert.equal(core.extractDateFromText('pull up fri', MONDAY_ANCHOR), '2026-07-24');
+  // A weekday already passed this week wraps to next week.
+  assert.equal(core.extractDateFromText('last sunday was wild, see you sunday', MONDAY_ANCHOR), '2026-07-26');
+});
+
+check('weekday next-occurrence crosses a month/year boundary', () => {
+  // 2026-12-30 is a Wednesday; "this friday" should land on 2027-01-01.
+  assert.equal(core.extractDateFromText('this friday', '2026-12-30T12:00:00.000Z'), '2027-01-01');
+});
+
+check('explicit date takes precedence over relative vocabulary in the same text', () => {
+  assert.equal(core.extractDateFromText('Forget tonight, real date is Aug 1', MONDAY_ANCHOR), '2026-08-01');
+});
+
+check('"this weekend" / "soon" / "next week" are deliberately NOT parsed', () => {
+  assert.equal(core.extractDateFromText('Big things this weekend', MONDAY_ANCHOR), null);
+  assert.equal(core.extractDateFromText('Announcement soon', MONDAY_ANCHOR), null);
+  assert.equal(core.extractDateFromText('See you next week', MONDAY_ANCHOR), null);
+});
+
+check('relative vocabulary is word-bounded and case-insensitive, does not fire inside longer words', () => {
+  assert.equal(core.extractDateFromText('Fridayish energy but no real plans', MONDAY_ANCHOR), null);
+  assert.equal(core.extractDateFromText('SEE YOU FRIDAY!', MONDAY_ANCHOR), '2026-07-24');
+  assert.equal(core.extractDateFromText('', MONDAY_ANCHOR), null);
+  assert.equal(core.extractDateFromText(null, MONDAY_ANCHOR), null);
+});
+
 // ── parseTimes / computeNightOf / dayOfWeekET ───────────────────────
 
 check('parseTimes extracts start/end from a when string', () => {

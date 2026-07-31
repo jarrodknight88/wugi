@@ -2,10 +2,14 @@
 // Wugi — venueIntel routing classifier (pure)
 //
 // Decides what an APPROVED venueIntel post becomes, per issue #133 SCOPE
-// item 3:
-//   a. future date + venue matched  -> draft_event
-//   b. past date (or no future date signal), venue matched -> night_observation
-//   c. no venue match OR no parseable date -> needs_classification
+// item 3 and issue #137's recap-inference upgrade:
+//   a. future date (explicit or relative) + venue matched -> draft_event
+//   b. past date, venue matched                           -> night_observation
+//   c. no date at all (explicit or relative), venue matched
+//                                                          -> night_observation
+//        (recap inference — dateless + venue-matched is overwhelmingly
+//        recap content; see classifyIntelPost)
+//   d. no venue match, or venue-ambiguous                  -> needs_classification
 //
 // Pure/testable: no Firestore reads. The caller (onVenueIntelApproved,
 // scripts/backfill-approved-intel.js) resolves accountType and the full
@@ -15,11 +19,13 @@
 'use strict';
 
 import {
+  TIMEZONE,
   Venue,
   VenueIndex,
   VenueMatchResult,
   extractDateFromText,
   computeNightOf,
+  dateISOInTimeZone,
   dayOfWeekET,
   deriveEventTitle,
   matchVenueByHandle,
@@ -67,9 +73,25 @@ export function classifyIntelPost(
   const venueMatch = resolveVenue(input, index);
 
   if (!dateISO) {
+    // Recap inference: a venue-matched post with no parseable date
+    // (explicit or relative) is overwhelmingly recap/night-of content, not
+    // an unclassifiable one — route it as an observation of the post's own
+    // night rather than draining into needs_classification. Observation
+    // noise is filtered downstream by the >=3-same-weekday inference
+    // threshold.
+    if (venueMatch.status === 'matched') {
+      const anchorDate = anchor instanceof Date ? anchor : new Date(anchor);
+      const anchorISO = dateISOInTimeZone(anchorDate, TIMEZONE);
+      return {
+        outcome: 'night_observation',
+        venue: venueMatch.venue,
+        dateISO: anchorISO,
+        dayOfWeek: dayOfWeekET(anchorISO),
+      };
+    }
     return {
       outcome: 'needs_classification',
-      reason: venueMatch.status === 'matched' ? 'no-parseable-date' : 'no-parseable-date-and-no-venue-match',
+      reason: 'no-parseable-date-and-no-venue-match',
     };
   }
   if (venueMatch.status === 'ambiguous') {

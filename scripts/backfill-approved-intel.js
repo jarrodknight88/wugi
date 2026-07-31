@@ -17,13 +17,26 @@
  * idempotency guard as the trigger (transform.processedAt), so re-running
  * this script (or the trigger later re-firing) is always safe.
  *
+ * --reclassify additionally selects every venueIntel/{id} doc where
+ * status == 'needs_classification' (regardless of transform.processedAt —
+ * these were already processed once, that's how they got stuck) and
+ * re-runs the routing now that relative-date vocabulary (issue #137) can
+ * resolve captions the original month-day parser couldn't. Docs that now
+ * resolve get their new outcome written (draftEvents/nightObservations)
+ * and status restored to 'approved'; docs that still don't resolve keep
+ * status 'needs_classification' with the transform marker refreshed.
+ * Same --dry-run default; idempotent the same way (re-running is always
+ * safe — a resolved doc simply resolves the same way again).
+ *
  * Credentials: GOOGLE_APPLICATION_CREDENTIALS, scripts/serviceAccount.json,
  * or mobile-app/scripts/serviceAccount.json (SessionStart hook location).
  *
  * Usage:
- *   node scripts/backfill-approved-intel.js              # dry run (default)
- *   node scripts/backfill-approved-intel.js --dry-run     # same, explicit
- *   node scripts/backfill-approved-intel.js --execute      # writes to Firestore
+ *   node scripts/backfill-approved-intel.js                    # dry run (default)
+ *   node scripts/backfill-approved-intel.js --dry-run           # same, explicit
+ *   node scripts/backfill-approved-intel.js --execute            # writes to Firestore
+ *   node scripts/backfill-approved-intel.js --reclassify          # dry run, incl. needs_classification bucket
+ *   node scripts/backfill-approved-intel.js --reclassify --execute # writes, incl. needs_classification bucket
  */
 'use strict';
 
@@ -44,7 +57,9 @@ const { classifyIntelPost } = require(
 
 const EXECUTE = process.argv.includes('--execute');
 const DRY_RUN = !EXECUTE;
+const RECLASSIFY = process.argv.includes('--reclassify');
 console.log(DRY_RUN ? 'DRY RUN — no Firestore writes (pass --execute to write)\n' : 'EXECUTE MODE — writing to Firestore\n');
+if (RECLASSIFY) console.log('--reclassify — also re-running routing over the needs_classification bucket\n');
 
 function loadCredentials() {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return null; // ADC
@@ -67,32 +82,93 @@ function draftEventDocId(venueId, dateISO, normalizedTitle) {
   return crypto.createHash('sha256').update(`${venueId}|${dateISO}|${normalizedTitle}`).digest('hex').slice(0, 32);
 }
 
-async function main() {
-  const sa = loadCredentials();
-  admin.initializeApp({ ...(sa ? { credential: admin.credential.cert(sa) } : {}), projectId: 'wugi-prod' });
-  const db = admin.firestore();
+/**
+ * Applies one classifyIntelPost result: logs it, and (in --execute mode)
+ * writes draftEvents/nightObservations + the transform marker. Shared by
+ * the ordinary approved-pending pass and the --reclassify pass; the only
+ * difference between them is `restoreApprovedOnResolve` — reclassified
+ * docs move from status 'needs_classification' back to 'approved' when
+ * they resolve, while ordinary approved-pending docs are already
+ * 'approved' and don't need that field touched.
+ */
+async function applyOutcome(db, doc, result, after, now, restoreApprovedOnResolve) {
+  const sourceAccount = after.sourceAccount || '';
+  const caption = after.caption || '';
 
-  console.log('Loading venues + venueIntelAccounts + pending approved intel...');
-  const [venuesSnap, accountsSnap, intelSnap] = await Promise.all([
-    db.collection('venues').select('name', 'aliases', 'instagram').get(),
-    db.collection('venueIntelAccounts').get(),
-    db.collection('venueIntel').where('status', '==', 'approved').get(),
-  ]);
+  if (result.outcome === 'draft_event') {
+    const docId = draftEventDocId(result.venue.id, result.dateISO, normalizeText(result.title));
+    console.log(`  [draft_event]         ${doc.id} -> draftEvents/${docId}  "${result.title}" @ ${result.venue.name} (${result.dateISO})`);
+    if (EXECUTE) {
+      const draftRef = db.collection('draftEvents').doc(docId);
+      const existing = await draftRef.get();
+      await draftRef.set(
+        {
+          venueId: result.venue.id,
+          venueName: result.venue.name,
+          date: admin.firestore.Timestamp.fromDate(new Date(`${result.dateISO}T00:00:00Z`)),
+          title: result.title,
+          caption,
+          likesCount: after.likesCount ?? 0,
+          commentsCount: after.commentsCount ?? 0,
+          sourceAttribution: { account: sourceAccount, postUrl: after.postUrl || '', seedAccount: after.seedAccount || '' },
+          sourceIntelId: doc.id,
+          status: 'draft',
+          updatedAt: now,
+          ...(existing.exists ? {} : { createdAt: now }),
+        },
+        { merge: true }
+      );
+      const intelUpdate = { transform: { processedAt: now, outcome: 'draft_event', refId: docId } };
+      if (restoreApprovedOnResolve) intelUpdate.status = 'approved';
+      await doc.ref.set(intelUpdate, { merge: true });
+    }
+    return;
+  }
 
-  const venues = venuesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const venueIndex = buildVenueIndex(venues);
-  const accountTypeByHandle = new Map(accountsSnap.docs.map((d) => [d.id, d.data().accountType]));
-  const todayISO = todayISOInTimeZone(TIMEZONE);
+  if (result.outcome === 'night_observation') {
+    console.log(`  [night_observation]   ${doc.id} -> nightObservations/*  @ ${result.venue.name} (${result.dateISO}, day ${result.dayOfWeek})`);
+    if (EXECUTE) {
+      const obsRef = db.collection('nightObservations').doc();
+      await obsRef.set({
+        venueId: result.venue.id,
+        dayOfWeek: result.dayOfWeek,
+        date: admin.firestore.Timestamp.fromDate(new Date(`${result.dateISO}T00:00:00Z`)),
+        sourceIntelId: doc.id,
+        likesCount: after.likesCount ?? 0,
+        commentsCount: after.commentsCount ?? 0,
+        sourceAccount,
+        createdAt: now,
+      });
+      await db.collection('venues').doc(result.venue.id).collection('intel').add({
+        type: 'recap',
+        postUrl: after.postUrl || '',
+        caption: caption.slice(0, 300),
+        engagement: { likesCount: after.likesCount ?? 0, commentsCount: after.commentsCount ?? 0 },
+        at: now,
+      });
+      const intelUpdate = { transform: { processedAt: now, outcome: 'night_observation', refId: obsRef.id } };
+      if (restoreApprovedOnResolve) intelUpdate.status = 'approved';
+      await doc.ref.set(intelUpdate, { merge: true });
+    }
+    return;
+  }
 
-  const pending = intelSnap.docs.filter((d) => !d.data().transform?.processedAt);
-  console.log(`Venues:        ${venues.length}`);
-  console.log(`Approved:      ${intelSnap.size}`);
-  console.log(`Unprocessed:   ${pending.length}\n`);
+  console.log(`  [needs_classification] ${doc.id} -> ${result.reason}`);
+  if (EXECUTE) {
+    await doc.ref.set(
+      {
+        status: 'needs_classification',
+        classificationReason: result.reason,
+        transform: { processedAt: now, outcome: 'needs_classification' },
+      },
+      { merge: true }
+    );
+  }
+}
 
+async function classifyAndApply(db, docs, venueIndex, accountTypeByHandle, todayISO, now, restoreApprovedOnResolve) {
   const counts = { draft_event: 0, night_observation: 0, needs_classification: 0 };
-  const now = admin.firestore.FieldValue.serverTimestamp();
-
-  for (const doc of pending) {
+  for (const doc of docs) {
     const after = doc.data();
     const sourceAccount = after.sourceAccount || '';
     const caption = after.caption || '';
@@ -101,74 +177,62 @@ async function main() {
 
     const result = classifyIntelPost({ sourceAccount, caption, postedAt, accountType }, venueIndex, todayISO);
     counts[result.outcome] += 1;
-
-    if (result.outcome === 'draft_event') {
-      const docId = draftEventDocId(result.venue.id, result.dateISO, normalizeText(result.title));
-      console.log(`  [draft_event]         ${doc.id} -> draftEvents/${docId}  "${result.title}" @ ${result.venue.name} (${result.dateISO})`);
-      if (EXECUTE) {
-        const draftRef = db.collection('draftEvents').doc(docId);
-        const existing = await draftRef.get();
-        await draftRef.set(
-          {
-            venueId: result.venue.id,
-            venueName: result.venue.name,
-            date: admin.firestore.Timestamp.fromDate(new Date(`${result.dateISO}T00:00:00Z`)),
-            title: result.title,
-            caption,
-            likesCount: after.likesCount ?? 0,
-            commentsCount: after.commentsCount ?? 0,
-            sourceAttribution: { account: sourceAccount, postUrl: after.postUrl || '', seedAccount: after.seedAccount || '' },
-            sourceIntelId: doc.id,
-            status: 'draft',
-            updatedAt: now,
-            ...(existing.exists ? {} : { createdAt: now }),
-          },
-          { merge: true }
-        );
-        await doc.ref.set({ transform: { processedAt: now, outcome: 'draft_event', refId: docId } }, { merge: true });
-      }
-    } else if (result.outcome === 'night_observation') {
-      console.log(`  [night_observation]   ${doc.id} -> nightObservations/*  @ ${result.venue.name} (${result.dateISO}, day ${result.dayOfWeek})`);
-      if (EXECUTE) {
-        const obsRef = db.collection('nightObservations').doc();
-        await obsRef.set({
-          venueId: result.venue.id,
-          dayOfWeek: result.dayOfWeek,
-          date: admin.firestore.Timestamp.fromDate(new Date(`${result.dateISO}T00:00:00Z`)),
-          sourceIntelId: doc.id,
-          likesCount: after.likesCount ?? 0,
-          commentsCount: after.commentsCount ?? 0,
-          sourceAccount,
-          createdAt: now,
-        });
-        await db.collection('venues').doc(result.venue.id).collection('intel').add({
-          type: 'recap',
-          postUrl: after.postUrl || '',
-          caption: caption.slice(0, 300),
-          engagement: { likesCount: after.likesCount ?? 0, commentsCount: after.commentsCount ?? 0 },
-          at: now,
-        });
-        await doc.ref.set({ transform: { processedAt: now, outcome: 'night_observation', refId: obsRef.id } }, { merge: true });
-      }
-    } else {
-      console.log(`  [needs_classification] ${doc.id} -> ${result.reason}`);
-      if (EXECUTE) {
-        await doc.ref.set(
-          {
-            status: 'needs_classification',
-            classificationReason: result.reason,
-            transform: { processedAt: now, outcome: 'needs_classification' },
-          },
-          { merge: true }
-        );
-      }
-    }
+    await applyOutcome(db, doc, result, after, now, restoreApprovedOnResolve);
   }
+  return counts;
+}
+
+async function main() {
+  const sa = loadCredentials();
+  admin.initializeApp({ ...(sa ? { credential: admin.credential.cert(sa) } : {}), projectId: 'wugi-prod' });
+  const db = admin.firestore();
+
+  console.log('Loading venues + venueIntelAccounts + pending approved intel...');
+  const queries = [
+    db.collection('venues').select('name', 'aliases', 'instagram').get(),
+    db.collection('venueIntelAccounts').get(),
+    db.collection('venueIntel').where('status', '==', 'approved').get(),
+  ];
+  if (RECLASSIFY) queries.push(db.collection('venueIntel').where('status', '==', 'needs_classification').get());
+  const [venuesSnap, accountsSnap, approvedSnap, needsClassificationSnap] = await Promise.all(queries);
+
+  const venues = venuesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const venueIndex = buildVenueIndex(venues);
+  const accountTypeByHandle = new Map(accountsSnap.docs.map((d) => [d.id, d.data().accountType]));
+  const todayISO = todayISOInTimeZone(TIMEZONE);
+
+  const pending = approvedSnap.docs.filter((d) => !d.data().transform?.processedAt);
+  console.log(`Venues:                  ${venues.length}`);
+  console.log(`Approved:                ${approvedSnap.size}`);
+  console.log(`Unprocessed (approved):  ${pending.length}`);
+  if (RECLASSIFY) console.log(`needs_classification:    ${needsClassificationSnap.size}`);
+  console.log('');
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const counts = await classifyAndApply(db, pending, venueIndex, accountTypeByHandle, todayISO, now, false);
 
   console.log('\n── Summary ─────────────────────────────────────────────');
   console.log(`  draft_event:          ${counts.draft_event}`);
   console.log(`  night_observation:    ${counts.night_observation}`);
   console.log(`  needs_classification: ${counts.needs_classification}`);
+
+  if (RECLASSIFY) {
+    console.log('\n── Reclassify pass (needs_classification bucket) ───────');
+    const reclassifyCounts = await classifyAndApply(
+      db,
+      needsClassificationSnap.docs,
+      venueIndex,
+      accountTypeByHandle,
+      todayISO,
+      now,
+      true
+    );
+    console.log('\n── Reclassify Summary ───────────────────────────────────');
+    console.log(`  resolved -> draft_event:       ${reclassifyCounts.draft_event}`);
+    console.log(`  resolved -> night_observation: ${reclassifyCounts.night_observation}`);
+    console.log(`  still needs_classification:   ${reclassifyCounts.needs_classification}`);
+  }
+
   if (DRY_RUN) console.log('\nDry run only — re-run with --execute to write these.');
 }
 

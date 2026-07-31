@@ -74,17 +74,55 @@ check('date exactly today counts as future (>=)', () => {
   assert.equal(result.outcome, 'draft_event');
 });
 
-// ── unparseable / no venue ───────────────────────────────────────────
+// ── recap inference (venue matched, no date at all) ────────────────
 
-check('no parseable date -> needs_classification', () => {
+check('recap inference: venue matched + no parseable date (explicit or relative) -> night_observation', () => {
   const result = classifyIntelPost(
     { sourceAccount: 'thetestroom', caption: 'Thanks for an amazing night everyone!', postedAt: ANCHOR, accountType: 'venue' },
     INDEX,
     TODAY
   );
-  assert.equal(result.outcome, 'needs_classification');
-  assert.equal(result.reason, 'no-parseable-date');
+  assert.equal(result.outcome, 'night_observation');
+  assert.equal(result.venue.id, 'v1');
+  // ANCHOR (2026-07-20T12:00:00Z) is a Monday in ET.
+  assert.equal(result.dateISO, '2026-07-20');
+  assert.equal(result.dayOfWeek, core.dayOfWeekET('2026-07-20'));
 });
+
+check('recap inference via relative vocabulary: "tonight" with venue matched resolves through the classifier', () => {
+  const result = classifyIntelPost(
+    { sourceAccount: 'thetestroom', caption: 'Tonight only, doors at 10', postedAt: ANCHOR, accountType: 'venue' },
+    INDEX,
+    TODAY
+  );
+  // "tonight" resolves to the anchor's ET date, which is in the past
+  // relative to TODAY -> falls into the ordinary past-date branch, not
+  // recap inference (this is date-resolved, not dateless).
+  assert.equal(result.outcome, 'night_observation');
+  assert.equal(result.dateISO, '2026-07-20');
+});
+
+check('recap inference does not apply when the venue is unmatched or ambiguous', () => {
+  const unmatched = classifyIntelPost(
+    { sourceAccount: 'unknownaccount', caption: 'Thanks for an amazing night everyone!', postedAt: ANCHOR, accountType: 'promoter' },
+    INDEX,
+    TODAY
+  );
+  assert.equal(unmatched.outcome, 'needs_classification');
+
+  const ambiguousIndex = core.buildVenueIndex([
+    { id: 'a', name: 'The Yard House' },
+    { id: 'b', name: 'The Yard House' },
+  ]);
+  const ambiguous = classifyIntelPost(
+    { sourceAccount: 'promoacct', caption: 'The Yard House thanks everyone for an amazing night!', postedAt: ANCHOR, accountType: 'promoter' },
+    ambiguousIndex,
+    TODAY
+  );
+  assert.equal(ambiguous.outcome, 'needs_classification');
+});
+
+// ── unparseable / no venue ───────────────────────────────────────────
 
 check('no venue match -> needs_classification', () => {
   const result = classifyIntelPost(
