@@ -605,7 +605,7 @@ export default function DraftEventsPanel() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                {["Date", "Title", "Venue", "Via", "Caption", "Actions"].map((h) => (
+                {(tab === "published" ? ["Hero", "Date", "Title", "Venue", "Via", "Caption", "Actions"] : ["Date", "Title", "Venue", "Via", "Caption", "Actions"]).map((h) => (
                   <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
                 ))}
               </tr>
@@ -613,8 +613,25 @@ export default function DraftEventsPanel() {
             <tbody>
               {drafts.map((d) => (
                 <tr key={d.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                  <td style={{ padding: "12px 16px", color: "#6b7280", whiteSpace: "nowrap" }}>{formatDateISO(d.dateISO)}</td>
-                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "#111827" }}>{d.cleanedTitle}</td>
+                  {tab === "published" && (
+                    <td style={{ padding: "12px 16px", width: 64 }}>
+                      {d.heroUri ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- signed/gallery/venue-hero URLs, rendered direct (never via the IG proxy — see 7/31 PM hotfix commit)
+                        <img src={d.heroUri} alt="" width={48} height={48} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8, background: "#f3f4f6", display: "block" }} />
+                      ) : (
+                        <div style={{ width: 48, height: 48, borderRadius: 8, background: "#f3f4f6" }} />
+                      )}
+                    </td>
+                  )}
+                  <td style={{ padding: "12px 16px", color: "#6b7280", whiteSpace: "nowrap" }}>
+                    {tab === "published" && d.liveDate ? `${d.liveDate}${d.liveTime ? ` · ${d.liveTime}` : ""}` : formatDateISO(d.dateISO)}
+                  </td>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "#111827" }}>
+                    {tab === "published" ? d.liveTitle ?? d.cleanedTitle : d.cleanedTitle}
+                    {tab === "published" && d.eventMissing && (
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "#b91c1c", marginTop: 2 }}>⚠ Live event doc missing — showing draft data</div>
+                    )}
+                  </td>
                   <td style={{ padding: "12px 16px", color: "#6b7280" }}>{d.venueName}</td>
                   <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
                     {d.postUrl ? (
