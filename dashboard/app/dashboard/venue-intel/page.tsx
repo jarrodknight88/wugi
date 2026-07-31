@@ -6,6 +6,8 @@ import DashboardLayout from "@/components/DashboardLayout"
 import { auth } from "@/lib/firebase"
 import type { VenueIntelGroup, VenueIntelNeedsAttentionPost, VenueIntelPost, VenueIntelReasonGroup } from "@/app/api/venue-intel/route"
 import type { DiscoveredAccount, AccountType } from "@/app/api/venue-intel-accounts/route"
+import { authedFetch, errorMessage } from "@/lib/authedFetch"
+import DraftEventsPanel from "./DraftEventsPanel"
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   venue: "Venue",
@@ -19,27 +21,6 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
 const CAPTION_TRUNCATE = 140
 const PLACEHOLDER_THUMB =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Crect width='96' height='96' fill='%23f3f4f6'/%3E%3Ctext x='48' y='52' font-size='11' text-anchor='middle' fill='%239ca3af' font-family='sans-serif'%3Eno image%3C/text%3E%3C/svg%3E"
-
-async function authedFetch(path: string, init?: RequestInit) {
-  const token = await auth.currentUser?.getIdToken()
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.headers || {}),
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${token}`,
-    },
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(body?.error || `Request failed (${res.status})`)
-  }
-  return res.json()
-}
-
-function errorMessage(e: unknown) {
-  return e instanceof Error ? e.message : String(e)
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
@@ -457,11 +438,12 @@ export default function VenueIntelPage() {
   const [groups, setGroups] = useState<VenueIntelGroup[]>([])
   const [needsAttention, setNeedsAttention] = useState<VenueIntelReasonGroup[]>([])
   const [counts, setCounts] = useState({ pending: 0, approved: 0, dismissed: 0, needsAttention: 0 })
-  const [tab, setTab] = useState<"queue" | "needsAttention">("queue")
+  const [intelTab, setIntelTab] = useState<"queue" | "needsAttention">("queue")
   const [candidates, setCandidates] = useState<DiscoveredAccount[]>([])
   const [accountTypes, setAccountTypes] = useState<readonly AccountType[]>(["venue", "promoter", "photographer", "dj_artist", "staff", "influencer"])
   const [fetching, setFetching] = useState(true)
   const [error, setError] = useState("")
+  const [tab, setTab] = useState<"intel" | "drafts">("intel")
 
   useEffect(() => {
     if (loading) return
@@ -586,19 +568,33 @@ export default function VenueIntelPage() {
           </div>
         </div>
 
+        <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid #e5e7eb" }}>
+          {([["intel", "Venue Intel"], ["drafts", "Draft Events"]] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} style={{
+              padding: "10px 18px", border: "none", cursor: "pointer", fontSize: 14,
+              fontWeight: tab === key ? 600 : 400, background: "transparent",
+              color: tab === key ? "#111827" : "#6b7280",
+              borderBottom: tab === key ? "2px solid #111827" : "2px solid transparent", marginBottom: -1,
+            }}>{label}</button>
+          ))}
+        </div>
+
         {error && (
           <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>
             {error}
           </div>
         )}
 
+        {tab === "drafts" ? (
+          <DraftEventsPanel />
+        ) : (
+          <>
         <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>{counts.pending} pending</span>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#dcfce7", color: "#15803d" }}>{counts.approved} approved</span>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#f3f4f6", color: "#6b7280" }}>{counts.dismissed} dismissed</span>
           <span style={{ padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 600, background: "#ede9fe", color: "#6d28d9" }}>{counts.needsAttention} needs attention</span>
         </div>
-
         <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid #e5e7eb" }}>
           {(
             [
@@ -608,16 +604,16 @@ export default function VenueIntelPage() {
           ).map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => setIntelTab(t.key)}
               style={{
                 padding: "10px 18px",
                 border: "none",
                 cursor: "pointer",
                 fontSize: 14,
-                fontWeight: tab === t.key ? 600 : 400,
+                fontWeight: intelTab === t.key ? 600 : 400,
                 background: "transparent",
-                color: tab === t.key ? "#111827" : "#6b7280",
-                borderBottom: tab === t.key ? "2px solid #111827" : "2px solid transparent",
+                color: intelTab === t.key ? "#111827" : "#6b7280",
+                borderBottom: intelTab === t.key ? "2px solid #111827" : "2px solid transparent",
                 marginBottom: -1,
               }}
             >
@@ -625,10 +621,9 @@ export default function VenueIntelPage() {
             </button>
           ))}
         </div>
-
-        {fetching ? (
-          <p style={{ color: "#9ca3af", fontSize: 14 }}>Loading…</p>
-        ) : tab === "needsAttention" ? (
+            {fetching ? (
+              <p style={{ color: "#9ca3af", fontSize: 14 }}>Loading…</p>
+            ) : intelTab === "needsAttention" ? (
           <>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>Needs Attention</h2>
             <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 12px" }}>
@@ -653,47 +648,45 @@ export default function VenueIntelPage() {
             )}
           </>
         ) : (
-          <>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 12px" }}>Post review queue</h2>
-            {groups.length === 0 ? (
-              <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af", marginBottom: 28 }}>
-                No pending posts. All caught up.
-              </div>
-            ) : (
-              <div style={{ marginBottom: 28 }}>
-                {groups.map((g) => (
-                  <GroupCard key={g.sourceAccount} group={g} onDecide={decidePost} onBulk={bulkDecide} />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {!fetching && tab === "queue" && (
-          <>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>Discovered accounts</h2>
-            <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 12px" }}>Instagram accounts scraped that aren&apos;t in the current seed list</p>
-            {candidates.length === 0 ? (
-              <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
-                No new candidate accounts.
-              </div>
-            ) : (
-              <div className="dash-table-wrap">
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-                  <thead>
-                    <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                      {["Account", "Posts", "Sample caption", "Decide"].map((h) => (
-                        <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((c) => (
-                      <CandidateRow key={c.handle} candidate={c} accountTypes={accountTypes} onDecide={decideCandidate} />
+              <>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 12px" }}>Post review queue</h2>
+                {groups.length === 0 ? (
+                  <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af", marginBottom: 28 }}>
+                    No pending posts. All caught up.
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 28 }}>
+                    {groups.map((g) => (
+                      <GroupCard key={g.sourceAccount} group={g} onDecide={decidePost} onBulk={bulkDecide} />
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
+                )}
+
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: "0 0 4px" }}>Discovered accounts</h2>
+                <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 12px" }}>Instagram accounts scraped that aren&apos;t in the current seed list</p>
+                {candidates.length === 0 ? (
+                  <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
+                    No new candidate accounts.
+                  </div>
+                ) : (
+                  <div className="dash-table-wrap">
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                      <thead>
+                        <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                          {["Account", "Posts", "Sample caption", "Decide"].map((h) => (
+                            <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {candidates.map((c) => (
+                          <CandidateRow key={c.handle} candidate={c} accountTypes={accountTypes} onDecide={decideCandidate} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
