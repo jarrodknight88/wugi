@@ -230,7 +230,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
             <label style={LABEL}>Media</label>
             <MediaSection title="Venue hero" options={ctx.media.venueHero ? [{ url: ctx.media.venueHero, thumbUrl: ctx.media.venueHero, rightsStatus: "wugi_partner" }] : []} selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No venue hero image on file." />
             <MediaSection title="Gallery photos" options={ctx.media.galleryPhotos} selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No permissioned gallery photos for this venue yet." />
-            <MediaSection title="Staged scraped assets" options={ctx.media.stagedAssets} proxied selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No staged assets yet." />
+            <MediaSection title="Staged scraped assets" options={ctx.media.stagedAssets} selectedUris={selectedMedia.map((m) => m.uri)} onToggle={toggleMedia} emptyText="No staged assets yet." />
           </div>
 
           {/* Series */}
