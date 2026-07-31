@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server"
 import { FieldValue } from "firebase-admin/firestore"
-import { getAdminDb, getAdminStorage, STORAGE_BUCKET } from "@/lib/firebase-admin"
+import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
 import { extractVenueLatLng } from "@/lib/venueLatLng"
 import { cleanDraftTitle, cleanDraftAbout, isoToDatePickerString } from "@/lib/draftEventText"
+import { signStoragePaths, normalizeRightsStatus } from "@/lib/mediaSignedUrls"
 
 export const dynamic = "force-dynamic"
 
 export type MediaOption = { url: string; thumbUrl: string; rightsStatus?: "unverified" | "permission_granted" | "wugi_partner" }
 export type SeriesOption = { id: string; name: string; day: string; frequency: string; time: string }
+export type CurrentMediaItem = { uri: string; type: "image" | "video"; rightsStatus: "unverified" | "permission_granted" | "wugi_partner" }
 
 export type PublishContext = {
   draft: {
     id: string
+    status: "draft" | "published"
+    publishedEventId: string | null
     venueId: string
     venueName: string
     dateISO: string | null
@@ -26,6 +30,9 @@ export type PublishContext = {
   }
   venue: { id: string; name: string; lat: number | null; lng: number | null }
   media: { galleryPhotos: MediaOption[]; stagedAssets: MediaOption[]; venueHero: string | null }
+  // Only populated when draft.status === "published" — the live event's
+  // current media, so the Edit Media picker can preload selection + order.
+  currentMedia: CurrentMediaItem[]
   eventSeries: SeriesOption[]
   aiAvailable: boolean
 }
@@ -45,19 +52,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const draftSnap = await db.collection("draftEvents").doc(id).get()
   if (!draftSnap.exists) return NextResponse.json({ error: "Draft not found" }, { status: 404 })
   const draft = draftSnap.data()!
-  if (draft.status !== "draft") {
-    return NextResponse.json({ error: `Draft is already ${draft.status}` }, { status: 409 })
+  // "draft" -> the Publish modal; "published" -> the Edit Media modal (same
+  // context shape, reused). Any other status (e.g. dismissed_draft) has no
+  // picker UI left to serve.
+  if (draft.status !== "draft" && draft.status !== "published") {
+    return NextResponse.json({ error: `Draft is ${draft.status}` }, { status: 409 })
   }
 
   const venueId: string = draft.venueId || ""
   const caption: string = draft.caption || ""
   const dateISO: string | null = draft.date?.toDate?.()?.toISOString().slice(0, 10) ?? null
 
-  const [venueSnap, gallerySnap, mediaAssetSnap, seriesSnap] = await Promise.all([
+  const publishedEventId: string | null = draft.publishedEventId || null
+
+  const [venueSnap, gallerySnap, mediaAssetSnap, seriesSnap, eventSnap] = await Promise.all([
     venueId ? db.collection("venues").doc(venueId).get() : Promise.resolve(null),
     venueId ? db.collection("eventGalleries").where("venueId", "==", venueId).get() : Promise.resolve(null),
     db.collection("mediaAssets").doc(draft.sourceIntelId || id).get(),
     venueId ? db.collection("eventSeries").where("venueId", "==", venueId).where("status", "==", "active").get() : Promise.resolve(null),
+    publishedEventId ? db.collection("events").doc(publishedEventId).get() : Promise.resolve(null),
   ])
 
   const venueData = venueSnap?.exists ? venueSnap.data()! : null
@@ -95,31 +108,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (mediaAssetSnap.exists) {
     const mediaData = mediaAssetSnap.data()
     const storagePaths = mediaData?.storagePaths
-    const rightsStatus: MediaOption["rightsStatus"] =
-      mediaData?.rightsStatus === "permission_granted" || mediaData?.rightsStatus === "wugi_partner"
-        ? mediaData.rightsStatus
-        : "unverified"
+    const rightsStatus = normalizeRightsStatus(mediaData?.rightsStatus)
 
     if (Array.isArray(storagePaths) && storagePaths.length) {
-      const bucket = getAdminStorage().bucket(STORAGE_BUCKET)
-      const signedUrls = await Promise.all(
-        storagePaths.map(async (storagePath) => {
-          if (typeof storagePath !== "string" || !storagePath) return null
-          try {
-            const [url] = await bucket.file(storagePath).getSignedUrl({
-              version: "v4",
-              action: "read",
-              expires: Date.now() + 60 * 60 * 1000, // 60 min
-            })
-            return url
-          } catch (err) {
-            console.warn(`draft-events/[id]: signed URL failed for ${storagePath}`, err)
-            return null
-          }
-        })
-      )
+      const signedUrls = await signStoragePaths(storagePaths)
       for (const url of signedUrls) {
-        if (url) stagedAssets.push({ url, thumbUrl: url, rightsStatus })
+        stagedAssets.push({ url, thumbUrl: url, rightsStatus })
       }
     }
   }
@@ -131,9 +125,36 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const cleanedTitle = cleanDraftTitle(caption, draft.title || "Untitled event")
 
+  // For the Edit Media flow, resolve each currently-attached uri's rights
+  // status by matching it against the picker options already fetched above.
+  // A match not found here (e.g. attached from a different post's staged
+  // assets than the ones loaded by default) conservatively defaults to
+  // "unverified" so the edit route's confirm gate still applies.
+  const knownRights = new Map<string, MediaOption["rightsStatus"]>()
+  if (venueHero) knownRights.set(venueHero, "wugi_partner")
+  for (const opt of galleryPhotos) knownRights.set(opt.url, opt.rightsStatus)
+  for (const opt of stagedAssets) knownRights.set(opt.url, opt.rightsStatus)
+
+  const currentMedia: CurrentMediaItem[] = []
+  if (eventSnap?.exists) {
+    const eventMedia = eventSnap.data()?.media
+    if (Array.isArray(eventMedia)) {
+      for (const m of eventMedia) {
+        if (typeof m?.uri !== "string" || !m.uri) continue
+        currentMedia.push({
+          uri: m.uri,
+          type: m.type === "video" ? "video" : "image",
+          rightsStatus: normalizeRightsStatus(knownRights.get(m.uri)),
+        })
+      }
+    }
+  }
+
   const ctx: PublishContext = {
     draft: {
       id,
+      status: draft.status === "published" ? "published" : "draft",
+      publishedEventId,
       venueId,
       venueName: venueData?.name || draft.venueName || "",
       dateISO,
@@ -146,6 +167,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
     venue: { id: venueId, name: venueData?.name || draft.venueName || "", lat: latLng?.lat ?? null, lng: latLng?.lng ?? null },
     media: { galleryPhotos, stagedAssets, venueHero },
+    currentMedia,
     eventSeries,
     aiAvailable: Boolean(process.env.ANTHROPIC_API_KEY),
   }
