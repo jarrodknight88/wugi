@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthContext } from "@/context/AuthContext"
 import DashboardLayout from "@/components/DashboardLayout"
@@ -8,6 +8,7 @@ import type { VenueIntelGroup, VenueIntelNeedsAttentionPost, VenueIntelPost, Ven
 import type { DiscoveredAccount, AccountType } from "@/app/api/venue-intel-accounts/route"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import VenuePicker from "@/components/VenuePicker"
+import Lightbox, { type LightboxOption, type LightboxResolved } from "@/components/Lightbox"
 import DraftEventsPanel from "./DraftEventsPanel"
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
@@ -49,9 +50,19 @@ function CaptionCell({ caption }: { caption: string }) {
 }
 
 // <img src> can't carry the Authorization header the proxy requires, so
-// fetch the thumbnail through it client-side and render the blob via an
-// object URL. The returned setter lets callers fall back to the
-// placeholder on onError (bad/undecodable image data).
+// fetch media through it client-side and render the blob via an object URL.
+// Shared by the thumbnail hook below and the Lightbox's resolveSrc.
+async function fetchProxiedBlob(mediaUrl: string): Promise<Blob> {
+  const token = await auth.currentUser?.getIdToken()
+  const res = await fetch(`/api/venue-intel/image?src=${encodeURIComponent(mediaUrl)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(`proxy fetch failed (${res.status})`)
+  return res.blob()
+}
+
+// The returned setter lets callers fall back to the placeholder on onError
+// (bad/undecodable image data).
 function useProxyThumbnail(mediaUrl: string | undefined): [string, (thumb: string) => void] {
   const [thumb, setThumb] = useState(PLACEHOLDER_THUMB)
 
@@ -65,12 +76,7 @@ function useProxyThumbnail(mediaUrl: string | undefined): [string, (thumb: strin
 
     async function loadThumb() {
       try {
-        const token = await auth.currentUser?.getIdToken()
-        const res = await fetch(`/api/venue-intel/image?src=${encodeURIComponent(mediaUrl as string)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!res.ok) throw new Error(`proxy fetch failed (${res.status})`)
-        const blob = await res.blob()
+        const blob = await fetchProxiedBlob(mediaUrl as string)
         if (cancelled) return
         objectUrl = URL.createObjectURL(blob)
         setThumb(objectUrl)
@@ -89,19 +95,39 @@ function useProxyThumbnail(mediaUrl: string | undefined): [string, (thumb: strin
   return [thumb, setThumb]
 }
 
-function ThumbCell({ mediaUrl }: { mediaUrl: string | undefined }) {
+// resolveSrc for the shared Lightbox — full-size media loads through the
+// same authenticated proxy as the thumbnail. mediaUrls has no per-URL type
+// info (a single-post video's mediaUrls is [posterImage, videoUrl] — see
+// extractMediaUrls in functions/src/bridge/apifyWebhook.ts), so type is
+// inferred from the proxied response's Content-Type, same signal the
+// backend itself uses to tell image from video on ingest.
+async function resolveVenueIntelMedia(option: LightboxOption): Promise<LightboxResolved> {
+  const blob = await fetchProxiedBlob(option.url)
+  return { src: URL.createObjectURL(blob), type: blob.type.startsWith("video/") ? "video" : "image" }
+}
+
+// onOpen is only passed by NeedsAttentionRow — the plain review queue
+// (PostRow) renders this unclickable, same as before.
+function ThumbCell({ mediaUrl, onOpen }: { mediaUrl: string | undefined; onOpen?: () => void }) {
   const [thumb, setThumb] = useProxyThumbnail(mediaUrl)
+  const img = (
+    // eslint-disable-next-line @next/next/no-img-element -- external, volatile IG CDN URLs
+    <img
+      src={thumb}
+      alt=""
+      width={64}
+      height={64}
+      onError={() => setThumb(PLACEHOLDER_THUMB)}
+      style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, background: "#f3f4f6", display: "block" }}
+    />
+  )
   return (
     <td style={{ padding: "12px 16px", width: 72 }}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- external, volatile IG CDN URLs */}
-      <img
-        src={thumb}
-        alt=""
-        width={64}
-        height={64}
-        onError={() => setThumb(PLACEHOLDER_THUMB)}
-        style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, background: "#f3f4f6" }}
-      />
+      {onOpen ? (
+        <button type="button" onClick={onOpen} aria-label="Expand media" style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block" }}>
+          {img}
+        </button>
+      ) : img}
     </td>
   )
 }
@@ -251,11 +277,13 @@ function NeedsAttentionRow({
   onDismiss,
   onRetry,
   onAssignVenue,
+  onOpenLightbox,
 }: {
   post: VenueIntelNeedsAttentionPost
   onDismiss: (id: string) => Promise<void>
   onRetry: (id: string) => Promise<void>
   onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
+  onOpenLightbox: (mediaUrls: string[], index: number) => void
 }) {
   const [busy, setBusy] = useState<"dismiss" | "retry" | "assign" | null>(null)
   const mediaUrl = post.mediaUrls[0]
@@ -281,7 +309,7 @@ function NeedsAttentionRow({
 
   return (
     <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
-      <ThumbCell mediaUrl={mediaUrl} />
+      <ThumbCell mediaUrl={mediaUrl} onOpen={post.mediaUrls.length > 0 ? () => onOpenLightbox(post.mediaUrls, 0) : undefined} />
       <td style={{ padding: "12px 16px", maxWidth: 320 }}>
         <CaptionCell caption={post.caption} />
       </td>
@@ -335,12 +363,14 @@ function ReasonGroupCard({
   onRetry,
   onBulkRetry,
   onAssignVenue,
+  onOpenLightbox,
 }: {
   group: VenueIntelReasonGroup
   onDismiss: (id: string) => Promise<void>
   onRetry: (id: string) => Promise<void>
   onBulkRetry: (reason: string) => Promise<void>
   onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
+  onOpenLightbox: (mediaUrls: string[], index: number) => void
 }) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const posts = group.accountGroups.flatMap((ag) => ag.posts)
@@ -382,7 +412,7 @@ function ReasonGroupCard({
           </thead>
           <tbody>
             {posts.map((post) => (
-              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} />
+              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} onOpenLightbox={onOpenLightbox} />
             ))}
           </tbody>
         </table>
@@ -466,6 +496,11 @@ export default function VenueIntelPage() {
   const [fetching, setFetching] = useState(true)
   const [error, setError] = useState("")
   const [tab, setTab] = useState<"intel" | "drafts">("intel")
+  const [lightbox, setLightbox] = useState<{ mediaUrls: string[]; index: number } | null>(null)
+  const lightboxOptions: LightboxOption[] = useMemo(
+    () => (lightbox ? lightbox.mediaUrls.map((url) => ({ url })) : []),
+    [lightbox?.mediaUrls]
+  )
 
   useEffect(() => {
     if (loading) return
@@ -679,9 +714,19 @@ export default function VenueIntelPage() {
                     onRetry={retryNeedsAttentionPost}
                     onBulkRetry={bulkRetryReason}
                     onAssignVenue={assignVenueAndRetry}
+                    onOpenLightbox={(mediaUrls, index) => setLightbox({ mediaUrls, index })}
                   />
                 ))}
               </div>
+            )}
+            {lightbox && (
+              <Lightbox
+                options={lightboxOptions}
+                index={lightbox.index}
+                onIndexChange={(i) => setLightbox((lb) => (lb ? { ...lb, index: i } : lb))}
+                onClose={() => setLightbox(null)}
+                resolveSrc={resolveVenueIntelMedia}
+              />
             )}
           </>
         ) : (
