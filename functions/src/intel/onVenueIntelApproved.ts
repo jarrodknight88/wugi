@@ -106,7 +106,12 @@ export const onVenueIntelApproved = onDocumentUpdated('venueIntel/{id}', async (
   const [accountType, venues] = await Promise.all([resolveAccountType(db, sourceAccount), fetchAllVenues(db)]);
   const venueIndex = buildVenueIndex(venues);
 
-  const input: IntelRoutingInput = { sourceAccount, caption, postedAt, accountType };
+  // A human-assigned venue (dashboard Needs Attention picker, PATCH
+  // /api/venue-intel/[id]) takes priority over the heuristic matcher — see
+  // resolveVenue in eventTransformRouting.ts.
+  const manualVenueId: string | null = typeof after.venueId === 'string' && after.venueId ? after.venueId : null;
+
+  const input: IntelRoutingInput = { sourceAccount, caption, postedAt, accountType, manualVenueId };
   const result = classifyIntelPost(input, venueIndex, todayISOInTimeZone(TIMEZONE));
 
   const now = admin.firestore.FieldValue.serverTimestamp();

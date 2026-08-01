@@ -40,6 +40,16 @@ export interface IntelRoutingInput {
   /** The post's own timestamp — the year-inference anchor (there is no separate "capturedAt" for scraped IG posts). */
   postedAt: string | Date | number | null;
   accountType?: AccountType | null;
+  /**
+   * A venue picked by a human on the Needs Attention tab (see
+   * dashboard/app/dashboard/venue-intel/page.tsx's VenuePicker) and staged
+   * onto the venueIntel doc's `venueId` field before Retry. When present it
+   * wins outright — skips handle/caption matching entirely — since a human
+   * override always beats the heuristic classifier. A stale/unknown id
+   * (venue deleted after assignment) falls back to normal resolution rather
+   * than failing closed.
+   */
+  manualVenueId?: string | null;
 }
 
 export type RoutingResult =
@@ -56,6 +66,10 @@ export type RoutingResult =
  * signal and must win when it's unambiguous.
  */
 function resolveVenue(input: IntelRoutingInput, index: VenueIndex): VenueMatchResult {
+  if (input.manualVenueId) {
+    const venue = index.all.find((v) => v.id === input.manualVenueId);
+    if (venue) return { status: 'matched', venue, via: 'manual' };
+  }
   if (!input.accountType || input.accountType === 'venue') {
     const byHandle = matchVenueByHandle(input.sourceAccount, index);
     if (byHandle.status !== 'unmatched') return byHandle;

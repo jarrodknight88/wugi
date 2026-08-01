@@ -5,6 +5,7 @@ import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
 import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
+import VenuePicker from "@/components/VenuePicker"
 import type { DraftEventListItem } from "@/app/api/draft-events/route"
 import type { PublishContext, MediaOption } from "@/app/api/draft-events/[id]/route"
 
@@ -323,6 +324,9 @@ function MediaPicker({ draftId, media, selectedMedia, onToggle, onMove, onRemove
 }
 
 function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onClose: () => void; onPublished: (eventId: string) => void }) {
+  const [venueId, setVenueId] = useState(ctx.draft.venueId)
+  const [venueName, setVenueName] = useState(ctx.venue.name)
+  const [venueSaving, setVenueSaving] = useState(false)
   const [title, setTitle] = useState(ctx.draft.cleanedTitle)
   const [about, setAbout] = useState(
     ctx.draft.cleanedAbout + (ctx.draft.sourceAccount ? `\n\nvia @${ctx.draft.sourceAccount}` : "")
@@ -372,12 +376,27 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
     setGenericMedia((m) => m.filter((x) => x.uri !== uri))
   }
 
+  // PATCHes the draft doc immediately (not deferred to Publish) — the
+  // publish route reads draft.venueId fresh from Firestore at publish time,
+  // so no extra plumbing is needed there. Only rendered for status==='draft'
+  // (see the ternary at the bottom of this file), so no published-event
+  // divergence risk here — see the GUARD note on EditMediaModal below for
+  // the published-draft case.
+  async function changeVenue(id: string, name: string) {
+    if (id === venueId) return
+    setVenueSaving(true); setError("")
+    try {
+      await authedFetch(`/api/draft-events/${ctx.draft.id}`, { method: "PATCH", body: JSON.stringify({ venueId: id, venueName: name }) })
+      setVenueId(id); setVenueName(name)
+    } catch (e) { setError(errorMessage(e)) } finally { setVenueSaving(false) }
+  }
+
   async function generateAI() {
     setGenerating(true); setError("")
     try {
       const res = await authedFetch("/api/draft-events/generate", {
         method: "POST",
-        body: JSON.stringify({ caption: ctx.draft.caption, venueName: ctx.venue.name, dateISO: ctx.draft.dateISO }),
+        body: JSON.stringify({ caption: ctx.draft.caption, venueName, dateISO: ctx.draft.dateISO }),
       })
       setTitle(res.title); setAbout(res.about)
     } catch (e) { setError(errorMessage(e)) } finally { setGenerating(false) }
@@ -393,7 +412,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
       const day = date ? new Date(date).toLocaleDateString("en-US", { weekday: "long" }) : ""
       const res = await authedFetch("/api/draft-events/generate", {
         method: "POST",
-        body: JSON.stringify({ mode: "series", venueName: ctx.venue.name, day }),
+        body: JSON.stringify({ mode: "series", venueName, day }),
       })
       setGenericTitle(res.title); setGenericAbout(res.about)
     } catch (e) { setError(errorMessage(e)) } finally { setGenericGenerating(false) }
@@ -437,7 +456,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
         <div style={{ padding: "24px 28px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Publish Event</h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9ca3af" }}>{ctx.venue.name}</p>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9ca3af" }}>{venueName}</p>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af" }}>×</button>
         </div>
@@ -457,8 +476,8 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
           <input style={{ ...INPUT, marginTop: -10 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Euphoria Fridays" />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={LABEL}>Venue</label>
-            <div style={{ ...INPUT, background: "#f9fafb", color: "#374151" }}>{ctx.venue.name || "—"}</div>
+            <VenuePicker label="Venue" venueId={venueId} onChange={changeVenue} disabled={venueSaving} placeholder="Search venues..." />
+            {venueSaving && <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>Saving venue…</p>}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -605,6 +624,12 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
 // one: preloaded from ctx.currentMedia, saves via PATCH .../media rather than
 // POST .../publish. draftEvents stays "published" — only events/{id}.media
 // changes.
+// GUARD (venue change on published drafts): deliberately no VenuePicker
+// here. The live `events` doc is the source of truth once published, and
+// this modal has no path to propagate a venue change to it — showing an
+// editable field here risked implying it updates the live listing. Venue
+// stays read-only for published drafts; only the not-yet-published
+// PublishModal above gets the editable picker.
 function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClose: () => void; onSaved: () => void }) {
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>(
     ctx.currentMedia.map((m) => ({ uri: m.uri, type: m.type, rightsStatus: m.rightsStatus }))

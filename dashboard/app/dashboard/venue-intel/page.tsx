@@ -7,6 +7,7 @@ import { auth } from "@/lib/firebase"
 import type { VenueIntelGroup, VenueIntelNeedsAttentionPost, VenueIntelPost, VenueIntelReasonGroup } from "@/app/api/venue-intel/route"
 import type { DiscoveredAccount, AccountType } from "@/app/api/venue-intel-accounts/route"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
+import VenuePicker from "@/components/VenuePicker"
 import DraftEventsPanel from "./DraftEventsPanel"
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
@@ -249,12 +250,14 @@ function NeedsAttentionRow({
   post,
   onDismiss,
   onRetry,
+  onAssignVenue,
 }: {
   post: VenueIntelNeedsAttentionPost
   onDismiss: (id: string) => Promise<void>
   onRetry: (id: string) => Promise<void>
+  onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
 }) {
-  const [busy, setBusy] = useState<"dismiss" | "retry" | null>(null)
+  const [busy, setBusy] = useState<"dismiss" | "retry" | "assign" | null>(null)
   const mediaUrl = post.mediaUrls[0]
 
   async function run(action: "dismiss" | "retry") {
@@ -262,6 +265,15 @@ function NeedsAttentionRow({
     try {
       if (action === "dismiss") await onDismiss(post.id)
       else await onRetry(post.id)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function assignVenue(venueId: string, venueName: string) {
+    setBusy("assign")
+    try {
+      await onAssignVenue(post.id, venueId, venueName)
     } finally {
       setBusy(null)
     }
@@ -276,8 +288,16 @@ function NeedsAttentionRow({
       <td style={{ padding: "12px 16px", fontSize: 13, whiteSpace: "nowrap" }}>
         <IGProfileLink handle={post.sourceAccount} />
       </td>
-      <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
-        <ReasonBadge reason={post.classificationReason} />
+      <td style={{ padding: "12px 16px", minWidth: 220 }}>
+        {/* Reason stays visible — it explains WHY the row is stuck. The
+            picker sits alongside it, not in place of it; picking a venue
+            immediately assigns + retries (see assignVenueAndRetry). */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+          <ReasonBadge reason={post.classificationReason} />
+          <div style={{ width: 200 }}>
+            <VenuePicker venueId="" onChange={assignVenue} placeholder="Assign venue…" disabled={busy !== null} />
+          </div>
+        </div>
       </td>
       <td style={{ padding: "12px 16px", fontSize: 13, color: "#6b7280", whiteSpace: "nowrap" }}>{formatDate(post.postedAt)}</td>
       <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
@@ -314,11 +334,13 @@ function ReasonGroupCard({
   onDismiss,
   onRetry,
   onBulkRetry,
+  onAssignVenue,
 }: {
   group: VenueIntelReasonGroup
   onDismiss: (id: string) => Promise<void>
   onRetry: (id: string) => Promise<void>
   onBulkRetry: (reason: string) => Promise<void>
+  onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
 }) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const posts = group.accountGroups.flatMap((ag) => ag.posts)
@@ -353,14 +375,14 @@ function ReasonGroupCard({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr>
-              {["", "Caption", "Account", "Reason", "Posted", "Link", "Actions"].map((h) => (
+              {["", "Caption", "Account", "Reason / Assign venue", "Posted", "Link", "Actions"].map((h) => (
                 <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#9ca3af", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {posts.map((post) => (
-              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} />
+              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} />
             ))}
           </tbody>
         </table>
@@ -535,6 +557,20 @@ export default function VenueIntelPage() {
     }
   }
 
+  // Same retry path as retryNeedsAttentionPost — clearTransform: true still
+  // does the re-approve + delete transform.processedAt that makes the live
+  // trigger re-fire — just with venueId/venueName staged onto the doc first
+  // so the trigger's classifier resolves to this venue instead of failing
+  // the same way again (see manualVenueId in eventTransformRouting.ts).
+  async function assignVenueAndRetry(id: string, venueId: string, venueName: string) {
+    try {
+      await authedFetch(`/api/venue-intel/${id}`, { method: "PATCH", body: JSON.stringify({ status: "approved", clearTransform: true, venueId, venueName }) })
+      removeNeedsAttentionPostLocally(id, "approved")
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
   async function bulkRetryReason(reason: string) {
     try {
       const group = needsAttention.find((g) => g.reason === reason)
@@ -642,6 +678,7 @@ export default function VenueIntelPage() {
                     onDismiss={dismissNeedsAttentionPost}
                     onRetry={retryNeedsAttentionPost}
                     onBulkRetry={bulkRetryReason}
+                    onAssignVenue={assignVenueAndRetry}
                   />
                 ))}
               </div>

@@ -273,7 +273,7 @@ export interface VenueIndex {
 }
 
 export type VenueMatchResult =
-  | { status: 'matched'; venue: Venue; via: 'exact' | 'contains' | 'handle' }
+  | { status: 'matched'; venue: Venue; via: 'exact' | 'contains' | 'handle' | 'manual' }
   | { status: 'ambiguous'; candidates: Venue[] }
   | { status: 'unmatched' };
 

@@ -183,35 +183,64 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json(ctx)
 }
 
-// PATCH /api/draft-events/[id] — dismiss a draft (status: 'dismissed_draft').
+// PATCH /api/draft-events/[id] — two actions, discriminated by body shape:
+//  - { action: "dismiss" } — dismiss a draft (status: 'dismissed_draft').
+//  - { venueId, venueName } — change the draft's venue (see VenuePicker in
+//    DraftEventsPanel's PublishModal). Only valid while status === 'draft':
+//    once published, the live `events` doc is the source of truth and a
+//    draft-only venue change would silently diverge from it, so the
+//    dashboard doesn't even render the picker for published drafts — this
+//    check is defense in depth against that surface changing later.
 // Publishing is a separate, larger write (events + draftEvents together) —
-// see ./publish/route.ts.
+// see ./publish/route.ts, which reads draft.venueId fresh at publish time.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireVenueIntelStaff(req)
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { id } = await params
   const body = await req.json().catch(() => null)
-  if (body?.action !== "dismiss") {
-    return NextResponse.json({ error: "action must be 'dismiss'" }, { status: 400 })
-  }
 
   const ref = getAdminDb().collection("draftEvents").doc(id)
   const snap = await ref.get()
   if (!snap.exists) return NextResponse.json({ error: "Draft not found" }, { status: 404 })
-  if (snap.data()?.status !== "draft") {
-    return NextResponse.json({ error: `Draft is already ${snap.data()?.status}` }, { status: 409 })
+
+  if (body?.action === "dismiss") {
+    if (snap.data()?.status !== "draft") {
+      return NextResponse.json({ error: `Draft is already ${snap.data()?.status}` }, { status: 409 })
+    }
+
+    await ref.update({ status: "dismissed_draft", updatedAt: FieldValue.serverTimestamp() })
+
+    await logAuditServer({
+      adminId: auth.uid,
+      adminEmail: auth.email,
+      action: "dismissed_draft_event",
+      targetId: id,
+      targetName: snap.data()?.title || id,
+    })
+
+    return NextResponse.json({ ok: true })
   }
 
-  await ref.update({ status: "dismissed_draft", updatedAt: FieldValue.serverTimestamp() })
+  const venueId = typeof body?.venueId === "string" ? body.venueId.trim() : ""
+  const venueName = typeof body?.venueName === "string" ? body.venueName.trim() : ""
+  if (venueId && venueName) {
+    if (snap.data()?.status !== "draft") {
+      return NextResponse.json({ error: "Venue can only be changed on an unpublished draft" }, { status: 409 })
+    }
 
-  await logAuditServer({
-    adminId: auth.uid,
-    adminEmail: auth.email,
-    action: "dismissed_draft_event",
-    targetId: id,
-    targetName: snap.data()?.title || id,
-  })
+    await ref.update({ venueId, venueName, updatedAt: FieldValue.serverTimestamp() })
 
-  return NextResponse.json({ ok: true })
+    await logAuditServer({
+      adminId: auth.uid,
+      adminEmail: auth.email,
+      action: "changed_draft_event_venue",
+      targetId: id,
+      targetName: venueName,
+    })
+
+    return NextResponse.json({ ok: true })
+  }
+
+  return NextResponse.json({ error: "action must be 'dismiss', or provide venueId + venueName" }, { status: 400 })
 }
