@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:publish-media": "node scripts/test-publish-media.js"
+    "test:publish-media": "node scripts/test-publish-media.js",
+    "test:draft-title": "node scripts/test-draft-title.js"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.8",
