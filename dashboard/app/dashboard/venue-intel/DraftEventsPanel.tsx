@@ -333,7 +333,16 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   const [vibes, setVibes] = useState<string[]>([])
   const [seriesMode, setSeriesMode] = useState<"one-off" | "new-series" | "attach">("one-off")
   const [newSeriesFrequency, setNewSeriesFrequency] = useState("weekly")
+  const [editionMode, setEditionMode] = useState<"typical" | "special">("typical")
+  const [seriesName, setSeriesName] = useState("")
+  const [genericTitle, setGenericTitle] = useState("")
+  const [genericAbout, setGenericAbout] = useState("")
+  const [genericMedia, setGenericMedia] = useState<SelectedMedia[]>(
+    ctx.media.venueHero ? [{ uri: ctx.media.venueHero, type: "image", rightsStatus: "wugi_partner" }] : []
+  )
+  const [genericGenerating, setGenericGenerating] = useState(false)
   const [attachSeriesId, setAttachSeriesId] = useState("")
+  const [attachMode, setAttachMode] = useState<"edition" | "typical">("edition")
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>(
     ctx.media.venueHero ? [{ uri: ctx.media.venueHero, type: "image", rightsStatus: "wugi_partner" }] : []
   )
@@ -353,6 +362,16 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
     setSelectedMedia((m) => m.filter((x) => x.uri !== uri))
   }
 
+  function toggleGenericMedia(opt: MediaOption) {
+    setGenericMedia((m) => toggleSelectedMedia(m, opt))
+  }
+  function moveGenericMedia(from: number, to: number) {
+    setGenericMedia((m) => reorderSelectedMedia(m, from, to))
+  }
+  function removeGenericMedia(uri: string) {
+    setGenericMedia((m) => m.filter((x) => x.uri !== uri))
+  }
+
   async function generateAI() {
     setGenerating(true); setError("")
     try {
@@ -364,22 +383,48 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
     } catch (e) { setError(errorMessage(e)) } finally { setGenerating(false) }
   }
 
+  // Generic series copy — grounded in venue + night-of-week, deliberately
+  // NOT this draft's own caption (the series must not inherit tonight's
+  // one-off theme). Day-of-week comes from whatever date is currently
+  // picked, same UTC-safe-enough parse DatePicker's own value round-trips.
+  async function generateGenericAI() {
+    setGenericGenerating(true); setError("")
+    try {
+      const day = date ? new Date(date).toLocaleDateString("en-US", { weekday: "long" }) : ""
+      const res = await authedFetch("/api/draft-events/generate", {
+        method: "POST",
+        body: JSON.stringify({ mode: "series", venueName: ctx.venue.name, day }),
+      })
+      setGenericTitle(res.title); setGenericAbout(res.about)
+    } catch (e) { setError(errorMessage(e)) } finally { setGenericGenerating(false) }
+  }
+
   async function publish() {
     if (!title.trim()) { setError("Title is required"); return }
     if (!date) { setError("Date is required"); return }
     if (!time) { setError("Time is required — drafts don't carry a time"); return }
     if (seriesMode === "attach" && !attachSeriesId) { setError("Choose a series to attach to"); return }
+    if (seriesMode === "new-series" && editionMode === "special" && !seriesName.trim()) { setError("Series name is required for a special edition"); return }
     setSaving(true); setError("")
     try {
+      const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
+      const hasUnverifiedMedia =
+        selectedMedia.some((m) => m.rightsStatus === "unverified") ||
+        (isSpecialEdition && genericMedia.some((m) => m.rightsStatus === "unverified"))
       const res = await authedFetch(`/api/draft-events/${ctx.draft.id}/publish`, {
         method: "POST",
         body: JSON.stringify({
           title, about, date, time, age, vibes,
           media: selectedMedia,
-          confirmedUnverifiedRights: selectedMedia.some((m) => m.rightsStatus === "unverified"),
+          confirmedUnverifiedRights: hasUnverifiedMedia,
           seriesMode,
-          newSeries: seriesMode === "new-series" ? { frequency: newSeriesFrequency } : undefined,
+          newSeries: seriesMode === "new-series" ? {
+            frequency: newSeriesFrequency,
+            editionMode,
+            generic: isSpecialEdition ? { name: seriesName, title: genericTitle, about: genericAbout, media: genericMedia } : undefined,
+          } : undefined,
           attachSeriesId: seriesMode === "attach" ? attachSeriesId : undefined,
+          attachMode: seriesMode === "attach" ? attachMode : undefined,
         }),
       })
       onPublished(res.eventId)
@@ -473,21 +518,73 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
               ))}
             </div>
             {seriesMode === "new-series" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={LABEL}>Frequency</label>
-                <select style={INPUT} value={newSeriesFrequency} onChange={(e) => setNewSeriesFrequency(e.target.value)}>
-                  {["weekly", "biweekly", "monthly"].map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
-                <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>
-                  Day of week is inferred from this event&apos;s date. The next 8 weeks generate automatically.
-                </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={LABEL}>Frequency</label>
+                  <select style={INPUT} value={newSeriesFrequency} onChange={(e) => setNewSeriesFrequency(e.target.value)}>
+                    {["weekly", "biweekly", "monthly"].map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>
+                    Day of week is inferred from this event&apos;s date. The next 8 weeks generate automatically.
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", background: "#f3f4f6", borderRadius: 9, padding: 3, gap: 2 }}>
+                  {([["typical", "This draft is a typical week"], ["special", "This draft is a SPECIAL EDITION"]] as const).map(([key, lbl]) => (
+                    <button key={key} type="button" onClick={() => setEditionMode(key)} style={{
+                      flex: 1, padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12,
+                      fontWeight: editionMode === key ? 600 : 500, background: editionMode === key ? "#fff" : "transparent",
+                      color: editionMode === key ? "#111827" : "#6b7280", boxShadow: editionMode === key ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                    }}>{lbl}</button>
+                  ))}
+                </div>
+
+                {editionMode === "special" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, background: "#f9fafb", borderRadius: 10, padding: 14 }}>
+                    <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+                      This event is a one-off special. Give the recurring series its own generic identity — future weeks use this, not tonight&apos;s special.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <label style={LABEL}>Series Name *</label>
+                      <input style={INPUT} value={seriesName} onChange={(e) => setSeriesName(e.target.value)} placeholder="e.g. Opium Saturdays" />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label style={LABEL}>Generic Title &amp; About</label>
+                      {ctx.aiAvailable && (
+                        <button type="button" onClick={generateGenericAI} disabled={genericGenerating} style={{
+                          padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                          background: "#eef2ff", color: "#4338ca", border: "1px solid #c7d2fe", opacity: genericGenerating ? 0.6 : 1,
+                        }}>{genericGenerating ? "Generating…" : "✨ AI Generate"}</button>
+                      )}
+                    </div>
+                    <input style={INPUT} value={genericTitle} onChange={(e) => setGenericTitle(e.target.value)} placeholder="e.g. Opium Saturdays" />
+                    <textarea style={{ ...INPUT, minHeight: 70, resize: "vertical" }} value={genericAbout} onChange={(e) => setGenericAbout(e.target.value)} placeholder="Generic weekly description" />
+                    <div>
+                      <label style={LABEL}>Generic Media</label>
+                      <div style={{ marginTop: 8 }}>
+                        <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={genericMedia} onToggle={toggleGenericMedia} onMove={moveGenericMedia} onRemove={removeGenericMedia} />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {seriesMode === "attach" && (
               seriesOptions.length === 0 ? (
                 <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>No active series at this venue to attach to.</p>
               ) : (
-                <SearchSelect label="Existing series" value={attachSeriesId} options={seriesOptions} placeholder="Search series..." onChange={(id) => setAttachSeriesId(id)} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <SearchSelect label="Existing series" value={attachSeriesId} options={seriesOptions} placeholder="Search series..." onChange={(id) => setAttachSeriesId(id)} />
+                  <div style={{ display: "flex", background: "#f3f4f6", borderRadius: 9, padding: 3, gap: 2 }}>
+                    {([["edition", "Attach as edition (keep this draft's identity)"], ["typical", "Attach as typical week (adopt series identity)"]] as const).map(([key, lbl]) => (
+                      <button key={key} type="button" onClick={() => setAttachMode(key)} style={{
+                        flex: 1, padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11,
+                        fontWeight: attachMode === key ? 600 : 500, background: attachMode === key ? "#fff" : "transparent",
+                        color: attachMode === key ? "#111827" : "#6b7280", boxShadow: attachMode === key ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                      }}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
               )
             )}
           </div>
@@ -566,6 +663,64 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
   )
 }
 
+// Retrofits a PUBLISHED event onto a series as that date's edition — for
+// events that went live before their series existed (e.g. a special
+// published as "one-off" before "New series" was an option). Keeps the
+// event's own title/about/media untouched; server enforces the date-claim
+// rule (one occurrence per series per date).
+function AttachSeriesModal({ ctx, onClose, onAttached }: { ctx: PublishContext; onClose: () => void; onAttached: () => void }) {
+  const [seriesId, setSeriesId] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  const seriesOptions: SelectOption[] = ctx.eventSeries.map((s) => ({ id: s.id, label: s.name, sub: `${s.day} · ${s.frequency}` }))
+
+  async function attach() {
+    if (!seriesId) { setError("Choose a series"); return }
+    setSaving(true); setError("")
+    try {
+      await authedFetch(`/api/draft-events/${ctx.draft.id}/attach-series`, {
+        method: "POST",
+        body: JSON.stringify({ seriesId }),
+      })
+      onAttached()
+    } catch (e) { setError(errorMessage(e)) } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={OVERLAY} onClick={onClose}>
+      <div style={{ ...MODAL, maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: "24px 28px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Attach to Series</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9ca3af" }}>{ctx.draft.cleanedTitle} · {ctx.venue.name}</p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af" }}>×</button>
+        </div>
+
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {error && <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13 }}>{error}</div>}
+          <p style={{ fontSize: 13, color: "#374151", margin: 0 }}>
+            Claims this event&apos;s date as that series&apos; edition for that night. The event keeps its own title, about, and media.
+          </p>
+          {seriesOptions.length === 0 ? (
+            <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>No active series at this venue.</p>
+          ) : (
+            <SearchSelect label="Series" value={seriesId} options={seriesOptions} placeholder="Search series..." onChange={(id) => setSeriesId(id)} />
+          )}
+        </div>
+
+        <div style={{ padding: "16px 28px", borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button onClick={onClose} style={{ padding: "10px 20px", borderRadius: 8, background: "#f3f4f6", border: "none", cursor: "pointer", fontSize: 14 }}>Cancel</button>
+          <button onClick={attach} disabled={saving || seriesOptions.length === 0} style={{ padding: "10px 24px", borderRadius: 8, background: "#1d4ed8", color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "Attaching…" : "Attach"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CaptionCell({ caption }: { caption: string }) {
   const [expanded, setExpanded] = useState(false)
   if (!caption) return <span style={{ color: "#9ca3af" }}>—</span>
@@ -596,6 +751,7 @@ export default function DraftEventsPanel() {
   const [opening, setOpening] = useState<string | null>(null)
   const [dismissing, setDismissing] = useState<string | null>(null)
   const [publishCtx, setPublishCtx] = useState<PublishContext | null>(null)
+  const [publishAction, setPublishAction] = useState<"edit-media" | "attach-series">("edit-media")
 
   const load = useCallback(async (status: "draft" | "published") => {
     const data = await authedFetch(`/api/draft-events?status=${status}`)
@@ -607,11 +763,12 @@ export default function DraftEventsPanel() {
     load(tab).catch((e) => setError(errorMessage(e))).finally(() => setLoading(false))
   }, [load, tab])
 
-  async function openItem(id: string) {
+  async function openItem(id: string, action: "edit-media" | "attach-series" = "edit-media") {
     setOpening(id); setError("")
     try {
       const ctx: PublishContext = await authedFetch(`/api/draft-events/${id}`)
       setPublishCtx(ctx)
+      setPublishAction(action)
     } catch (e) { setError(errorMessage(e)) } finally { setOpening(null) }
   }
 
@@ -629,6 +786,10 @@ export default function DraftEventsPanel() {
   }
 
   function handleMediaSaved() {
+    setPublishCtx(null)
+  }
+
+  function handleSeriesAttached() {
     setPublishCtx(null)
   }
 
@@ -690,9 +851,14 @@ export default function DraftEventsPanel() {
                           </button>
                         </>
                       ) : (
-                        <button onClick={() => openItem(d.id)} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#e0e7ff", color: "#4338ca", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
-                          {opening === d.id ? "…" : "Edit media"}
-                        </button>
+                        <>
+                          <button onClick={() => openItem(d.id, "edit-media")} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#e0e7ff", color: "#4338ca", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
+                            {opening === d.id ? "…" : "Edit media"}
+                          </button>
+                          <button onClick={() => openItem(d.id, "attach-series")} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fef3c7", color: "#92400e", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
+                            {opening === d.id ? "…" : "Attach to series"}
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -705,7 +871,9 @@ export default function DraftEventsPanel() {
 
       {publishCtx && (
         publishCtx.draft.status === "published"
-          ? <EditMediaModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onSaved={handleMediaSaved} />
+          ? (publishAction === "attach-series"
+              ? <AttachSeriesModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onAttached={handleSeriesAttached} />
+              : <EditMediaModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onSaved={handleMediaSaved} />)
           : <PublishModal ctx={publishCtx} onClose={() => setPublishCtx(null)} onPublished={handlePublished} />
       )}
     </div>
