@@ -6,6 +6,7 @@ import { logAuditServer } from "@/lib/serverAuditLog"
 import { extractVenueLatLng } from "@/lib/venueLatLng"
 import { DAY_TO_DOW, dayNameForDateISO, toEventSlug } from "@/lib/draftEventText"
 import { tryGenerateSeriesEvents } from "@/lib/generateSeriesEvents"
+import { materializePublishedMedia } from "@/lib/publishMedia"
 
 export const dynamic = "force-dynamic"
 
@@ -67,9 +68,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (hasUnverified && body.confirmedUnverifiedRights !== true) {
     return NextResponse.json({ error: "Selected media includes unverified rights — confirm before publishing" }, { status: 400 })
   }
-  const media = rawMedia
-    .filter((m) => typeof m.uri === "string" && m.uri)
-    .map((m) => ({ type: m.type === "video" ? "video" : "image", uri: m.uri as string }))
+  const media = await materializePublishedMedia(
+    rawMedia
+      .filter((m) => typeof m.uri === "string" && m.uri)
+      .map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+  )
 
   const venueId: string = draft.venueId || ""
   if (!venueId) return NextResponse.json({ error: "Draft has no matched venue" }, { status: 400 })

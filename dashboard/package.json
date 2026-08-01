@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:publish-media": "node scripts/test-publish-media.js"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.8",
