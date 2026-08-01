@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore"
 import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
+import { materializePublishedMedia } from "@/lib/publishMedia"
 
 export const dynamic = "force-dynamic"
 
@@ -37,9 +38,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (hasUnverified && body.confirmedUnverifiedRights !== true) {
     return NextResponse.json({ error: "Selected media includes unverified rights — confirm before saving" }, { status: 400 })
   }
-  const media = rawMedia
-    .filter((m) => typeof m.uri === "string" && m.uri)
-    .map((m) => ({ type: m.type === "video" ? "video" : "image", uri: m.uri as string }))
+  const media = await materializePublishedMedia(
+    rawMedia
+      .filter((m) => typeof m.uri === "string" && m.uri)
+      .map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+  )
 
   const eventRef = db.collection("events").doc(draft.publishedEventId)
   const eventSnap = await eventRef.get()

@@ -18,6 +18,14 @@ service firebase.storage {
       return segment == 'intel-media';
     }
 
+    // published-media/** (issue #159) — copy-on-publish destination for
+    // staged intel-media/** assets, carved out of the catch-all the same
+    // way, so its own `allow read: if true` below isn't OR-ed against the
+    // catch-all's any-authed-write grant for this prefix.
+    function isPublishedMediaPrefix(segment) {
+      return segment == 'published-media';
+    }
+
     // ── Lens ingest ──────────────────────────────────────────────────
     // lens-ingest/{deviceId}/{galleryId}/{filename}
     // Hardware capture devices authenticate as dedicated Firebase Auth users
@@ -64,18 +72,33 @@ service firebase.storage {
       allow write: if false;
     }
 
+    // ── Published media (copy-on-publish, issue #159) ────────────────
+    // published-media/{venueIntelDocId}/{index}.{ext} — permanent copies of
+    // intel-media/** assets, minted by dashboard/lib/publishMedia.ts at
+    // publish time so the picker's 60-minute signed URL never has to live
+    // in Firestore. Keyed by venueIntelDocId (not eventId) so a flyer reused
+    // across series occurrences is one object with one download token.
+    // Publicly readable (consumer app renders these directly); write is
+    // Admin SDK only (the dashboard's server-side publish/media routes).
+    match /published-media/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ── Legacy catch-all ─────────────────────────────────────────────
     // Preserves the pre-Lens behavior (public read, any-authed write) for
     // every existing path, while excluding the private Lens prefixes.
     // With rules_version 2, {allPaths=**} matches zero or more segments, so
     // this covers root-level objects too.
     match /{topLevel}/{allPaths=**} {
-      allow read: if !isLensPrefix(topLevel) && !isIntelMediaPrefix(topLevel);
-      // lens-renditions stays publicly readable but is function-written only,
-      // so it must also be excluded from the legacy any-authed-write grant.
+      allow read: if !isLensPrefix(topLevel) && !isIntelMediaPrefix(topLevel) && !isPublishedMediaPrefix(topLevel);
+      // lens-renditions and published-media stay publicly readable but are
+      // function/server-written only, so both must also be excluded from
+      // the legacy any-authed-write grant.
       allow write: if request.auth != null
         && !isLensPrefix(topLevel)
         && !isIntelMediaPrefix(topLevel)
+        && !isPublishedMediaPrefix(topLevel)
         && topLevel != 'lens-renditions';
     }
 
