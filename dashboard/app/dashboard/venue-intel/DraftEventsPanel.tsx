@@ -6,6 +6,7 @@ import TimePicker from "@/components/TimePicker"
 import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
 import VenuePicker from "@/components/VenuePicker"
+import Lightbox from "@/components/Lightbox"
 import type { DraftEventListItem } from "@/app/api/draft-events/route"
 import type { PublishContext, MediaOption } from "@/app/api/draft-events/[id]/route"
 
@@ -81,55 +82,6 @@ function Thumb({ src, selected, isVideo, onSelect, onOpen }: { src: string; sele
 }
 
 type LightboxState = { options: MediaOption[]; index: number }
-
-// Plain fixed-position overlay — no new packages. Prev/next stay scoped to
-// whichever section's options it was opened from.
-function Lightbox({ options, index, onIndexChange, onClose }: { options: MediaOption[]; index: number; onIndexChange: (i: number) => void; onClose: () => void }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
-      else if (e.key === "ArrowLeft") onIndexChange((index - 1 + options.length) % options.length)
-      else if (e.key === "ArrowRight") onIndexChange((index + 1) % options.length)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [index, options.length, onClose, onIndexChange])
-
-  const opt = options[index]
-  if (!opt) return null
-
-  const navBtn = { position: "absolute" as const, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.15)", color: "#fff", border: "none", borderRadius: "50%", width: 44, height: 44, fontSize: 22, cursor: "pointer" }
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }} onClick={onClose}>
-      <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 20, right: 24, background: "none", border: "none", color: "#fff", fontSize: 30, cursor: "pointer" }}>×</button>
-      {options.length > 1 && (
-        <button onClick={(e) => { e.stopPropagation(); onIndexChange((index - 1 + options.length) % options.length) }} style={{ ...navBtn, left: 20 }} aria-label="Previous">‹</button>
-      )}
-      {opt.type === "video" ? (
-        // key forces a fresh <video> element per asset — otherwise the
-        // browser can keep playing the previous URL's buffered frame while
-        // the new src loads.
-        <video
-          key={opt.url}
-          src={opt.url}
-          poster={opt.thumbUrl}
-          controls
-          autoPlay
-          onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: "88vw", maxHeight: "82vh", borderRadius: 8 }}
-        />
-      ) : (
-        /* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */
-        <img src={opt.url} alt="" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "88vw", maxHeight: "82vh", objectFit: "contain", borderRadius: 8 }} />
-      )}
-      {options.length > 1 && (
-        <button onClick={(e) => { e.stopPropagation(); onIndexChange((index + 1) % options.length) }} style={{ ...navBtn, right: 20 }} aria-label="Next">›</button>
-      )}
-      <div style={{ position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)", color: "#fff", fontSize: 13 }}>{index + 1} / {options.length}</div>
-    </div>
-  )
-}
 
 function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyText }: {
   title: string
