@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { cleanDraftTitle } from "@/lib/draftEventText"
-import { signStoragePaths } from "@/lib/mediaSignedUrls"
+import { signMediaAssets } from "@/lib/mediaSignedUrls"
 
 export const dynamic = "force-dynamic"
 
@@ -74,8 +74,8 @@ export async function GET(req: NextRequest) {
   if (heroStoragePaths.size) {
     await Promise.all(
       Array.from(heroStoragePaths).map(async (path) => {
-        const [url] = await signStoragePaths([path])
-        if (url) signedByPath.set(path, url)
+        const [signed] = await signMediaAssets([{ path, type: "image" }])
+        if (signed?.url) signedByPath.set(path, signed.url)
       })
     )
   }
