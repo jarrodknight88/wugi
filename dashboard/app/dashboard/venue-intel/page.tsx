@@ -10,6 +10,7 @@ import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import VenuePicker from "@/components/VenuePicker"
 import Lightbox, { type LightboxOption, type LightboxResolved } from "@/components/Lightbox"
 import DraftEventsPanel from "./DraftEventsPanel"
+import NewVenueModal from "./NewVenueModal"
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   venue: "Venue",
@@ -278,14 +279,17 @@ function NeedsAttentionRow({
   onRetry,
   onAssignVenue,
   onOpenLightbox,
+  onVenueCreated,
 }: {
   post: VenueIntelNeedsAttentionPost
   onDismiss: (id: string) => Promise<void>
   onRetry: (id: string) => Promise<void>
   onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
   onOpenLightbox: (mediaUrls: string[], index: number) => void
+  onVenueCreated: (postId: string, venueId: string, venueName: string) => void
 }) {
   const [busy, setBusy] = useState<"dismiss" | "retry" | "assign" | null>(null)
+  const [showNewVenue, setShowNewVenue] = useState(false)
   const mediaUrl = post.mediaUrls[0]
 
   async function run(action: "dismiss" | "retry") {
@@ -322,10 +326,29 @@ function NeedsAttentionRow({
             immediately assigns + retries (see assignVenueAndRetry). */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
           <ReasonBadge reason={post.classificationReason} />
-          <div style={{ width: 200 }}>
-            <VenuePicker venueId="" onChange={assignVenue} placeholder="Assign venue…" disabled={busy !== null} />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", width: "100%" }}>
+            <div style={{ width: 200 }}>
+              <VenuePicker venueId="" onChange={assignVenue} placeholder="Assign venue…" disabled={busy !== null} />
+            </div>
+            <button
+              onClick={() => setShowNewVenue(true)}
+              disabled={busy !== null}
+              style={{ padding: "8px 10px", borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb", cursor: "pointer", background: "#fff", color: "#374151", fontWeight: 600, whiteSpace: "nowrap", opacity: busy !== null ? 0.6 : 1 }}
+            >
+              + New venue
+            </button>
           </div>
         </div>
+        {showNewVenue && (
+          <NewVenueModal
+            post={post}
+            onClose={() => setShowNewVenue(false)}
+            onCreated={(postId, venueId, venueName) => {
+              setShowNewVenue(false)
+              onVenueCreated(postId, venueId, venueName)
+            }}
+          />
+        )}
       </td>
       <td style={{ padding: "12px 16px", fontSize: 13, color: "#6b7280", whiteSpace: "nowrap" }}>{formatDate(post.postedAt)}</td>
       <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
@@ -364,6 +387,7 @@ function ReasonGroupCard({
   onBulkRetry,
   onAssignVenue,
   onOpenLightbox,
+  onVenueCreated,
 }: {
   group: VenueIntelReasonGroup
   onDismiss: (id: string) => Promise<void>
@@ -371,6 +395,7 @@ function ReasonGroupCard({
   onBulkRetry: (reason: string) => Promise<void>
   onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
   onOpenLightbox: (mediaUrls: string[], index: number) => void
+  onVenueCreated: (postId: string, venueId: string, venueName: string) => void
 }) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const posts = group.accountGroups.flatMap((ag) => ag.posts)
@@ -412,7 +437,7 @@ function ReasonGroupCard({
           </thead>
           <tbody>
             {posts.map((post) => (
-              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} onOpenLightbox={onOpenLightbox} />
+              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} onOpenLightbox={onOpenLightbox} onVenueCreated={onVenueCreated} />
             ))}
           </tbody>
         </table>
@@ -606,6 +631,13 @@ export default function VenueIntelPage() {
     }
   }
 
+  // The create-venue route already performs the assign + retry Firestore
+  // writes server-side (see dashboard/app/api/venue-intel/create-venue/route.ts)
+  // — this just drains the row locally, same as assignVenueAndRetry's optimistic update.
+  function venueCreatedForPost(id: string) {
+    removeNeedsAttentionPostLocally(id, "approved")
+  }
+
   async function bulkRetryReason(reason: string) {
     try {
       const group = needsAttention.find((g) => g.reason === reason)
@@ -715,6 +747,7 @@ export default function VenueIntelPage() {
                     onBulkRetry={bulkRetryReason}
                     onAssignVenue={assignVenueAndRetry}
                     onOpenLightbox={(mediaUrls, index) => setLightbox({ mediaUrls, index })}
+                    onVenueCreated={venueCreatedForPost}
                   />
                 ))}
               </div>
