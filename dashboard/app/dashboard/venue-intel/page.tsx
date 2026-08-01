@@ -107,9 +107,34 @@ async function resolveVenueIntelMedia(option: LightboxOption): Promise<LightboxR
   return { src: URL.createObjectURL(blob), type: blob.type.startsWith("video/") ? "video" : "image" }
 }
 
+// SafeSearch moderation (issue #170) — small corner badge on the thumbnail,
+// only for flagged/unscanned (a 'clear' or null result shows nothing, same
+// convention as the badge maps in DraftEventsPanel.tsx / VenueMediaPanel.tsx).
+const MODERATION_DOT: Record<string, { bg: string; label: string; title: string }> = {
+  flagged: { bg: "#dc2626", label: "⚠", title: "Flagged by automated moderation — review before approving" },
+  unscanned: { bg: "#6b7280", label: "?", title: "Not yet scanned by automated moderation" },
+}
+
+function ModerationBadge({ status }: { status: "clear" | "flagged" | "unscanned" | null | undefined }) {
+  if (!status || status === "clear") return null
+  const cfg = MODERATION_DOT[status]
+  return (
+    <span
+      title={cfg.title}
+      style={{
+        position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, padding: "0 3px", borderRadius: 8,
+        background: cfg.bg, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center",
+        justifyContent: "center", border: "2px solid #fff",
+      }}
+    >
+      {cfg.label}
+    </span>
+  )
+}
+
 // onOpen is only passed by NeedsAttentionRow — the plain review queue
 // (PostRow) renders this unclickable, same as before.
-function ThumbCell({ mediaUrl, onOpen }: { mediaUrl: string | undefined; onOpen?: () => void }) {
+function ThumbCell({ mediaUrl, moderationStatus, onOpen }: { mediaUrl: string | undefined; moderationStatus?: "clear" | "flagged" | "unscanned" | null; onOpen?: () => void }) {
   const [thumb, setThumb] = useProxyThumbnail(mediaUrl)
   const img = (
     // eslint-disable-next-line @next/next/no-img-element -- external, volatile IG CDN URLs
@@ -124,11 +149,14 @@ function ThumbCell({ mediaUrl, onOpen }: { mediaUrl: string | undefined; onOpen?
   )
   return (
     <td style={{ padding: "12px 16px", width: 72 }}>
-      {onOpen ? (
-        <button type="button" onClick={onOpen} aria-label="Expand media" style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block" }}>
-          {img}
-        </button>
-      ) : img}
+      <div style={{ position: "relative", width: 64, height: 64 }}>
+        {onOpen ? (
+          <button type="button" onClick={onOpen} aria-label="Expand media" style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block" }}>
+            {img}
+          </button>
+        ) : img}
+        <ModerationBadge status={moderationStatus} />
+      </div>
     </td>
   )
 }
@@ -170,7 +198,7 @@ function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: stri
 
   return (
     <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
-      <ThumbCell mediaUrl={mediaUrl} />
+      <ThumbCell mediaUrl={mediaUrl} moderationStatus={post.moderationStatus} />
       <td style={{ padding: "12px 16px", maxWidth: 360 }}>
         <CaptionCell caption={post.caption} />
       </td>
@@ -313,7 +341,7 @@ function NeedsAttentionRow({
 
   return (
     <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
-      <ThumbCell mediaUrl={mediaUrl} onOpen={post.mediaUrls.length > 0 ? () => onOpenLightbox(post.mediaUrls, 0) : undefined} />
+      <ThumbCell mediaUrl={mediaUrl} moderationStatus={post.moderationStatus} onOpen={post.mediaUrls.length > 0 ? () => onOpenLightbox(post.mediaUrls, 0) : undefined} />
       <td style={{ padding: "12px 16px", maxWidth: 320 }}>
         <CaptionCell caption={post.caption} />
       </td>

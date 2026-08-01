@@ -12,7 +12,14 @@ const RIGHTS_BADGE: Record<string, { bg: string; color: string; label: string }>
   wugi_partner: { bg: "#dcfce7", color: "#15803d", label: "Wugi partner" },
 }
 
-type SelectedMedia = { uri: string; type: "image" | "video"; thumbUrl?: string; rightsStatus?: string }
+// SafeSearch moderation (issue #170) — 'clear' intentionally has no badge
+// entry; only flagged/unscanned assets render one, next to the rights badge.
+const MODERATION_BADGE: Record<string, { bg: string; color: string; label: string }> = {
+  flagged: { bg: "#fee2e2", color: "#b91c1c", label: "⚠ Flagged" },
+  unscanned: { bg: "#f3f4f6", color: "#6b7280", label: "Unscanned" },
+}
+
+type SelectedMedia = { uri: string; type: "image" | "video"; thumbUrl?: string; rightsStatus?: string; moderationStatus?: string }
 
 // Small centered play triangle overlay — marks a thumb as a video (the image
 // shown is always its poster frame). Same convention as venue-intel's
@@ -71,6 +78,11 @@ function MediaSection({ title, options, selectedUris, onToggle, emptyText }: {
                   {RIGHTS_BADGE[opt.rightsStatus].label}
                 </span>
               )}
+              {opt.moderationStatus && opt.moderationStatus !== "clear" && (
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: MODERATION_BADGE[opt.moderationStatus].bg, color: MODERATION_BADGE[opt.moderationStatus].color }}>
+                  {MODERATION_BADGE[opt.moderationStatus].label}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -86,7 +98,8 @@ function toggleSelectedMedia(current: SelectedMedia[], opt: VenueMediaOption): S
   const already = current.some((m) => m.uri === opt.url)
   if (already) return current.filter((m) => m.uri !== opt.url)
   if (opt.rightsStatus === "unverified" && !confirm("Rights not verified — use anyway?")) return current
-  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus }]
+  if (opt.moderationStatus === "flagged" && !confirm("This media was flagged by automated moderation — use anyway?")) return current
+  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus, moderationStatus: opt.moderationStatus }]
 }
 
 function reorderSelectedMedia(items: SelectedMedia[], from: number, to: number): SelectedMedia[] {
@@ -163,10 +176,10 @@ export default function VenueMediaPanel({ venueId, canWrite }: { venueId: string
   async function handleSave() {
     setSaving(true); setError(""); setSaved(false)
     try {
-      const hasUnverified = selected.some((m) => m.rightsStatus === "unverified")
+      const hasRisky = selected.some((m) => m.rightsStatus === "unverified" || m.moderationStatus === "flagged")
       await authedFetch(`/api/venues/${venueId}/media`, {
         method: "PATCH",
-        body: JSON.stringify({ media: selected, confirmedUnverifiedRights: hasUnverified }),
+        body: JSON.stringify({ media: selected, confirmedUnverifiedRights: hasRisky }),
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)

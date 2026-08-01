@@ -23,6 +23,14 @@ const RIGHTS_BADGE: Record<string, { bg: string; color: string; label: string }>
   wugi_partner: { bg: "#dcfce7", color: "#15803d", label: "Wugi partner" },
 }
 
+// SafeSearch moderation (issue #170) — 'clear' intentionally has no badge
+// entry (nothing to flag the reviewer's attention to); only flagged/
+// unscanned assets render one, next to the rights badge.
+const MODERATION_BADGE: Record<string, { bg: string; color: string; label: string }> = {
+  flagged: { bg: "#fee2e2", color: "#b91c1c", label: "⚠ Flagged" },
+  unscanned: { bg: "#f3f4f6", color: "#6b7280", label: "Unscanned" },
+}
+
 function scopeBtnStyle(active: boolean) {
   return {
     padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12,
@@ -83,6 +91,26 @@ function Thumb({ src, selected, isVideo, onSelect, onOpen }: { src: string; sele
 
 type LightboxState = { options: MediaOption[]; index: number }
 
+// Shared by MediaSection and StagedAssetsSection — rights badge (if any)
+// plus a moderation badge (issue #170), only rendered for flagged/unscanned
+// (a 'clear' result has nothing worth flagging in the UI).
+function AssetBadges({ opt }: { opt: MediaOption }) {
+  return (
+    <>
+      {opt.rightsStatus && (
+        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
+          {RIGHTS_BADGE[opt.rightsStatus].label}
+        </span>
+      )}
+      {opt.moderationStatus && opt.moderationStatus !== "clear" && (
+        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: MODERATION_BADGE[opt.moderationStatus].bg, color: MODERATION_BADGE[opt.moderationStatus].color }}>
+          {MODERATION_BADGE[opt.moderationStatus].label}
+        </span>
+      )}
+    </>
+  )
+}
+
 function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyText }: {
   title: string
   options: MediaOption[]
@@ -101,11 +129,7 @@ function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyTex
           {options.map((opt, i) => (
             <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
               <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
-              {opt.rightsStatus && (
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
-                  {RIGHTS_BADGE[opt.rightsStatus].label}
-                </span>
-              )}
+              <AssetBadges opt={opt} />
             </div>
           ))}
         </div>
@@ -164,11 +188,7 @@ function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen
           {options.map((opt, i) => (
             <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
               <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
-              {opt.rightsStatus && (
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
-                  {RIGHTS_BADGE[opt.rightsStatus].label}
-                </span>
-              )}
+              <AssetBadges opt={opt} />
             </div>
           ))}
         </div>
@@ -181,13 +201,14 @@ function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen
 // poster frame for video, so the strip never has to decode a <video> just to
 // show a thumbnail) — it's not part of what gets persisted; the publish/media
 // routes only read uri + type off this shape.
-type SelectedMedia = { uri: string; type: "image" | "video"; thumbUrl?: string; rightsStatus?: string }
+type SelectedMedia = { uri: string; type: "image" | "video"; thumbUrl?: string; rightsStatus?: string; moderationStatus?: string }
 
 function toggleSelectedMedia(current: SelectedMedia[], opt: MediaOption): SelectedMedia[] {
   const already = current.some((m) => m.uri === opt.url)
   if (already) return current.filter((m) => m.uri !== opt.url)
   if (opt.rightsStatus === "unverified" && !confirm("Rights not verified — use anyway?")) return current
-  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus }]
+  if (opt.moderationStatus === "flagged" && !confirm("This media was flagged by automated moderation — use anyway?")) return current
+  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus, moderationStatus: opt.moderationStatus }]
 }
 
 function reorderSelectedMedia(items: SelectedMedia[], from: number, to: number): SelectedMedia[] {
@@ -379,9 +400,10 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
     setSaving(true); setError("")
     try {
       const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
+      const isRisky = (m: SelectedMedia) => m.rightsStatus === "unverified" || m.moderationStatus === "flagged"
       const hasUnverifiedMedia =
-        selectedMedia.some((m) => m.rightsStatus === "unverified") ||
-        (isSpecialEdition && genericMedia.some((m) => m.rightsStatus === "unverified"))
+        selectedMedia.some(isRisky) ||
+        (isSpecialEdition && genericMedia.some(isRisky))
       const res = await authedFetch(`/api/draft-events/${ctx.draft.id}/publish`, {
         method: "POST",
         body: JSON.stringify({
@@ -606,7 +628,7 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
         method: "PATCH",
         body: JSON.stringify({
           media: selectedMedia,
-          confirmedUnverifiedRights: selectedMedia.some((m) => m.rightsStatus === "unverified"),
+          confirmedUnverifiedRights: selectedMedia.some((m) => m.rightsStatus === "unverified" || m.moderationStatus === "flagged"),
         }),
       })
       onSaved()

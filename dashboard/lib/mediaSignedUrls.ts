@@ -4,34 +4,43 @@ export function normalizeRightsStatus(value: unknown): "unverified" | "permissio
   return value === "permission_granted" || value === "wugi_partner" ? value : "unverified"
 }
 
-export type MediaAssetEntry = { path: string; type: "image" | "video"; posterPath?: string }
+export type ModerationStatus = "clear" | "flagged" | "unscanned"
 
-// Schema evolution (video assets, scope item 2): mediaAssets docs written
-// after this deploy carry a typed `assets` array; the 227 docs that predate
-// it only have `storagePaths` (images only). Reading both shapes here means
-// the two callers (draft-events route + venue-assets route) never need a
-// data migration — old docs just never produce a video entry, which matches
-// reality (their IG video URLs expired long before this feature existed).
+function normalizeModerationStatus(value: unknown): ModerationStatus {
+  return value === "clear" || value === "flagged" ? value : "unscanned"
+}
+
+export type MediaAssetEntry = { path: string; type: "image" | "video"; posterPath?: string; moderationStatus: ModerationStatus }
+
+// Schema evolution (video assets, scope item 2; moderation, issue #170):
+// mediaAssets docs written after this deploy carry a typed `assets` array
+// with a per-asset moderationStatus; the 227 docs that predate it only have
+// `storagePaths` (images only, never scanned) and docs written between the
+// two deploys have `assets` without moderationStatus. All three degrade to
+// moderationStatus: 'unscanned' here — normalizeModerationStatus is the only
+// place that decides that default, so callers never need their own
+// backward-compat branch.
 export function assetEntriesFromMediaDoc(data: unknown): MediaAssetEntry[] {
   const record = data as { assets?: unknown; storagePaths?: unknown } | null | undefined
   if (Array.isArray(record?.assets) && record.assets.length > 0) {
     return record.assets
-      .filter((a): a is { path: string; type?: unknown; posterPath?: unknown } => typeof (a as { path?: unknown })?.path === "string" && !!(a as { path?: unknown }).path)
+      .filter((a): a is { path: string; type?: unknown; posterPath?: unknown; moderationStatus?: unknown } => typeof (a as { path?: unknown })?.path === "string" && !!(a as { path?: unknown }).path)
       .map((a) => ({
         path: a.path,
         type: a.type === "video" ? "video" : "image",
         posterPath: typeof a.posterPath === "string" && a.posterPath ? a.posterPath : undefined,
+        moderationStatus: normalizeModerationStatus(a.moderationStatus),
       }))
   }
   if (Array.isArray(record?.storagePaths)) {
     return record.storagePaths
       .filter((p): p is string => typeof p === "string" && !!p)
-      .map((path) => ({ path, type: "image" as const }))
+      .map((path) => ({ path, type: "image" as const, moderationStatus: "unscanned" as const }))
   }
   return []
 }
 
-export type SignedMediaAsset = { url: string; thumbUrl: string; type: "image" | "video" }
+export type SignedMediaAsset = { url: string; thumbUrl: string; type: "image" | "video"; moderationStatus: ModerationStatus }
 
 // Shared by every route that mints v4 read signed URLs for mediaAssets
 // entries (draft-events publish context, venue-wide asset browse, and the
@@ -67,7 +76,7 @@ export async function signMediaAssets(entries: MediaAssetEntry[]): Promise<Signe
         entry.type === "video" && entry.posterPath ? sign(entry.posterPath) : Promise.resolve(null),
       ])
       if (!url) return null
-      return { url, thumbUrl: posterUrl || url, type: entry.type }
+      return { url, thumbUrl: posterUrl || url, type: entry.type, moderationStatus: entry.moderationStatus }
     })
   )
   return signed.filter((x): x is SignedMediaAsset => Boolean(x))

@@ -42,7 +42,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const rightsStatus = normalizeRightsStatus(data?.rightsStatus)
     const signedAssets = await signMediaAssets(entries.slice(0, VENUE_ASSET_CAP - assets.length))
     for (const asset of signedAssets) {
-      assets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type })
+      assets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, moderationStatus: asset.moderationStatus })
       if (assets.length >= VENUE_ASSET_CAP) break
     }
   }

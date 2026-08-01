@@ -13,6 +13,12 @@ export type VenueIntelPost = {
   likesCount: number
   commentsCount: number
   mediaUrls: string[]
+  // SafeSearch moderation (issue #170) — worst-of across this post's
+  // mediaAssets/{id} doc's assets (flagged > unscanned > clear), or null
+  // when there's no mediaAssets doc yet (e.g. a text-only post, or media
+  // persistence hasn't landed for it). Only flagged/unscanned render a
+  // badge client-side.
+  moderationStatus: "clear" | "flagged" | "unscanned" | null
 }
 
 export type VenueIntelGroup = {
@@ -28,7 +34,7 @@ export type VenueIntelReasonGroup = {
   accountGroups: { sourceAccount: string; posts: VenueIntelNeedsAttentionPost[] }[]
 }
 
-function toPost(doc: FirebaseFirestore.QueryDocumentSnapshot): VenueIntelPost {
+function toPost(doc: FirebaseFirestore.QueryDocumentSnapshot, moderationById: Map<string, VenueIntelPost["moderationStatus"]>): VenueIntelPost {
   const data = doc.data()
   return {
     id: doc.id,
@@ -39,7 +45,24 @@ function toPost(doc: FirebaseFirestore.QueryDocumentSnapshot): VenueIntelPost {
     likesCount: typeof data.likesCount === "number" ? data.likesCount : 0,
     commentsCount: typeof data.commentsCount === "number" ? data.commentsCount : 0,
     mediaUrls: Array.isArray(data.mediaUrls) ? data.mediaUrls : [],
+    moderationStatus: moderationById.get(doc.id) ?? null,
   }
+}
+
+// mediaAssets/{id} is keyed by the SAME id as its venueIntel doc (see
+// persistNewIntelMedia in functions/src/bridge/apifyWebhook.ts) — worst-of
+// across its `assets` array: any flagged asset flags the whole post; else
+// any non-clear (unscanned, or missing moderationStatus — pre-#170 docs)
+// marks it unscanned; else clear. A post with no mediaAssets doc at all (no
+// media, or media persistence hasn't run for it yet) maps to null — no
+// badge to show.
+function aggregateModerationStatus(data: FirebaseFirestore.DocumentData | undefined): VenueIntelPost["moderationStatus"] {
+  const assets = Array.isArray(data?.assets) ? data!.assets : []
+  if (assets.length === 0) return null
+  const statuses = assets.map((a: unknown) => (a as { moderationStatus?: unknown })?.moderationStatus)
+  if (statuses.some((s: unknown) => s === "flagged")) return "flagged"
+  if (statuses.some((s: unknown) => s !== "clear")) return "unscanned"
+  return "clear"
 }
 
 // GET /api/venue-intel — pending_review posts grouped by sourceAccount
@@ -50,7 +73,8 @@ export async function GET(req: NextRequest) {
   const auth = await requireVenueIntelStaff(req)
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const collection = getAdminDb().collection("venueIntel")
+  const db = getAdminDb()
+  const collection = db.collection("venueIntel")
 
   const [pendingSnap, approvedCount, dismissedCount, needsAttentionSnap] = await Promise.all([
     collection.where("status", "==", "pending_review").get(),
@@ -59,7 +83,22 @@ export async function GET(req: NextRequest) {
     collection.where("status", "==", "needs_classification").get(),
   ])
 
-  const posts: VenueIntelPost[] = pendingSnap.docs.map(toPost)
+  // Chunked (same 300-ref-per-call caution as functions/src/bridge/
+  // apifyWebhook.ts's WRITE_BATCH_SIZE) — the review queue can grow
+  // unbounded while unattended, and getAll's single-request size isn't
+  // meant for thousands of refs at once.
+  const moderationById = new Map<string, VenueIntelPost["moderationStatus"]>()
+  const idsNeedingModeration = [...pendingSnap.docs, ...needsAttentionSnap.docs].map((d) => d.id)
+  const MODERATION_LOOKUP_CHUNK = 300
+  for (let i = 0; i < idsNeedingModeration.length; i += MODERATION_LOOKUP_CHUNK) {
+    const chunk = idsNeedingModeration.slice(i, i + MODERATION_LOOKUP_CHUNK)
+    const mediaAssetSnaps = await db.getAll(...chunk.map((id) => db.collection("mediaAssets").doc(id)))
+    for (const snap of mediaAssetSnaps) {
+      moderationById.set(snap.id, aggregateModerationStatus(snap.exists ? snap.data() : undefined))
+    }
+  }
+
+  const posts: VenueIntelPost[] = pendingSnap.docs.map((d) => toPost(d, moderationById))
 
   const bySourceAccount = new Map<string, VenueIntelPost[]>()
   for (const post of posts) {
@@ -76,7 +115,7 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b.posts.length - a.posts.length)
 
   const naPosts: VenueIntelNeedsAttentionPost[] = needsAttentionSnap.docs.map((d) => ({
-    ...toPost(d),
+    ...toPost(d, moderationById),
     classificationReason: d.data().classificationReason || "unknown",
   }))
 
