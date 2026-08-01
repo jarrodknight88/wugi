@@ -21,6 +21,7 @@ import { defineSecret } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
+import { ImageAnnotatorClient } from '@google-cloud/vision';
 import {
   selectCandidateMediaUrls,
   downloadAndStoreIntelMedia,
@@ -28,8 +29,17 @@ import {
   buildMediaAssetDoc,
   MediaAsset,
 } from '../intel/intelMedia';
+import { moderateImagesForPost, ModerationResult } from '../intel/mediaModeration';
 
 const apifyToken = defineSecret('APIFY_TOKEN');
+
+// Lazy singleton — reused across warm invocations of this function, same
+// rationale as any other cold-start-expensive client in a Cloud Function.
+let visionClient: ImageAnnotatorClient | null = null;
+function getVisionClient(): ImageAnnotatorClient {
+  if (!visionClient) visionClient = new ImageAnnotatorClient();
+  return visionClient;
+}
 
 const APIFY_API = 'https://api.apify.com/v2';
 const VENUE_INTEL_COLLECTION = 'venueIntel';
@@ -233,6 +243,21 @@ async function writeVenueIntelDocs(
 }
 
 /**
+ * Attaches this post's moderation result to one asset, keyed by the asset's
+ * own path (images) or its posterPath (video — the pragmatic v1 scans only
+ * the cover frame, never the mp4 itself). An asset whose path/posterPath
+ * isn't in the map (nothing to scan, or the moderation pass never ran) is
+ * returned unchanged rather than defaulted here — dashboard readers treat a
+ * missing moderationStatus the same as 'unscanned'.
+ */
+function withModeration(asset: MediaAsset, moderationByPath: Map<string, ModerationResult>): MediaAsset {
+  const lookupPath = asset.type === 'video' ? asset.posterPath : asset.path;
+  const mod = lookupPath ? moderationByPath.get(lookupPath) : undefined;
+  if (!mod) return asset;
+  return { ...asset, moderationStatus: mod.moderationStatus, ...(mod.safeSearch ? { safeSearch: mod.safeSearch } : {}) };
+}
+
+/**
  * Media persistence for newly-ingested posts (scope item 1-2): downloads
  * each post's first few image mediaUrls, plus its video if the item carries
  * one, to Storage and writes the mediaAssets/{docId} tracking doc (typed
@@ -242,6 +267,13 @@ async function writeVenueIntelDocs(
  * webhook's response to Apify. The poster/image path is unaffected by
  * whether the video download succeeds — a skipped/oversized video still
  * leaves the poster stored, per scope item 1.
+ *
+ * SafeSearch moderation (issue #170) runs here too, batched per post (one
+ * Vision request covers every image in the post, including the video
+ * poster) — see mediaModeration.ts. It's on the same best-effort footing as
+ * the rest of this function: moderateImagesForPost never throws (fails open
+ * to 'unscanned' internally), so a Vision outage degrades the flag, never
+ * blocks the write.
  */
 async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<void> {
   if (newItems.length === 0) return;
@@ -269,9 +301,11 @@ async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<v
 
       if (storagePaths.length === 0 && !videoAsset) continue;
 
+      const moderationByPath = await moderateImagesForPost(getVisionClient(), bucket.name, storagePaths);
+
       const assets: MediaAsset[] = [
-        ...storagePaths.map((path): MediaAsset => ({ path, type: 'image' })),
-        ...(videoAsset ? [videoAsset] : []),
+        ...storagePaths.map((path): MediaAsset => withModeration({ path, type: 'image' }, moderationByPath)),
+        ...(videoAsset ? [withModeration(videoAsset, moderationByPath)] : []),
       ];
 
       await db

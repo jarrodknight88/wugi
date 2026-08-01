@@ -13,6 +13,7 @@ export type SelectedMedia = {
   thumbUrl?: string
   rightsStatus?: string
   path?: string
+  moderationStatus?: string
 }
 
 export type MediaOptionLike = {
@@ -21,6 +22,7 @@ export type MediaOptionLike = {
   type?: "image" | "video"
   rightsStatus?: string
   path?: string
+  moderationStatus?: string
 }
 
 export function mediaOptionKey(opt: MediaOptionLike): string {
@@ -36,13 +38,15 @@ export function selectedMediaKey(m: { uri: string; path?: string }): string {
 export function toggleSelectedMedia(
   current: SelectedMedia[],
   opt: MediaOptionLike,
-  confirmUnverified: () => boolean = () => true
+  confirmUnverified: () => boolean = () => true,
+  confirmFlagged: () => boolean = () => true
 ): SelectedMedia[] {
   const key = mediaOptionKey(opt)
   const already = current.some((m) => selectedMediaKey(m) === key)
   if (already) return current.filter((m) => selectedMediaKey(m) !== key)
   if (opt.rightsStatus === "unverified" && !confirmUnverified()) return current
-  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus, path: opt.path }]
+  if (opt.moderationStatus === "flagged" && !confirmFlagged()) return current
+  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus, path: opt.path, moderationStatus: opt.moderationStatus }]
 }
 
 export function reorderSelectedMedia<T>(items: T[], from: number, to: number): T[] {

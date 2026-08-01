@@ -7,7 +7,7 @@ import { materializePublishedMedia } from "@/lib/publishMedia"
 
 export const dynamic = "force-dynamic"
 
-type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: string }
+type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: string; moderationStatus?: string }
 
 // PATCH /api/draft-events/[id]/media — edit a PUBLISHED event's media after
 // the fact (e.g. reattaching a flyer that was missed at publish time). Same
@@ -34,9 +34,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const rawMedia: MediaInput[] = Array.isArray(body.media) ? body.media : []
-  const hasUnverified = rawMedia.some((m) => m?.rightsStatus === "unverified")
-  if (hasUnverified && body.confirmedUnverifiedRights !== true) {
-    return NextResponse.json({ error: "Selected media includes unverified rights — confirm before saving" }, { status: 400 })
+  const hasRisky = rawMedia.some((m) => m?.rightsStatus === "unverified" || m?.moderationStatus === "flagged")
+  if (hasRisky && body.confirmedUnverifiedRights !== true) {
+    return NextResponse.json({ error: "Selected media includes unverified rights or flagged content — confirm before saving" }, { status: 400 })
   }
   const filteredMedia = rawMedia.filter((m) => typeof m.uri === "string" && m.uri)
   const materialized = await materializePublishedMedia(

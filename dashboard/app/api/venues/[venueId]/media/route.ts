@@ -16,6 +16,9 @@ export type VenueMediaOption = {
   thumbUrl: string
   rightsStatus?: "unverified" | "permission_granted" | "wugi_partner"
   type?: "image" | "video"
+  // SafeSearch moderation (issue #170) — only ever set on stagedAssets
+  // (scraped mediaAssets); gallery photos are trusted, never carry it.
+  moderationStatus?: "clear" | "flagged" | "unscanned"
 }
 export type VenueCurrentMediaItem = { uri: string; type: "image" | "video"; rightsStatus: "unverified" | "permission_granted" | "wugi_partner" }
 
@@ -70,7 +73,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ venu
     const rightsStatus = normalizeRightsStatus(data?.rightsStatus)
     const signedAssets = await signMediaAssets(entries.slice(0, ASSET_CAP - stagedAssets.length))
     for (const asset of signedAssets) {
-      stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type })
+      stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, moderationStatus: asset.moderationStatus })
       if (stagedAssets.length >= ASSET_CAP) break
     }
   }
@@ -99,7 +102,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ venu
   return NextResponse.json(ctx)
 }
 
-type MediaInput = { type?: string; uri?: string; rightsStatus?: string }
+type MediaInput = { type?: string; uri?: string; rightsStatus?: string; moderationStatus?: string }
 
 // PATCH /api/venues/[venueId]/media — persist the picker's selection/order.
 // venues.media stays a flat string[] (client-compat — see GET above); only
@@ -124,9 +127,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ve
   if (!venueSnap.exists) return NextResponse.json({ error: "Venue not found" }, { status: 404 })
 
   const rawMedia: MediaInput[] = Array.isArray(body.media) ? body.media : []
-  const hasUnverified = rawMedia.some((m) => m?.rightsStatus === "unverified")
-  if (hasUnverified && body.confirmedUnverifiedRights !== true) {
-    return NextResponse.json({ error: "Selected media includes unverified rights — confirm before saving" }, { status: 400 })
+  const hasRisky = rawMedia.some((m) => m?.rightsStatus === "unverified" || m?.moderationStatus === "flagged")
+  if (hasRisky && body.confirmedUnverifiedRights !== true) {
+    return NextResponse.json({ error: "Selected media includes unverified rights or flagged content — confirm before saving" }, { status: 400 })
   }
 
   const materialized = await materializePublishedMedia(

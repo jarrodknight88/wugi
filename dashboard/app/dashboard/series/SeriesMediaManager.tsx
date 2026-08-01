@@ -91,7 +91,7 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
   }
 
   function toggleBrowsePick(opt: MediaOption) {
-    setBrowsePending((cur) => toggleSelectedMedia(cur, opt, () => confirm("Rights not verified — use anyway?")))
+    setBrowsePending((cur) => toggleSelectedMedia(cur, opt, () => confirm("Rights not verified — use anyway?"), () => confirm("This media was flagged by automated moderation — use anyway?")))
   }
 
   async function addPending() {

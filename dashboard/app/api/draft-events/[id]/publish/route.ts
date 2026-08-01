@@ -11,7 +11,7 @@ import { materializePublishedMedia } from "@/lib/publishMedia"
 
 export const dynamic = "force-dynamic"
 
-type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: string }
+type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: string; moderationStatus?: string }
 
 // Zips materializePublishedMedia's {uri,type} output back up with each
 // input's stable `path` (present only for staged mediaAssets selections —
@@ -22,6 +22,14 @@ type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: s
 // as its input, so a positional zip is safe.
 function withPath(materialized: { uri: string; type: "image" | "video" }[], source: MediaInput[]) {
   return materialized.map((m, i) => (source[i]?.path ? { ...m, path: source[i].path } : m))
+}
+
+// Same explicit-confirm gate as unverified rights (issue #170 scope: "extend
+// the existing rightsConfirmed pattern, don't invent a parallel one") — a
+// single confirmedUnverifiedRights boolean covers both unverified rights AND
+// flagged moderation, so the client only has to gate selection once.
+function hasRiskyMedia(media: MediaInput[]): boolean {
+  return media.some((m) => m?.rightsStatus === "unverified" || m?.moderationStatus === "flagged")
 }
 
 // POST /api/draft-events/[id]/publish — the one publish route. Creates the
@@ -91,9 +99,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const vibes = Array.isArray(body.vibes) ? body.vibes.filter((v: unknown) => typeof v === "string") : []
 
   const rawMedia: MediaInput[] = Array.isArray(body.media) ? body.media : []
-  const hasUnverified = rawMedia.some((m) => m?.rightsStatus === "unverified")
-  if (hasUnverified && body.confirmedUnverifiedRights !== true) {
-    return NextResponse.json({ error: "Selected media includes unverified rights — confirm before publishing" }, { status: 400 })
+  if (hasRiskyMedia(rawMedia) && body.confirmedUnverifiedRights !== true) {
+    return NextResponse.json({ error: "Selected media includes unverified rights or flagged content — confirm before publishing" }, { status: 400 })
   }
   const filteredMedia = rawMedia.filter((m) => typeof m.uri === "string" && m.uri)
   const media = withPath(
@@ -205,9 +212,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const genericAbout = typeof generic.about === "string" ? generic.about : ""
 
       const rawGenericMedia: MediaInput[] = Array.isArray(generic.media) ? generic.media : []
-      const genericHasUnverified = rawGenericMedia.some((m) => m?.rightsStatus === "unverified")
-      if (genericHasUnverified && body.confirmedUnverifiedRights !== true) {
-        return NextResponse.json({ error: "Selected media includes unverified rights — confirm before publishing" }, { status: 400 })
+      if (hasRiskyMedia(rawGenericMedia) && body.confirmedUnverifiedRights !== true) {
+        return NextResponse.json({ error: "Selected media includes unverified rights or flagged content — confirm before publishing" }, { status: 400 })
       }
       const filteredGenericMedia = rawGenericMedia.filter((m) => typeof m.uri === "string" && m.uri)
       const genericMedia = withPath(

@@ -16,6 +16,7 @@
 // ingest pipeline.
 // ─────────────────────────────────────────────────────────────────────
 import * as logger from 'firebase-functions/logger';
+import type { ModerationStatus, SafeSearchLikelihoods } from './mediaModeration';
 
 export const INTEL_MEDIA_PREFIX = 'intel-media';
 export const MAX_MEDIA_PER_POST = 3;
@@ -80,6 +81,13 @@ export interface MediaAsset {
   path: string;
   type: 'image' | 'video';
   posterPath?: string;
+  // SafeSearch moderation (issue #170) — for a video asset, these describe
+  // its posterPath (the pragmatic v1: no full-video scan). Absent when the
+  // moderation pass never ran for this asset (e.g. no image to scan, or
+  // deploys prior to this feature) — dashboard readers treat that the same
+  // as 'unscanned'.
+  moderationStatus?: ModerationStatus;
+  safeSearch?: SafeSearchLikelihoods;
 }
 
 export interface MediaAssetDocInput {

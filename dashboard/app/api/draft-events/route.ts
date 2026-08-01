@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
   if (heroStoragePaths.size) {
     await Promise.all(
       Array.from(heroStoragePaths).map(async (path) => {
-        const [signed] = await signMediaAssets([{ path, type: "image" }])
+        const [signed] = await signMediaAssets([{ path, type: "image", moderationStatus: "unscanned" }])
         if (signed?.url) signedByPath.set(path, signed.url)
       })
     )

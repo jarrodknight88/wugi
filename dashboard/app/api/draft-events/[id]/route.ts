@@ -19,6 +19,10 @@ export type MediaOption = {
   // fresh 60-min v4 signature on every fetch, so selection/dedupe must key
   // on `path ?? url`, never `url` alone (issue #171).
   path?: string
+  // SafeSearch moderation (issue #170) — only ever set on staged scraped
+  // assets (stagedAssets below); trusted sources (venue hero, galleries)
+  // never carry it, so the badge only ever shows where it's meaningful.
+  moderationStatus?: "clear" | "flagged" | "unscanned"
 }
 export type SeriesOption = { id: string; name: string; day: string; frequency: string; time: string }
 export type CurrentMediaItem = {
@@ -131,7 +135,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (entries.length) {
       const signedAssets = await signMediaAssets(entries)
       for (const asset of signedAssets) {
-        stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, path: asset.path })
+        stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, path: asset.path, moderationStatus: asset.moderationStatus })
       }
     }
   }
