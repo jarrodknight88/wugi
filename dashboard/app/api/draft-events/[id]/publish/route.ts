@@ -258,6 +258,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   await batch.commit()
 
+  // aiFeedback: append-only dataset for the future tuning loop — if Jarrod's
+  // published copy differs from what generation produced, capture the pair
+  // (#163 part 3). Fire-and-forget: never let a feedback write fail the
+  // publish that already committed above.
+  const feedbackEntries: { field: "title" | "about"; generated: string; published: string }[] = []
+  const generatedTitle = typeof draft.generatedTitle === "string" ? draft.generatedTitle : ""
+  const generatedAbout = typeof draft.generatedAbout === "string" ? draft.generatedAbout : ""
+  if (generatedTitle && generatedTitle !== title) feedbackEntries.push({ field: "title", generated: generatedTitle, published: title })
+  if (generatedAbout && generatedAbout !== about) feedbackEntries.push({ field: "about", generated: generatedAbout, published: about })
+  if (feedbackEntries.length) {
+    const sourceCaption = String(draft.caption || "").slice(0, 200)
+    Promise.all(
+      feedbackEntries.map((entry) =>
+        db.collection("aiFeedback").add({
+          draftId: id,
+          venueId,
+          field: entry.field,
+          generated: entry.generated,
+          published: entry.published,
+          sourceCaption,
+          at: FieldValue.serverTimestamp(),
+        })
+      )
+    ).catch(() => {
+      // Best-effort — see comment above.
+    })
+  }
+
   let seriesGenerateStatus: "ok" | "failed" | "skipped" | undefined
   if (seriesMode === "new-series" && seriesId) {
     const bearerToken = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "")
