@@ -9,6 +9,7 @@ import VenuePicker from "@/components/VenuePicker"
 import Lightbox from "@/components/Lightbox"
 import type { DraftEventListItem } from "@/app/api/draft-events/route"
 import type { PublishContext, MediaOption } from "@/app/api/draft-events/[id]/route"
+import { type SelectedMedia, mediaOptionKey, selectedMediaKey, toggleSelectedMedia, reorderSelectedMedia } from "@/lib/mediaSelection"
 
 const INPUT = { padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" as const }
 const OVERLAY = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
@@ -83,10 +84,10 @@ function Thumb({ src, selected, isVideo, onSelect, onOpen }: { src: string; sele
 
 type LightboxState = { options: MediaOption[]; index: number }
 
-function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyText }: {
+function MediaSection({ title, options, selectedKeys, onToggle, onOpen, emptyText }: {
   title: string
   options: MediaOption[]
-  selectedUris: string[]
+  selectedKeys: string[]
   onToggle: (opt: MediaOption) => void
   onOpen: (index: number) => void
   emptyText: string
@@ -99,8 +100,8 @@ function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyTex
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {options.map((opt, i) => (
-            <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
+            <div key={mediaOptionKey(opt)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <Thumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
               {opt.rightsStatus && (
                 <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
                   {RIGHTS_BADGE[opt.rightsStatus].label}
@@ -119,10 +120,10 @@ function MediaSection({ title, options, selectedUris, onToggle, onOpen, emptyTex
 // lazy-loads every staged asset backfilled with this venue's id — e.g. a
 // flyer staged under a different post than the one that generated this
 // draft.
-function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen }: {
+function StagedAssetsSection({ draftId, thisPost, selectedKeys, onToggle, onOpen }: {
   draftId: string
   thisPost: MediaOption[]
-  selectedUris: string[]
+  selectedKeys: string[]
   onToggle: (opt: MediaOption) => void
   onOpen: (options: MediaOption[], index: number) => void
 }) {
@@ -162,8 +163,8 @@ function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {options.map((opt, i) => (
-            <div key={opt.url} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedUris.includes(opt.url)} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
+            <div key={mediaOptionKey(opt)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <Thumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
               {opt.rightsStatus && (
                 <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
                   {RIGHTS_BADGE[opt.rightsStatus].label}
@@ -177,38 +178,17 @@ function StagedAssetsSection({ draftId, thisPost, selectedUris, onToggle, onOpen
   )
 }
 
-// thumbUrl is carried along purely for display in SelectedMediaStrip (a
-// poster frame for video, so the strip never has to decode a <video> just to
-// show a thumbnail) — it's not part of what gets persisted; the publish/media
-// routes only read uri + type off this shape.
-type SelectedMedia = { uri: string; type: "image" | "video"; thumbUrl?: string; rightsStatus?: string }
-
-function toggleSelectedMedia(current: SelectedMedia[], opt: MediaOption): SelectedMedia[] {
-  const already = current.some((m) => m.uri === opt.url)
-  if (already) return current.filter((m) => m.uri !== opt.url)
-  if (opt.rightsStatus === "unverified" && !confirm("Rights not verified — use anyway?")) return current
-  return [...current, { uri: opt.url, type: opt.type === "video" ? "video" : "image", thumbUrl: opt.thumbUrl, rightsStatus: opt.rightsStatus }]
-}
-
-function reorderSelectedMedia(items: SelectedMedia[], from: number, to: number): SelectedMedia[] {
-  if (to < 0 || to >= items.length) return items
-  const copy = [...items]
-  const [item] = copy.splice(from, 1)
-  copy.splice(to, 0, item)
-  return copy
-}
-
 // Selection is an ORDERED list — index 0 is the hero, persisted that way
 // into the event's media array. Reordering here is the only way to change
 // hero/order; clicking a thumb only adds/removes from the end.
-function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[]; onMove: (from: number, to: number) => void; onRemove: (uri: string) => void }) {
+function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[]; onMove: (from: number, to: number) => void; onRemove: (key: string) => void }) {
   if (items.length === 0) return null
   return (
     <div>
       <p style={{ ...LABEL, marginBottom: 8 }}>Selected media ({items.length}) — first is the hero</p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {items.map((m, i) => (
-          <div key={m.uri} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 84 }}>
+          <div key={selectedMediaKey(m)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 84 }}>
             <div style={{ position: "relative", width: 84, height: 84, borderRadius: 10, overflow: "hidden", background: "#f3f4f6" }}>
               {m.type === "video" ? (
                 m.thumbUrl ? (
@@ -233,7 +213,7 @@ function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[
             <div style={{ display: "flex", gap: 3 }}>
               <button type="button" disabled={i === 0} onClick={() => onMove(i, i - 1)} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
               <button type="button" disabled={i === items.length - 1} onClick={() => onMove(i, i + 1)} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === items.length - 1 ? "default" : "pointer", opacity: i === items.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
-              <button type="button" onClick={() => onRemove(m.uri)} title="Remove" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 11 }}>✕</button>
+              <button type="button" onClick={() => onRemove(selectedMediaKey(m))} title="Remove" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 11 }}>✕</button>
             </div>
           </div>
         ))}
@@ -251,18 +231,18 @@ function MediaPicker({ draftId, media, selectedMedia, onToggle, onMove, onRemove
   selectedMedia: SelectedMedia[]
   onToggle: (opt: MediaOption) => void
   onMove: (from: number, to: number) => void
-  onRemove: (uri: string) => void
+  onRemove: (key: string) => void
 }) {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null)
-  const selectedUris = selectedMedia.map((m) => m.uri)
+  const selectedKeys = selectedMedia.map((m) => selectedMediaKey(m))
   const venueHeroOptions: MediaOption[] = media.venueHero ? [{ url: media.venueHero, thumbUrl: media.venueHero, rightsStatus: "wugi_partner" }] : []
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <SelectedMediaStrip items={selectedMedia} onMove={onMove} onRemove={onRemove} />
-      <MediaSection title="Venue hero" options={venueHeroOptions} selectedUris={selectedUris} onToggle={onToggle} onOpen={(i) => setLightbox({ options: venueHeroOptions, index: i })} emptyText="No venue hero image on file." />
-      <MediaSection title="Gallery photos" options={media.galleryPhotos} selectedUris={selectedUris} onToggle={onToggle} onOpen={(i) => setLightbox({ options: media.galleryPhotos, index: i })} emptyText="No permissioned gallery photos for this venue yet." />
-      <StagedAssetsSection draftId={draftId} thisPost={media.stagedAssets} selectedUris={selectedUris} onToggle={onToggle} onOpen={(options, i) => setLightbox({ options, index: i })} />
+      <MediaSection title="Venue hero" options={venueHeroOptions} selectedKeys={selectedKeys} onToggle={onToggle} onOpen={(i) => setLightbox({ options: venueHeroOptions, index: i })} emptyText="No venue hero image on file." />
+      <MediaSection title="Gallery photos" options={media.galleryPhotos} selectedKeys={selectedKeys} onToggle={onToggle} onOpen={(i) => setLightbox({ options: media.galleryPhotos, index: i })} emptyText="No permissioned gallery photos for this venue yet." />
+      <StagedAssetsSection draftId={draftId} thisPost={media.stagedAssets} selectedKeys={selectedKeys} onToggle={onToggle} onOpen={(options, i) => setLightbox({ options, index: i })} />
       {lightbox && (
         <Lightbox
           options={lightbox.options}
@@ -309,23 +289,23 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   const seriesOptions: SelectOption[] = ctx.eventSeries.map((s) => ({ id: s.id, label: s.name, sub: `${s.day} · ${s.frequency}` }))
 
   function toggleMedia(opt: MediaOption) {
-    setSelectedMedia((m) => toggleSelectedMedia(m, opt))
+    setSelectedMedia((m) => toggleSelectedMedia(m, opt, () => confirm("Rights not verified — use anyway?")))
   }
   function moveMedia(from: number, to: number) {
     setSelectedMedia((m) => reorderSelectedMedia(m, from, to))
   }
-  function removeMedia(uri: string) {
-    setSelectedMedia((m) => m.filter((x) => x.uri !== uri))
+  function removeMedia(key: string) {
+    setSelectedMedia((m) => m.filter((x) => selectedMediaKey(x) !== key))
   }
 
   function toggleGenericMedia(opt: MediaOption) {
-    setGenericMedia((m) => toggleSelectedMedia(m, opt))
+    setGenericMedia((m) => toggleSelectedMedia(m, opt, () => confirm("Rights not verified — use anyway?")))
   }
   function moveGenericMedia(from: number, to: number) {
     setGenericMedia((m) => reorderSelectedMedia(m, from, to))
   }
-  function removeGenericMedia(uri: string) {
-    setGenericMedia((m) => m.filter((x) => x.uri !== uri))
+  function removeGenericMedia(key: string) {
+    setGenericMedia((m) => m.filter((x) => selectedMediaKey(x) !== key))
   }
 
   // PATCHes the draft doc immediately (not deferred to Publish) — the
@@ -584,19 +564,19 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
 // PublishModal above gets the editable picker.
 function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClose: () => void; onSaved: () => void }) {
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>(
-    ctx.currentMedia.map((m) => ({ uri: m.uri, type: m.type, rightsStatus: m.rightsStatus }))
+    ctx.currentMedia.map((m) => ({ uri: m.uri, type: m.type, rightsStatus: m.rightsStatus, path: m.path }))
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
   function toggleMedia(opt: MediaOption) {
-    setSelectedMedia((m) => toggleSelectedMedia(m, opt))
+    setSelectedMedia((m) => toggleSelectedMedia(m, opt, () => confirm("Rights not verified — use anyway?")))
   }
   function moveMedia(from: number, to: number) {
     setSelectedMedia((m) => reorderSelectedMedia(m, from, to))
   }
-  function removeMedia(uri: string) {
-    setSelectedMedia((m) => m.filter((x) => x.uri !== uri))
+  function removeMedia(key: string) {
+    setSelectedMedia((m) => m.filter((x) => selectedMediaKey(x) !== key))
   }
 
   async function save() {

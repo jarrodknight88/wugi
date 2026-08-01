@@ -14,9 +14,19 @@ export type MediaOption = {
   thumbUrl: string
   rightsStatus?: "unverified" | "permission_granted" | "wugi_partner"
   type?: "image" | "video"
+  // Stable Storage object path for staged mediaAssets entries — absent for
+  // venue hero / gallery photos, which are already stable URLs. `url` gets a
+  // fresh 60-min v4 signature on every fetch, so selection/dedupe must key
+  // on `path ?? url`, never `url` alone (issue #171).
+  path?: string
 }
 export type SeriesOption = { id: string; name: string; day: string; frequency: string; time: string }
-export type CurrentMediaItem = { uri: string; type: "image" | "video"; rightsStatus: "unverified" | "permission_granted" | "wugi_partner" }
+export type CurrentMediaItem = {
+  uri: string
+  type: "image" | "video"
+  rightsStatus: "unverified" | "permission_granted" | "wugi_partner"
+  path?: string
+}
 
 export type PublishContext = {
   draft: {
@@ -121,7 +131,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (entries.length) {
       const signedAssets = await signMediaAssets(entries)
       for (const asset of signedAssets) {
-        stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type })
+        stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, path: asset.path })
       }
     }
   }
@@ -137,11 +147,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // status by matching it against the picker options already fetched above.
   // A match not found here (e.g. attached from a different post's staged
   // assets than the ones loaded by default) conservatively defaults to
-  // "unverified" so the edit route's confirm gate still applies.
+  // "unverified" so the edit route's confirm gate still applies. Staged
+  // assets also get a path-keyed lookup — after publish, `m.uri` is the
+  // permanent published-media/** copy (materializePublishedMedia), which
+  // never matches a freshly-signed staged option's `url`, but `m.path` (the
+  // original intel-media/** source path, persisted alongside uri — see
+  // publish/route.ts) still does.
   const knownRights = new Map<string, MediaOption["rightsStatus"]>()
+  const knownRightsByPath = new Map<string, MediaOption["rightsStatus"]>()
   if (venueHero) knownRights.set(venueHero, "wugi_partner")
   for (const opt of galleryPhotos) knownRights.set(opt.url, opt.rightsStatus)
-  for (const opt of stagedAssets) knownRights.set(opt.url, opt.rightsStatus)
+  for (const opt of stagedAssets) {
+    knownRights.set(opt.url, opt.rightsStatus)
+    if (opt.path) knownRightsByPath.set(opt.path, opt.rightsStatus)
+  }
 
   const currentMedia: CurrentMediaItem[] = []
   if (eventSnap?.exists) {
@@ -149,10 +168,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (Array.isArray(eventMedia)) {
       for (const m of eventMedia) {
         if (typeof m?.uri !== "string" || !m.uri) continue
+        const path = typeof m?.path === "string" && m.path ? m.path : undefined
         currentMedia.push({
           uri: m.uri,
           type: m.type === "video" ? "video" : "image",
-          rightsStatus: normalizeRightsStatus(knownRights.get(m.uri)),
+          rightsStatus: normalizeRightsStatus(knownRights.get(m.uri) ?? (path && knownRightsByPath.get(path))),
+          path,
         })
       }
     }

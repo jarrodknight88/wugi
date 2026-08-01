@@ -6,12 +6,13 @@ import TimePicker from "@/components/TimePicker"
 import type { SelectOption } from "@/components/SearchSelect"
 import { useAuthContext } from "@/context/AuthContext"
 import { useVenueFilter } from "@/hooks/useVenueFilter"
-import { useEffect, useState, useRef } from "react"
-import { collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, query, where, writeBatch, serverTimestamp } from "firebase/firestore"
+import { useEffect, useState } from "react"
+import { collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, getDocs, query, where, writeBatch, serverTimestamp } from "firebase/firestore"
 import { getFunctions, httpsCallable } from "firebase/functions"
-import { ref as sRef, uploadBytesResumable, getDownloadURL } from "firebase/storage"
-import { db, storage } from "@/lib/firebase"
+import { db } from "@/lib/firebase"
 import { useRouter } from "next/navigation"
+import SeriesMediaManager from "./SeriesMediaManager"
+import type { SelectedMedia } from "@/lib/mediaSelection"
 
 type Series = {
   id: string; name: string; venueId: string; venueName: string
@@ -24,14 +25,17 @@ type Series = {
   title?: string
   seriesSlug?: string
   recurrence?: { dayOfWeek: number; frequency: string; timezone: string }
-  media?: { type?: string; uri?: string }[]
+  media?: { type?: string; uri?: string; path?: string }[]
 }
-type SF = Omit<Series, 'id' | 'totalGenerated' | 'lastGenerated'>
+// `media` is remodeled here as the full SelectedMedia[] the edit form's
+// SeriesMediaManager operates on (issue #171 Bug 2) — save() flattens it
+// back down to the persisted {type,uri,path?} shape.
+type SF = Omit<Series, 'id' | 'totalGenerated' | 'lastGenerated' | 'media'> & { media: SelectedMedia[] }
 
 const EMPTY: SF = {
   name:"", venueId:"", venueName:"", day:"friday", frequency:"weekly",
   time:"10:00 PM", age:"21+", about:"", vibes:[], status:"active",
-  coverImage:"", startDate:"", endDate:"", promoterId:"",
+  coverImage:"", startDate:"", endDate:"", promoterId:"", media:[],
 }
 
 const DAYS    = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
@@ -50,8 +54,6 @@ const INPUT: React.CSSProperties = { padding:"9px 12px", borderRadius:8, border:
 const CARD: React.CSSProperties  = { background:"#fff", borderRadius:12, border:"1px solid #e5e7eb", boxShadow:"0 1px 3px rgba(0,0,0,0.06)", overflow:"hidden" }
 const LABEL: React.CSSProperties = { fontSize:13, fontWeight:600, color:"#374151" }
 const HINT: React.CSSProperties  = { fontSize:12, color:"#9ca3af", margin:0, lineHeight:1.5 }
-const PILL: React.CSSProperties  = { padding:"6px 12px", borderRadius:8, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, background:"rgba(17,24,39,0.75)", color:"#fff" }
-const PILL_DANGER: React.CSSProperties = { ...PILL, background:"rgba(185,28,28,0.85)" }
 
 function Section({ title, hint, children }: { title:string; hint?:string; children:React.ReactNode }) {
   return (
@@ -94,11 +96,11 @@ export default function SeriesPage() {
   const [saving, setSaving]       = useState(false)
   const [generating, setGenerating] = useState<string|null>(null)
   const [deleting, setDeleting]   = useState<string|null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadPct, setUploadPct] = useState(0)
-  const [dragOver, setDragOver]   = useState(false)
-  const [showUrl, setShowUrl]     = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // A brand-new series has no Firestore id yet, but SeriesMediaManager's
+  // browse/upload routes are keyed by seriesId — pre-allocate the doc id at
+  // openCreate() so media can be added before the first Save (save() uses
+  // setDoc against this same id instead of addDoc).
+  const [pendingId, setPendingId] = useState<string|null>(null)
   const [error, setError]         = useState("")
 
   useEffect(() => {
@@ -121,30 +123,27 @@ export default function SeriesPage() {
     return () => { u1(); u2() }
   }, [user, venueIds])
 
-  function openCreate() { setForm(EMPTY); setEditId(null); setShowUrl(false); setModal(true); setError("") }
+  function openCreate() {
+    setPendingId(doc(collection(db, "eventSeries")).id)
+    setForm(EMPTY); setEditId(null); setModal(true); setError("")
+  }
 
-  // Upload a cover image to Storage (public-read per storage.rules) and put
-  // the download URL into the form. save() turns it into the series media.
-  async function handleFile(file: File) {
-    if (!file.type.startsWith("image/")) { setError("Please choose an image file (PNG or JPG)."); return }
-    if (file.size > 10 * 1024 * 1024)    { setError("Image must be under 10 MB."); return }
-    setUploading(true); setUploadPct(0); setError("")
-    try {
-      const path = `series-covers/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`
-      const task = uploadBytesResumable(sRef(storage, path), file, { contentType: file.type })
-      await new Promise<void>((resolve, reject) => {
-        task.on("state_changed",
-          snap => setUploadPct(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-          reject, () => resolve())
-      })
-      const url = await getDownloadURL(task.snapshot.ref)
-      setForm(f => ({ ...f, coverImage: url }))
-    } catch(e:any) { setError(e.message) } finally { setUploading(false) }
+  // Media items read off a Firestore series doc, tolerating the legacy
+  // single-coverImage-only shape (pre-#171 docs, or ones a slow client still
+  // saves mid-rollout) by synthesizing a one-item array from it.
+  function mediaFromSeries(s: Series): SelectedMedia[] {
+    if (Array.isArray(s.media) && s.media.length) {
+      return s.media
+        .filter((m): m is { type?: string; uri: string; path?: string } => typeof m?.uri === "string" && !!m.uri)
+        .map(m => ({ uri: m.uri, type: m.type === "video" ? "video" as const : "image" as const, path: m.path }))
+    }
+    return s.coverImage ? [{ uri: s.coverImage, type: "image" }] : []
   }
 
   function openEdit(s: Series) {
-    setShowUrl(false)
-    setForm({ name:s.name||s.title||"", venueId:s.venueId, venueName:s.venueName, day:dayOf(s)||"friday", frequency:freqOf(s)||"weekly", time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:s.coverImage||s.media?.[0]?.uri||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"" })
+    setPendingId(null)
+    const media = mediaFromSeries(s)
+    setForm({ name:s.name||s.title||"", venueId:s.venueId, venueName:s.venueName, day:dayOf(s)||"friday", frequency:freqOf(s)||"weekly", time:s.time, age:s.age, about:s.about, vibes:s.vibes||[], status:s.status, coverImage:media[0]?.uri||"", startDate:s.startDate||"", endDate:s.endDate||"", promoterId:s.promoterId||"", media })
     setEditId(s.id); setModal(true); setError("")
   }
 
@@ -159,15 +158,15 @@ export default function SeriesPage() {
       // changing it would break idempotent dedupe against already-generated docs.
       const existing = editId ? series.find(x => x.id === editId) : null
       const seriesSlug = existing?.seriesSlug || toSlug(`${form.name}-${form.venueName}`)
-      // Series media: the generator copies `media` onto every occurrence it
-      // creates. Keep a multi-image array intact when the cover URL is
-      // unchanged; otherwise the entered URL becomes the media.
-      const prevUri = existing?.coverImage || existing?.media?.[0]?.uri || ""
-      const media = form.coverImage
-        ? (form.coverImage === prevUri && existing?.media?.length ? existing.media : [{ type: "image", uri: form.coverImage }])
-        : []
+      // Full array, never collapsed to a single cover (issue #171 Bug 2) —
+      // the generator (generateSeriesEvents.ts) copies this verbatim onto
+      // every occurrence it creates, so only persist the fields that belong
+      // in that contract; thumbUrl/rightsStatus are picker-only display aids.
+      const media = form.media.map(m => ({ type: m.type, uri: m.uri, ...(m.path ? { path: m.path } : {}) }))
+      const coverImage = media[0]?.uri || ""
       const data = {
         ...form,
+        coverImage,
         title: form.name,   // generator instance docs read title || name
         seriesSlug,
         media,
@@ -175,26 +174,18 @@ export default function SeriesPage() {
         updatedAt: serverTimestamp(),
       }
       if (editId) {
+        // Deliberately does NOT retroactively push media changes onto
+        // already-generated upcoming occurrences (the old single-coverImage
+        // path used to batch-update those) — a full-array diff against each
+        // occurrence's own media is ambiguous once occurrences can carry
+        // their own custom overrides. Future-generated occurrences pick up
+        // this change automatically (the generator reads `media` fresh);
+        // already-generated ones keep what they have — edit those
+        // individually if a specific past occurrence needs the new media.
         await updateDoc(doc(db, "eventSeries", editId), data)
-        // Push a changed image to UPCOMING occurrences that still carry the old
-        // series image (or none). Occurrences with their own custom media keep it.
-        if (form.coverImage && form.coverImage !== prevUri) {
-          const todayISO = new Date().toISOString().slice(0, 10)
-          const snap = await getDocs(query(collection(db, "events"), where("seriesId", "==", editId)))
-          const batch = writeBatch(db)
-          let n = 0
-          snap.docs.forEach(d => {
-            const ev = d.data()
-            if (typeof ev.dateISO !== "string" || ev.dateISO < todayISO) return
-            const evUri = Array.isArray(ev.media) ? ev.media[0]?.uri : undefined
-            if (evUri && evUri !== prevUri) return   // per-occurrence override — keep it
-            batch.update(d.ref, { media, updatedAt: serverTimestamp() })
-            n++
-          })
-          if (n > 0) await batch.commit()
-        }
       } else {
-        const ref = await addDoc(collection(db, "eventSeries"), { ...data, totalGenerated:0, createdAt: serverTimestamp() })
+        const ref = doc(db, "eventSeries", pendingId || doc(collection(db, "eventSeries")).id)
+        await setDoc(ref, { ...data, totalGenerated:0, createdAt: serverTimestamp() })
         // Auto-generate first 8 weeks on create
         const fn = httpsCallable(getFunctions(), "generateSeriesEvents")
         await fn({ seriesId: ref.id, weeksAhead: 8 })
@@ -382,48 +373,14 @@ export default function SeriesPage() {
 
               <div style={{ height:1, background:"#f3f4f6" }}/>
 
-              <Section title="Cover Image" hint="Shown on the marquee for every upcoming occurrence. Edit an individual event to override a single date.">
-                {form.coverImage ? (
-                  <div style={{ position:"relative" as const, borderRadius:12, overflow:"hidden", border:"1px solid #e5e7eb" }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={form.coverImage} alt="Cover" style={{ width:"100%", maxHeight:220, objectFit:"cover" as const, display:"block" }}/>
-                    <div style={{ position:"absolute" as const, top:10, right:10, display:"flex", gap:8 }}>
-                      <button type="button" onClick={()=>fileInputRef.current?.click()} style={PILL}>Replace</button>
-                      <button type="button" onClick={()=>setForm(f=>({...f,coverImage:""}))} style={PILL_DANGER}>Remove</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={()=>!uploading && fileInputRef.current?.click()}
-                    onDragOver={e=>{e.preventDefault(); setDragOver(true)}}
-                    onDragLeave={()=>setDragOver(false)}
-                    onDrop={e=>{e.preventDefault(); setDragOver(false); const f=e.dataTransfer.files?.[0]; if(f) handleFile(f)}}
-                    style={{ border:`2px dashed ${dragOver?"#064e3b":"#d1d5db"}`, background:dragOver?"#f0fdf4":"#fafafa", borderRadius:12, padding:"28px 20px", textAlign:"center" as const, cursor:uploading?"default":"pointer", transition:"all .15s" }}>
-                    {uploading ? (
-                      <>
-                        <p style={{ margin:0, fontSize:14, fontWeight:600, color:"#111827" }}>Uploading… {uploadPct}%</p>
-                        <div style={{ height:6, background:"#e5e7eb", borderRadius:3, marginTop:12, overflow:"hidden" }}>
-                          <div style={{ height:"100%", width:`${uploadPct}%`, background:"#064e3b", transition:"width .2s" }}/>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontSize:26, marginBottom:6 }}>🖼️</div>
-                        <p style={{ margin:0, fontSize:14, fontWeight:600, color:"#111827" }}>Drop an image here, or click to browse</p>
-                        <p style={{ ...HINT, marginTop:4 }}>PNG or JPG, up to 10 MB. Portrait (4:5) looks best on the marquee.</p>
-                      </>
-                    )}
-                  </div>
-                )}
-                <input ref={fileInputRef} type="file" accept="image/*" style={{ display:"none" }}
-                  onChange={e=>{ const f=e.target.files?.[0]; if(f) handleFile(f); e.target.value="" }}/>
-                {!form.coverImage && !uploading && (showUrl ? (
-                  <input style={INPUT} autoFocus value={form.coverImage} onChange={e=>setForm(f=>({...f,coverImage:e.target.value}))} placeholder="https://... (paste an image URL)"/>
-                ) : (
-                  <button type="button" onClick={()=>setShowUrl(true)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:12, color:"#6b7280", textAlign:"left" as const, textDecoration:"underline" }}>
-                    Paste an image URL instead
-                  </button>
-                ))}
+              <Section title="Media" hint="First item is the cover, shown on the marquee for every FUTURE-generated occurrence. Already-generated upcoming occurrences keep their existing media — edit those individually to change them. Edit an individual event to override a single date going forward.">
+                <SeriesMediaManager
+                  seriesId={editId || pendingId || ""}
+                  venueId={form.venueId}
+                  media={form.media}
+                  onChange={(media) => setForm(f => ({ ...f, media, coverImage: media[0]?.uri || "" }))}
+                  disabled={saving}
+                />
               </Section>
 
               <div style={{ height:1, background:"#f3f4f6" }}/>
@@ -459,10 +416,10 @@ export default function SeriesPage() {
             {/* Footer */}
             <div style={{ padding:"14px 28px", borderTop:"1px solid #f3f4f6", display:"flex", alignItems:"center", gap:10 }}>
               <p style={{ ...HINT, flex:1 }}>
-                {editId ? "A changed cover image is applied to upcoming occurrences that haven't been customized." : "The next 8 weeks of events are generated on create."}
+                {editId ? "Media changes apply to future-generated occurrences only — already-generated upcoming events keep what they have." : "The next 8 weeks of events are generated on create."}
               </p>
               <button onClick={()=>setModal(false)} style={{ padding:"10px 20px", borderRadius:8, background:"#fff", border:"1px solid #e5e7eb", cursor:"pointer", fontSize:14, color:"#374151" }}>Cancel</button>
-              <button onClick={save} disabled={saving || uploading} style={{ padding:"10px 24px", borderRadius:8, background:"#111827", color:"#fff", border:"none", cursor:"pointer", fontSize:14, fontWeight:600, opacity:(saving||uploading)?0.6:1 }}>
+              <button onClick={save} disabled={saving} style={{ padding:"10px 24px", borderRadius:8, background:"#111827", color:"#fff", border:"none", cursor:"pointer", fontSize:14, fontWeight:600, opacity:saving?0.6:1 }}>
                 {saving ? (editId?"Saving…":"Creating & Generating…") : (editId?"Save Changes":"Create Series")}
               </button>
             </div>

@@ -11,7 +11,18 @@ import { materializePublishedMedia } from "@/lib/publishMedia"
 
 export const dynamic = "force-dynamic"
 
-type MediaInput = { type?: string; uri?: string; rightsStatus?: string }
+type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: string }
+
+// Zips materializePublishedMedia's {uri,type} output back up with each
+// input's stable `path` (present only for staged mediaAssets selections —
+// see MediaOption.path in ../route.ts). materializePublishedMedia itself
+// stays untouched (issue #160's contract) and only ever returns {uri,type};
+// `path` is attached here, after the fact, purely so a reload can re-mark
+// this item selected in the picker (issue #171) — same order, same length
+// as its input, so a positional zip is safe.
+function withPath(materialized: { uri: string; type: "image" | "video" }[], source: MediaInput[]) {
+  return materialized.map((m, i) => (source[i]?.path ? { ...m, path: source[i].path } : m))
+}
 
 // POST /api/draft-events/[id]/publish — the one publish route. Creates the
 // consumer-facing `events` doc and marks the draftEvents doc published, in a
@@ -84,10 +95,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (hasUnverified && body.confirmedUnverifiedRights !== true) {
     return NextResponse.json({ error: "Selected media includes unverified rights — confirm before publishing" }, { status: 400 })
   }
-  const media = await materializePublishedMedia(
-    rawMedia
-      .filter((m) => typeof m.uri === "string" && m.uri)
-      .map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+  const filteredMedia = rawMedia.filter((m) => typeof m.uri === "string" && m.uri)
+  const media = withPath(
+    await materializePublishedMedia(
+      filteredMedia.map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+    ),
+    filteredMedia
   )
 
   const venueId: string = draft.venueId || ""
@@ -196,10 +209,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (genericHasUnverified && body.confirmedUnverifiedRights !== true) {
         return NextResponse.json({ error: "Selected media includes unverified rights — confirm before publishing" }, { status: 400 })
       }
-      const genericMedia = await materializePublishedMedia(
-        rawGenericMedia
-          .filter((m) => typeof m.uri === "string" && m.uri)
-          .map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+      const filteredGenericMedia = rawGenericMedia.filter((m) => typeof m.uri === "string" && m.uri)
+      const genericMedia = withPath(
+        await materializePublishedMedia(
+          filteredGenericMedia.map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+        ),
+        filteredGenericMedia
       )
 
       seriesName = genericName
