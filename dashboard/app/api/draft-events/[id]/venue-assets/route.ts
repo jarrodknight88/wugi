@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
-import { signStoragePaths, normalizeRightsStatus } from "@/lib/mediaSignedUrls"
+import { signMediaAssets, assetEntriesFromMediaDoc, normalizeRightsStatus } from "@/lib/mediaSignedUrls"
 import type { MediaOption } from "@/app/api/draft-events/[id]/route"
 
 export const dynamic = "force-dynamic"
@@ -37,12 +37,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   for (const doc of snap.docs) {
     if (assets.length >= VENUE_ASSET_CAP) break
     const data = doc.data()
-    const storagePaths = data?.storagePaths
-    if (!Array.isArray(storagePaths) || !storagePaths.length) continue
+    const entries = assetEntriesFromMediaDoc(data)
+    if (!entries.length) continue
     const rightsStatus = normalizeRightsStatus(data?.rightsStatus)
-    const signedUrls = await signStoragePaths(storagePaths.slice(0, VENUE_ASSET_CAP - assets.length))
-    for (const url of signedUrls) {
-      assets.push({ url, thumbUrl: url, rightsStatus })
+    const signedAssets = await signMediaAssets(entries.slice(0, VENUE_ASSET_CAP - assets.length))
+    for (const asset of signedAssets) {
+      assets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type })
       if (assets.length >= VENUE_ASSET_CAP) break
     }
   }
