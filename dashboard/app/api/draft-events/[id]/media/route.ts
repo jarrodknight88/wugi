@@ -7,7 +7,7 @@ import { materializePublishedMedia } from "@/lib/publishMedia"
 
 export const dynamic = "force-dynamic"
 
-type MediaInput = { type?: string; uri?: string; rightsStatus?: string }
+type MediaInput = { type?: string; uri?: string; rightsStatus?: string; path?: string }
 
 // PATCH /api/draft-events/[id]/media — edit a PUBLISHED event's media after
 // the fact (e.g. reattaching a flyer that was missed at publish time). Same
@@ -38,11 +38,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (hasUnverified && body.confirmedUnverifiedRights !== true) {
     return NextResponse.json({ error: "Selected media includes unverified rights — confirm before saving" }, { status: 400 })
   }
-  const media = await materializePublishedMedia(
-    rawMedia
-      .filter((m) => typeof m.uri === "string" && m.uri)
-      .map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+  const filteredMedia = rawMedia.filter((m) => typeof m.uri === "string" && m.uri)
+  const materialized = await materializePublishedMedia(
+    filteredMedia.map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
   )
+  // path is attached positionally after materialization — present only for
+  // staged mediaAssets selections, so a reload can re-mark them selected
+  // (issue #171); materializePublishedMedia's own contract is untouched.
+  const media = materialized.map((m, i) => (filteredMedia[i]?.path ? { ...m, path: filteredMedia[i].path } : m))
 
   const eventRef = db.collection("events").doc(draft.publishedEventId)
   const eventSnap = await eventRef.get()

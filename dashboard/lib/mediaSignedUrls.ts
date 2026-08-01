@@ -31,7 +31,7 @@ export function assetEntriesFromMediaDoc(data: unknown): MediaAssetEntry[] {
   return []
 }
 
-export type SignedMediaAsset = { url: string; thumbUrl: string; type: "image" | "video" }
+export type SignedMediaAsset = { url: string; thumbUrl: string; type: "image" | "video"; path: string }
 
 // Shared by every route that mints v4 read signed URLs for mediaAssets
 // entries (draft-events publish context, venue-wide asset browse, and the
@@ -67,7 +67,7 @@ export async function signMediaAssets(entries: MediaAssetEntry[]): Promise<Signe
         entry.type === "video" && entry.posterPath ? sign(entry.posterPath) : Promise.resolve(null),
       ])
       if (!url) return null
-      return { url, thumbUrl: posterUrl || url, type: entry.type }
+      return { url, thumbUrl: posterUrl || url, type: entry.type, path: entry.path }
     })
   )
   return signed.filter((x): x is SignedMediaAsset => Boolean(x))
