@@ -13,6 +13,7 @@ import TimePicker from "@/components/TimePicker"
 import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
 import { GROUP_COLORS } from "@/components/TableGroupManager"
+import EventMediaPanel, { type EventMediaItem } from "./EventMediaPanel"
 import Link from "next/link"
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ type EventDoc = {
   time: string; age: string; about: string; status: string; hasTickets: boolean
   venueLatitude?: number; venueLongitude?: number; vibes?: string[]
   idVerificationThreshold?: number  // cents; -1=never, 0=always, >0=threshold
+  media: EventMediaItem[]; seriesId: string | null
 }
 type TicketType = {
   id: string; name: string; price: number; capacity: number
@@ -186,7 +188,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   const [tickets, setTickets]     = useState<TicketType[]>([])
   const [tableGroups, setTableGroups] = useState<TableGroup[]>([])
   const [venueOpts, setVenueOpts] = useState<SelectOption[]>([])
-  const [tab, setTab]             = useState<"info" | "door" | "tickets">("info")
+  const [tab, setTab]             = useState<"info" | "media" | "door" | "tickets">("info")
   const [editing, setEditing]     = useState(false)
   const [ticketModal, setTicketModal] = useState<{ form: TicketForm & { id?: string } } | null>(null)
   const [form, setForm]           = useState<EditForm>({ title: "", venue: "", venueId: "", date: "", time: "", age: "21+", about: "", status: "approved", vibes: [], idVerificationThreshold: 30000 })
@@ -208,6 +210,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
         status: d.status || "pending", hasTickets: d.hasTickets || false,
         venueLatitude: d.venueLatitude, venueLongitude: d.venueLongitude, vibes: d.vibes || [],
         idVerificationThreshold: d.idVerificationThreshold ?? 30000,
+        media: Array.isArray(d.media) ? d.media : [], seriesId: d.seriesId || null,
       }
       setEvent(ev)
       setForm({ title: ev.title, venue: ev.venue, venueId: ev.venueId, date: ev.date, time: ev.time, age: ev.age, about: ev.about, status: ev.status, vibes: ev.vibes || [], idVerificationThreshold: ev.idVerificationThreshold ?? 30000 })
@@ -277,6 +280,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   const sc = SC[event.status] || { bg: "#f3f4f6", color: "#6b7280" }
   const TABS = [
     { key: "info", label: "Event Info" },
+    { key: "media", label: `Media${event.media.length > 0 ? ` (${event.media.length})` : ""}` },
     { key: "door", label: "Door Access" },
     { key: "tickets", label: `Ticket Tiers${tickets.length > 0 ? ` (${tickets.length})` : ""}` },
   ] as const
@@ -414,6 +418,11 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
               </div>
             </div>
           </div>
+        )}
+
+        {/* ── Media Tab ── */}
+        {tab === "media" && (
+          <EventMediaPanel eventId={eventId} media={event.media} seriesId={event.seriesId} canWrite={canWrite} />
         )}
 
         {/* ── Door Tab ── */}
