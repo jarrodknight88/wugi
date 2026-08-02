@@ -3,63 +3,24 @@ import { useEffect, useState } from "react"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import type { VenueMediaContext, VenueMediaOption } from "@/app/api/venues/[venueId]/media/route"
 import { type SelectedMedia, mediaOptionKey, selectedMediaKey, toggleSelectedMedia, reorderSelectedMedia } from "@/lib/mediaSelection"
+import Lightbox from "@/components/Lightbox"
+import { MediaThumb, AssetBadges, PlayBadge } from "@/components/MediaThumb"
 
 const LABEL = { fontSize: 13, fontWeight: 600, color: "#374151", display: "block" as const, marginBottom: 8 }
 const CARD = { background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", padding: "24px" }
 
-const RIGHTS_BADGE: Record<string, { bg: string; color: string; label: string }> = {
-  unverified: { bg: "#fef3c7", color: "#92400e", label: "Unverified" },
-  permission_granted: { bg: "#dcfce7", color: "#15803d", label: "Permission granted" },
-  wugi_partner: { bg: "#dcfce7", color: "#15803d", label: "Wugi partner" },
+type LightboxState = { options: VenueMediaOption[]; index: number }
+
+function isRisky(m: { rightsStatus?: string; moderationStatus?: string }) {
+  return m.rightsStatus === "unverified" || m.moderationStatus === "flagged"
 }
 
-// SafeSearch moderation (issue #170) — 'clear' intentionally has no badge
-// entry; only flagged/unscanned assets render one, next to the rights badge.
-const MODERATION_BADGE: Record<string, { bg: string; color: string; label: string }> = {
-  flagged: { bg: "#fee2e2", color: "#b91c1c", label: "⚠ Flagged" },
-  unscanned: { bg: "#f3f4f6", color: "#6b7280", label: "Unscanned" },
-}
-
-// Small centered play triangle overlay — marks a thumb as a video (the image
-// shown is always its poster frame). Same convention as venue-intel's
-// DraftEventsPanel.tsx.
-function PlayBadge() {
-  return (
-    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-      <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 0, height: 0, marginLeft: 2, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "9px solid #fff" }} />
-      </div>
-    </div>
-  )
-}
-
-function Thumb({ src, selected, isVideo, onSelect }: { src: string; selected: boolean; isVideo?: boolean; onSelect: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      style={{
-        position: "relative", padding: 0, width: 84, height: 84, flexShrink: 0,
-        border: selected ? "3px solid #2a7a5a" : "3px solid transparent",
-        borderRadius: 10, overflow: "hidden", cursor: "pointer", background: "#f3f4f6", display: "block",
-      }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element -- signed/gallery/venue URLs, rendered direct */}
-      <img src={src} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-      {isVideo && <PlayBadge />}
-      {selected && (
-        <span style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "#2a7a5a", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
-      )}
-    </button>
-  )
-}
-
-function MediaSection({ title, options, selectedKeys, onToggle, emptyText }: {
+function MediaSection({ title, options, selectedKeys, onToggle, onOpen, emptyText }: {
   title: string
   options: VenueMediaOption[]
   selectedKeys: string[]
   onToggle: (opt: VenueMediaOption) => void
+  onOpen: (index: number) => void
   emptyText: string
 }) {
   return (
@@ -69,19 +30,10 @@ function MediaSection({ title, options, selectedKeys, onToggle, emptyText }: {
         <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>{emptyText}</p>
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {options.map((opt) => (
+          {options.map((opt, i) => (
             <div key={mediaOptionKey(opt)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} />
-              {opt.rightsStatus && (
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
-                  {RIGHTS_BADGE[opt.rightsStatus].label}
-                </span>
-              )}
-              {opt.moderationStatus && opt.moderationStatus !== "clear" && (
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: MODERATION_BADGE[opt.moderationStatus].bg, color: MODERATION_BADGE[opt.moderationStatus].color }}>
-                  {MODERATION_BADGE[opt.moderationStatus].label}
-                </span>
-              )}
+              <MediaThumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
+              <AssetBadges opt={opt} />
             </div>
           ))}
         </div>
@@ -92,6 +44,9 @@ function MediaSection({ title, options, selectedKeys, onToggle, emptyText }: {
 
 // Selection is an ORDERED list — index 0 is the hero, persisted that way
 // into venues.media. Reordering here is the only way to change hero/order.
+// Rights/moderation badges render here too (issue #181) — with per-click
+// confirms gone, this is the only place a risky selection stays visible
+// until Save.
 function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[]; onMove: (from: number, to: number) => void; onRemove: (key: string) => void }) {
   if (items.length === 0) {
     return <p style={{ fontSize: 13, color: "#9ca3af", margin: 0 }}>No media selected yet — pick photos below. The first selected photo becomes the venue hero.</p>
@@ -110,6 +65,7 @@ function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[
                 <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>HERO</span>
               )}
             </div>
+            <AssetBadges opt={m} />
             <div style={{ display: "flex", gap: 3 }}>
               <button type="button" disabled={i === 0} onClick={() => onMove(i, i - 1)} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
               <button type="button" disabled={i === items.length - 1} onClick={() => onMove(i, i + 1)} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === items.length - 1 ? "default" : "pointer", opacity: i === items.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
@@ -134,6 +90,7 @@ export default function VenueMediaPanel({ venueId, canWrite }: { venueId: string
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -149,22 +106,25 @@ export default function VenueMediaPanel({ venueId, canWrite }: { venueId: string
     return () => { cancelled = true }
   }, [venueId])
 
+  // Selection is free — no per-click confirm (issue #181: on a venue whose
+  // staged assets are ALL unverified, a confirm-per-click was a dead-click
+  // factory, especially once the browser's "prevent additional dialogs" was
+  // checked and confirm() started returning false silently). Risky picks
+  // stay visible via AssetBadges and get a single summary confirm at Save.
   function toggle(opt: VenueMediaOption) {
-    setSelected((cur) => toggleSelectedMedia(
-      cur,
-      opt,
-      () => confirm("Rights not verified — use anyway?"),
-      () => confirm("This media was flagged by automated moderation — use anyway?")
-    ))
+    setSelected((cur) => toggleSelectedMedia(cur, opt))
   }
 
   async function handleSave() {
+    const risky = selected.filter(isRisky)
+    if (risky.length > 0 && !confirm(`${risky.length} of ${selected.length} selected items have unverified rights or were flagged — save anyway?`)) {
+      return
+    }
     setSaving(true); setError(""); setSaved(false)
     try {
-      const hasRisky = selected.some((m) => m.rightsStatus === "unverified" || m.moderationStatus === "flagged")
       await authedFetch(`/api/venues/${venueId}/media`, {
         method: "PATCH",
-        body: JSON.stringify({ media: selected, confirmedUnverifiedRights: hasRisky }),
+        body: JSON.stringify({ media: selected, confirmedUnverifiedRights: risky.length > 0 }),
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -192,10 +152,19 @@ export default function VenueMediaPanel({ venueId, canWrite }: { venueId: string
       </div>
 
       <div style={{ ...CARD, display: "flex", flexDirection: "column", gap: 20 }}>
-        <MediaSection title="Current venue photos" options={currentOptions} selectedKeys={selectedKeys} onToggle={toggle} emptyText="No photos on file yet." />
-        <MediaSection title="Venue galleries" options={ctx.media.galleryPhotos} selectedKeys={selectedKeys} onToggle={toggle} emptyText="No approved gallery photos for this venue yet." />
-        <MediaSection title="Staged scraped assets" options={ctx.media.stagedAssets} selectedKeys={selectedKeys} onToggle={toggle} emptyText="No staged assets found for this venue yet." />
+        <MediaSection title="Current venue photos" options={currentOptions} selectedKeys={selectedKeys} onToggle={toggle} onOpen={(i) => setLightbox({ options: currentOptions, index: i })} emptyText="No photos on file yet." />
+        <MediaSection title="Venue galleries" options={ctx.media.galleryPhotos} selectedKeys={selectedKeys} onToggle={toggle} onOpen={(i) => setLightbox({ options: ctx.media.galleryPhotos, index: i })} emptyText="No approved gallery photos for this venue yet." />
+        <MediaSection title="Staged scraped assets" options={ctx.media.stagedAssets} selectedKeys={selectedKeys} onToggle={toggle} onOpen={(i) => setLightbox({ options: ctx.media.stagedAssets, index: i })} emptyText="No staged assets found for this venue yet." />
       </div>
+
+      {lightbox && (
+        <Lightbox
+          options={lightbox.options}
+          index={lightbox.index}
+          onIndexChange={(i) => setLightbox((lb) => (lb ? { ...lb, index: i } : lb))}
+          onClose={() => setLightbox(null)}
+        />
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         {canWrite ? (
