@@ -3,7 +3,9 @@ import { useState } from "react"
 import { auth } from "@/lib/firebase"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import Lightbox from "@/components/Lightbox"
-import { AssetBadges, PlayBadge } from "@/components/MediaThumb"
+import { PlayBadge } from "@/components/MediaThumb"
+import SelectedMediaStrip from "@/components/SelectedMediaStrip"
+import ConfirmDialog from "@/components/ConfirmDialog"
 import type { MediaOption } from "@/app/api/draft-events/[id]/route"
 import { type SelectedMedia, mediaOptionKey, selectedMediaKey, toggleSelectedMedia, reorderSelectedMedia } from "@/lib/mediaSelection"
 
@@ -51,17 +53,18 @@ function Thumb({ src, isVideo, selected, badge, onClick }: {
   )
 }
 
-// Series edit form's media manager (issue #171 Bug 2 + Feature 3). Bug 2:
-// eventSeries.media is now a full ordered array here (first = cover/hero),
-// never collapsed to a single coverImage. Feature 3: two ways to add —
-// browse this venue's staged scraped assets (materialized server-side before
-// landing in `media`, same copy-on-publish contract as draft-events'
-// publish/media routes — issue #160) or upload a file directly (born
-// materialized, no copy step). Visual language matches DraftEventsPanel.tsx
-// / VenueMediaPanel.tsx; kept self-contained here (their Thumb/PlayBadge
-// aren't exported) the same way VenueMediaPanel.tsx already duplicates them
-// — the actual identity-bug fix (path-keyed selection) is shared via
-// lib/mediaSelection.ts, not duplicated.
+// Series edit form's media manager (issue #171 Bug 2 + Feature 3, drag/drop
+// + shared strip added in #183). Bug 2: eventSeries.media is now a full
+// ordered array here (first = cover/hero), never collapsed to a single
+// coverImage. Feature 3: two ways to add — browse this venue's staged
+// scraped assets (materialized server-side before landing in `media`, same
+// copy-on-publish contract as draft-events' publish/media routes — issue
+// #160) or upload a file directly (born materialized, no copy step). The
+// live media list is the shared components/SelectedMediaStrip.tsx (same one
+// VenueMediaPanel.tsx and DraftEventsPanel.tsx use) with heroLabel="COVER"
+// and onOpen wired to this file's own Lightbox. The browse-modal Thumb below
+// stays local (issue #181) — select-only, no zoom, and carries the
+// `owner_upload` rights label the shared badge map doesn't.
 export default function SeriesMediaManager({ seriesId, venueId, media, onChange, disabled }: {
   seriesId: string
   venueId: string
@@ -77,6 +80,7 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
   const [adding, setAdding] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState("")
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null)
 
   async function openBrowse() {
     setBrowseOpen(true); setBrowsePending([]); setError("")
@@ -92,12 +96,18 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
     setBrowsePending((cur) => toggleSelectedMedia(cur, opt))
   }
 
-  async function addPending() {
+  function addPending() {
     if (browsePending.length === 0) { setBrowseOpen(false); return }
     const riskyCount = browsePending.filter(isRiskyMedia).length
-    if (riskyCount > 0 && !confirm(`${riskyCount} of ${browsePending.length} selected items have unverified rights or were flagged — add anyway?`)) {
+    if (riskyCount > 0) {
+      setConfirmMessage(`${riskyCount} of ${browsePending.length} selected items have unverified rights or were flagged — add anyway?`)
       return
     }
+    doAddPending()
+  }
+
+  async function doAddPending() {
+    const riskyCount = browsePending.filter(isRiskyMedia).length
     setAdding(true); setError("")
     try {
       const res = await authedFetch(`/api/series/${seriesId}/venue-assets`, {
@@ -144,30 +154,15 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {error && <div style={{ padding: "8px 12px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 12 }}>{error}</div>}
 
-      {media.length === 0 ? (
-        <p style={{ fontSize: 13, color: "#9ca3af", margin: 0 }}>No media yet — add from scraped assets or upload a file. The first item becomes the cover.</p>
-      ) : (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {media.map((m, i) => (
-            <div key={selectedMediaKey(m)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 84 }}>
-              <div style={{ position: "relative", width: 84, height: 84, borderRadius: 10, overflow: "hidden", background: "#f3f4f6", cursor: "zoom-in" }} onClick={() => setLightboxIndex(i)}>
-                {/* eslint-disable-next-line @next/next/no-img-element -- signed/permanent Storage URLs */}
-                <img src={m.thumbUrl || m.uri} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                {m.type === "video" && <PlayBadge />}
-                {i === 0 && (
-                  <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>COVER</span>
-                )}
-              </div>
-              <AssetBadges opt={m} />
-              <div style={{ display: "flex", gap: 3 }}>
-                <button type="button" disabled={disabled || i === 0} onClick={() => onChange(reorderSelectedMedia(media, i, i - 1))} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
-                <button type="button" disabled={disabled || i === media.length - 1} onClick={() => onChange(reorderSelectedMedia(media, i, i + 1))} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === media.length - 1 ? "default" : "pointer", opacity: i === media.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
-                <button type="button" disabled={disabled} onClick={() => onChange(media.filter((x) => selectedMediaKey(x) !== selectedMediaKey(m)))} title="Remove" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 11 }}>✕</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <SelectedMediaStrip
+        items={media}
+        onMove={(from, to) => onChange(reorderSelectedMedia(media, from, to))}
+        onRemove={(key) => onChange(media.filter((x) => selectedMediaKey(x) !== key))}
+        onOpen={(i) => setLightboxIndex(i)}
+        heroLabel="COVER"
+        emptyText="No media yet — add from scraped assets or upload a file. The first item becomes the cover."
+        disabled={disabled}
+      />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" disabled={addDisabled} onClick={openBrowse} style={{ ...PILL, opacity: addDisabled ? 0.6 : 1 }}>+ From scraped assets</button>
@@ -221,6 +216,15 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
             </div>
           </div>
         </div>
+      )}
+
+      {confirmMessage && (
+        <ConfirmDialog
+          message={confirmMessage}
+          confirmLabel="Add anyway"
+          onConfirm={() => { setConfirmMessage(null); doAddPending() }}
+          onCancel={() => setConfirmMessage(null)}
+        />
       )}
     </div>
   )
