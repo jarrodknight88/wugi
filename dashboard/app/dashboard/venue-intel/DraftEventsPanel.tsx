@@ -7,6 +7,7 @@ import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
 import VenuePicker from "@/components/VenuePicker"
 import Lightbox from "@/components/Lightbox"
+import { MediaThumb, AssetBadges, PlayBadge } from "@/components/MediaThumb"
 import type { DraftEventListItem } from "@/app/api/draft-events/route"
 import type { PublishContext, MediaOption } from "@/app/api/draft-events/[id]/route"
 import { type SelectedMedia, mediaOptionKey, selectedMediaKey, toggleSelectedMedia, reorderSelectedMedia } from "@/lib/mediaSelection"
@@ -18,18 +19,8 @@ const LABEL = { fontSize: 13, fontWeight: 600, color: "#374151" }
 const VIBES = ["High Energy", "Boujee", "Divey", "Rooftop", "Speakeasy", "Late Night", "Hip-Hop", "R&B", "Live Music", "Brunch", "LGBTQ+"]
 const CAPTION_TRUNCATE = 140
 
-const RIGHTS_BADGE: Record<string, { bg: string; color: string; label: string }> = {
-  unverified: { bg: "#fef3c7", color: "#92400e", label: "Unverified" },
-  permission_granted: { bg: "#dcfce7", color: "#15803d", label: "Permission granted" },
-  wugi_partner: { bg: "#dcfce7", color: "#15803d", label: "Wugi partner" },
-}
-
-// SafeSearch moderation (issue #170) — 'clear' intentionally has no badge
-// entry (nothing to flag the reviewer's attention to); only flagged/
-// unscanned assets render one, next to the rights badge.
-const MODERATION_BADGE: Record<string, { bg: string; color: string; label: string }> = {
-  flagged: { bg: "#fee2e2", color: "#b91c1c", label: "⚠ Flagged" },
-  unscanned: { bg: "#f3f4f6", color: "#6b7280", label: "Unscanned" },
+function isRiskyMedia(m: { rightsStatus?: string; moderationStatus?: string }) {
+  return m.rightsStatus === "unverified" || m.moderationStatus === "flagged"
 }
 
 function scopeBtnStyle(active: boolean) {
@@ -40,77 +31,7 @@ function scopeBtnStyle(active: boolean) {
   }
 }
 
-// Small centered play triangle overlay — marks a thumb as a video (the
-// image shown is always its poster frame, never the video itself; see
-// signMediaAssets in lib/mediaSignedUrls.ts).
-function PlayBadge() {
-  return (
-    <div style={{
-      position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none",
-    }}>
-      <div style={{
-        width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <div style={{ width: 0, height: 0, marginLeft: 2, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "9px solid #fff" }} />
-      </div>
-    </div>
-  )
-}
-
-// Every URL rendered here (venue hero, gallery photos, staged mediaAssets) is
-// either a Storage signed URL minted server-side or a public gallery URL —
-// never a hotlink-blocked external CDN URL — so it always renders directly,
-// no proxy. See the 7/31 PM hotfix commit for why that distinction matters.
-// `src` is always an image (for a video option this is the signed poster
-// URL, never the mp4 itself — see MediaOption.thumbUrl).
-function Thumb({ src, selected, isVideo, onSelect, onOpen }: { src: string; selected: boolean; isVideo?: boolean; onSelect: () => void; onOpen: () => void }) {
-  return (
-    <div style={{ position: "relative", width: 84, height: 84, flexShrink: 0 }}>
-      <button type="button" onClick={onOpen} style={{
-        position: "relative", padding: 0, border: selected ? "3px solid #2a7a5a" : "3px solid transparent",
-        borderRadius: 10, overflow: "hidden", cursor: "zoom-in", width: "100%", height: "100%", background: "#f3f4f6", display: "block",
-      }}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */}
-        <img src={src} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        {isVideo && <PlayBadge />}
-      </button>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onSelect() }}
-        aria-label={selected ? "Deselect" : "Select"}
-        style={{
-          position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", padding: 0,
-          background: selected ? "#2a7a5a" : "rgba(255,255,255,0.85)", color: selected ? "#fff" : "#374151",
-          border: selected ? "none" : "1px solid #d1d5db", fontSize: 11, fontWeight: 700, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}
-      >{selected ? "✓" : ""}</button>
-    </div>
-  )
-}
-
 type LightboxState = { options: MediaOption[]; index: number }
-
-// Shared by MediaSection and StagedAssetsSection — rights badge (if any)
-// plus a moderation badge (issue #170), only rendered for flagged/unscanned
-// (a 'clear' result has nothing worth flagging in the UI).
-function AssetBadges({ opt }: { opt: MediaOption }) {
-  return (
-    <>
-      {opt.rightsStatus && (
-        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: RIGHTS_BADGE[opt.rightsStatus].bg, color: RIGHTS_BADGE[opt.rightsStatus].color }}>
-          {RIGHTS_BADGE[opt.rightsStatus].label}
-        </span>
-      )}
-      {opt.moderationStatus && opt.moderationStatus !== "clear" && (
-        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 10, background: MODERATION_BADGE[opt.moderationStatus].bg, color: MODERATION_BADGE[opt.moderationStatus].color }}>
-          {MODERATION_BADGE[opt.moderationStatus].label}
-        </span>
-      )}
-    </>
-  )
-}
 
 function MediaSection({ title, options, selectedKeys, onToggle, onOpen, emptyText }: {
   title: string
@@ -129,7 +50,7 @@ function MediaSection({ title, options, selectedKeys, onToggle, onOpen, emptyTex
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {options.map((opt, i) => (
             <div key={mediaOptionKey(opt)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
+              <MediaThumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(i)} />
               <AssetBadges opt={opt} />
             </div>
           ))}
@@ -188,7 +109,7 @@ function StagedAssetsSection({ draftId, thisPost, selectedKeys, onToggle, onOpen
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {options.map((opt, i) => (
             <div key={mediaOptionKey(opt)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Thumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
+              <MediaThumb src={opt.thumbUrl || opt.url} selected={selectedKeys.includes(mediaOptionKey(opt))} isVideo={opt.type === "video"} onSelect={() => onToggle(opt)} onOpen={() => onOpen(options, i)} />
               <AssetBadges opt={opt} />
             </div>
           ))}
@@ -230,6 +151,7 @@ function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[
                 <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>HERO</span>
               )}
             </div>
+            <AssetBadges opt={m} />
             <div style={{ display: "flex", gap: 3 }}>
               <button type="button" disabled={i === 0} onClick={() => onMove(i, i - 1)} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
               <button type="button" disabled={i === items.length - 1} onClick={() => onMove(i, i + 1)} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === items.length - 1 ? "default" : "pointer", opacity: i === items.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
@@ -309,7 +231,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   const seriesOptions: SelectOption[] = ctx.eventSeries.map((s) => ({ id: s.id, label: s.name, sub: `${s.day} · ${s.frequency}` }))
 
   function toggleMedia(opt: MediaOption) {
-    setSelectedMedia((m) => toggleSelectedMedia(m, opt, () => confirm("Rights not verified — use anyway?"), () => confirm("This media was flagged by automated moderation — use anyway?")))
+    setSelectedMedia((m) => toggleSelectedMedia(m, opt))
   }
   function moveMedia(from: number, to: number) {
     setSelectedMedia((m) => reorderSelectedMedia(m, from, to))
@@ -319,7 +241,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   }
 
   function toggleGenericMedia(opt: MediaOption) {
-    setGenericMedia((m) => toggleSelectedMedia(m, opt, () => confirm("Rights not verified — use anyway?"), () => confirm("This media was flagged by automated moderation — use anyway?")))
+    setGenericMedia((m) => toggleSelectedMedia(m, opt))
   }
   function moveGenericMedia(from: number, to: number) {
     setGenericMedia((m) => reorderSelectedMedia(m, from, to))
@@ -376,13 +298,17 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
     if (!time) { setError("Time is required — drafts don't carry a time"); return }
     if (seriesMode === "attach" && !attachSeriesId) { setError("Choose a series to attach to"); return }
     if (seriesMode === "new-series" && editionMode === "special" && !seriesName.trim()) { setError("Series name is required for a special edition"); return }
+
+    const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
+    const riskyCount = selectedMedia.filter(isRiskyMedia).length + (isSpecialEdition ? genericMedia.filter(isRiskyMedia).length : 0)
+    const totalCount = selectedMedia.length + (isSpecialEdition ? genericMedia.length : 0)
+    const hasUnverifiedMedia = riskyCount > 0
+    if (hasUnverifiedMedia && !confirm(`${riskyCount} of ${totalCount} selected items have unverified rights or were flagged — save anyway?`)) {
+      return
+    }
+
     setSaving(true); setError("")
     try {
-      const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
-      const isRisky = (m: SelectedMedia) => m.rightsStatus === "unverified" || m.moderationStatus === "flagged"
-      const hasUnverifiedMedia =
-        selectedMedia.some(isRisky) ||
-        (isSpecialEdition && genericMedia.some(isRisky))
       const res = await authedFetch(`/api/draft-events/${ctx.draft.id}/publish`, {
         method: "POST",
         body: JSON.stringify({
@@ -591,7 +517,7 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
   const [error, setError] = useState("")
 
   function toggleMedia(opt: MediaOption) {
-    setSelectedMedia((m) => toggleSelectedMedia(m, opt, () => confirm("Rights not verified — use anyway?"), () => confirm("This media was flagged by automated moderation — use anyway?")))
+    setSelectedMedia((m) => toggleSelectedMedia(m, opt))
   }
   function moveMedia(from: number, to: number) {
     setSelectedMedia((m) => reorderSelectedMedia(m, from, to))
@@ -601,13 +527,17 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
   }
 
   async function save() {
+    const riskyCount = selectedMedia.filter(isRiskyMedia).length
+    if (riskyCount > 0 && !confirm(`${riskyCount} of ${selectedMedia.length} selected items have unverified rights or were flagged — save anyway?`)) {
+      return
+    }
     setSaving(true); setError("")
     try {
       await authedFetch(`/api/draft-events/${ctx.draft.id}/media`, {
         method: "PATCH",
         body: JSON.stringify({
           media: selectedMedia,
-          confirmedUnverifiedRights: selectedMedia.some((m) => m.rightsStatus === "unverified" || m.moderationStatus === "flagged"),
+          confirmedUnverifiedRights: riskyCount > 0,
         }),
       })
       onSaved()

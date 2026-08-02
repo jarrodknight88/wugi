@@ -3,6 +3,7 @@ import { useState } from "react"
 import { auth } from "@/lib/firebase"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import Lightbox from "@/components/Lightbox"
+import { AssetBadges, PlayBadge } from "@/components/MediaThumb"
 import type { MediaOption } from "@/app/api/draft-events/[id]/route"
 import { type SelectedMedia, mediaOptionKey, selectedMediaKey, toggleSelectedMedia, reorderSelectedMedia } from "@/lib/mediaSelection"
 
@@ -16,19 +17,16 @@ const PILL = { padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 
 const OVERLAY = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }
 const MODAL = { background: "#fff", borderRadius: 16, width: "100%", maxWidth: 640, maxHeight: "86vh", display: "flex", flexDirection: "column" as const, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }
 
-// Same play-triangle convention as venue-intel/DraftEventsPanel.tsx and
-// venues/[venueId]/VenueMediaPanel.tsx — thumb always shows a poster frame,
-// never the video itself.
-function PlayBadge() {
-  return (
-    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-      <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 0, height: 0, marginLeft: 2, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "9px solid #fff" }} />
-      </div>
-    </div>
-  )
+function isRiskyMedia(m: { rightsStatus?: string; moderationStatus?: string }) {
+  return m.rightsStatus === "unverified" || m.moderationStatus === "flagged"
 }
 
+// Kept local rather than folded into the shared components/MediaThumb.tsx
+// Thumb (issue #181): this browse-modal thumb is select-only (no zoom — the
+// live media list below has its own click-to-lightbox instead), takes a
+// single precomputed `badge` rather than an {rightsStatus,moderationStatus}
+// pair, and needs the `owner_upload` rights label the shared badge map
+// doesn't carry. Folding it in would change behavior, not just move code.
 function Thumb({ src, isVideo, selected, badge, onClick }: {
   src: string; isVideo?: boolean; selected: boolean
   badge?: { bg: string; color: string; label: string }
@@ -91,18 +89,22 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
   }
 
   function toggleBrowsePick(opt: MediaOption) {
-    setBrowsePending((cur) => toggleSelectedMedia(cur, opt, () => confirm("Rights not verified — use anyway?"), () => confirm("This media was flagged by automated moderation — use anyway?")))
+    setBrowsePending((cur) => toggleSelectedMedia(cur, opt))
   }
 
   async function addPending() {
     if (browsePending.length === 0) { setBrowseOpen(false); return }
+    const riskyCount = browsePending.filter(isRiskyMedia).length
+    if (riskyCount > 0 && !confirm(`${riskyCount} of ${browsePending.length} selected items have unverified rights or were flagged — add anyway?`)) {
+      return
+    }
     setAdding(true); setError("")
     try {
       const res = await authedFetch(`/api/series/${seriesId}/venue-assets`, {
         method: "POST",
         body: JSON.stringify({
           items: browsePending,
-          confirmedUnverifiedRights: browsePending.some((m) => m.rightsStatus === "unverified"),
+          confirmedUnverifiedRights: riskyCount > 0,
         }),
       })
       const added: SelectedMedia[] = res.media.map((m: { uri: string; type: "image" | "video"; path?: string }, i: number) => ({
@@ -156,6 +158,7 @@ export default function SeriesMediaManager({ seriesId, venueId, media, onChange,
                   <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>COVER</span>
                 )}
               </div>
+              <AssetBadges opt={m} />
               <div style={{ display: "flex", gap: 3 }}>
                 <button type="button" disabled={disabled || i === 0} onClick={() => onChange(reorderSelectedMedia(media, i, i - 1))} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
                 <button type="button" disabled={disabled || i === media.length - 1} onClick={() => onChange(reorderSelectedMedia(media, i, i + 1))} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === media.length - 1 ? "default" : "pointer", opacity: i === media.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
