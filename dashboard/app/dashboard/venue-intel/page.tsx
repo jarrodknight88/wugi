@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthContext } from "@/context/AuthContext"
-import DashboardLayout from "@/components/DashboardLayout"
 import { auth } from "@/lib/firebase"
 import type { VenueIntelGroup, VenueIntelNeedsAttentionPost, VenueIntelPost, VenueIntelReasonGroup } from "@/app/api/venue-intel/route"
 import type { DiscoveredAccount, AccountType } from "@/app/api/venue-intel-accounts/route"
@@ -690,7 +689,6 @@ export default function VenueIntelPage() {
   if (loading || !user || !isVenueIntelStaff) return null
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
         <div className="dash-header">
           <div>
@@ -834,6 +832,5 @@ export default function VenueIntelPage() {
           </>
         )}
       </div>
-    </DashboardLayout>
   )
 }

@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation"
 import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
-import DashboardLayout from "@/components/DashboardLayout"
 import Link from "next/link"
 
 const CARD = { background: "#fff", borderRadius: 12, padding: "20px 24px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }
@@ -65,7 +64,6 @@ export default function DashboardPage() {
   if (!user || !hasDashboardAccess) return null
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "#111827", margin: 0 }}>Overview</h1>
@@ -109,6 +107,5 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
-    </DashboardLayout>
   )
 }

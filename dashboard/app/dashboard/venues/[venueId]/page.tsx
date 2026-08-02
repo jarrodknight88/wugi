@@ -10,7 +10,6 @@ import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
-import DashboardLayout from "@/components/DashboardLayout"
 import DoorAccessPanel from "@/components/DoorAccessPanel"
 import TableGroupManager from "@/components/TableGroupManager"
 import VenueMediaPanel from "./VenueMediaPanel"
@@ -202,9 +201,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
 
   if (loading || !user || !hasDashboardAccess) return null
   if (!venue) return (
-    <DashboardLayout>
-      <div className="dash-page" style={{ color: "#9ca3af", fontSize: 14 }}>Loading venue...</div>
-    </DashboardLayout>
+    <div className="dash-page" style={{ color: "#9ca3af", fontSize: 14 }}>Loading venue...</div>
   )
 
   const TABS = [
@@ -216,7 +213,6 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   ] as const
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
         {/* Back + title */}
         <div style={{ marginBottom: 24 }}>
@@ -489,6 +485,5 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
           </div>
         )}
       </div>
-    </DashboardLayout>
   )
 }

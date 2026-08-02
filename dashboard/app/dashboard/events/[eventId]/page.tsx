@@ -7,7 +7,6 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
-import DashboardLayout from "@/components/DashboardLayout"
 import DoorAccessPanel from "@/components/DoorAccessPanel"
 import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
@@ -273,7 +272,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   }
 
   if (loading || !user || !hasDashboardAccess) return null
-  if (!event) return <DashboardLayout><div className="dash-page" style={{ color: "#9ca3af" }}>Loading event...</div></DashboardLayout>
+  if (!event) return <div className="dash-page" style={{ color: "#9ca3af" }}>Loading event...</div>
 
   const sc = SC[event.status] || { bg: "#f3f4f6", color: "#6b7280" }
   const TABS = [
@@ -285,7 +284,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   const totalSold    = tickets.reduce((s, t) => s + t.sold, 0)
 
   return (
-    <DashboardLayout>
+    <>
       <div className="dash-page">
         {/* Back + header */}
         <div style={{ marginBottom: 24 }}>
@@ -525,6 +524,6 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
           onClose={() => setTicketModal(null)}
         />
       )}
-    </DashboardLayout>
+    </>
   )
 }

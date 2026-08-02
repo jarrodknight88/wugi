@@ -7,7 +7,6 @@ import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, query,
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
 import { useAuthContext } from "@/context/AuthContext"
-import DashboardLayout from "@/components/DashboardLayout"
 import { useVenueFilter } from "@/hooks/useVenueFilter"
 
 const CARD = { background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }
@@ -91,7 +90,7 @@ function VenuesPageInner() {
   if (loading || !user || !hasDashboardAccess) return null
 
   return (
-    <DashboardLayout>
+    <>
       <div className="dash-page">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 12, flexWrap: "wrap" as const }}>
           <div>
@@ -159,7 +158,7 @@ function VenuesPageInner() {
 
       {/* Modal */}
       {modal && <VenueModal form={form} setForm={setForm} onSave={save} onClose={() => setModal(null)} saving={saving} error={error} isEdit={modal === "edit"}/>}
-    </DashboardLayout>
+    </>
   )
 }
 // VenueModal — create/edit form

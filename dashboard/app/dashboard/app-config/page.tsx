@@ -1,7 +1,6 @@
 "use client"
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import DashboardLayout from "@/components/DashboardLayout"
 import { useAuthContext } from "@/context/AuthContext"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 
@@ -154,7 +153,6 @@ export default function AppConfigPage() {
   const canSaveImageMode = imageModeChanged && !savingImageMode
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "#111827", margin: 0 }}>App Config</h1>
@@ -274,6 +272,5 @@ export default function AppConfigPage() {
           </>
         )}
       </div>
-    </DashboardLayout>
   )
 }

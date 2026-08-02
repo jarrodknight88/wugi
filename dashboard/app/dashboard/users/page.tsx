@@ -1,5 +1,4 @@
 "use client"
-import DashboardLayout from "@/components/DashboardLayout"
 import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
 import { useAuthContext, type WugiRole } from "@/context/AuthContext"
@@ -114,7 +113,7 @@ export default function UsersPage() {
   const canHaveTableAccess = nRole === "event_admin"
 
   return (
-    <DashboardLayout>
+    <>
       <div className="dash-page">
         <div className="dash-header">
           <div>
@@ -259,6 +258,6 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-    </DashboardLayout>
+    </>
   )
 }
