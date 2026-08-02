@@ -19,6 +19,11 @@ export type VenueMediaOption = {
   // SafeSearch moderation (issue #170) — only ever set on stagedAssets
   // (scraped mediaAssets); gallery photos are trusted, never carry it.
   moderationStatus?: "clear" | "flagged" | "unscanned"
+  // Stable Storage object path for staged mediaAssets entries — absent for
+  // gallery photos (stable URLs already). The picker's selection identity
+  // keys on `path ?? url`, never `url` alone — the same #171 fix applied to
+  // VenueMediaPanel (issue #179).
+  path?: string
 }
 export type VenueCurrentMediaItem = { uri: string; type: "image" | "video"; rightsStatus: "unverified" | "permission_granted" | "wugi_partner" }
 
@@ -73,7 +78,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ venu
     const rightsStatus = normalizeRightsStatus(data?.rightsStatus)
     const signedAssets = await signMediaAssets(entries.slice(0, ASSET_CAP - stagedAssets.length))
     for (const asset of signedAssets) {
-      stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, moderationStatus: asset.moderationStatus })
+      stagedAssets.push({ url: asset.url, thumbUrl: asset.thumbUrl, rightsStatus, type: asset.type, moderationStatus: asset.moderationStatus, path: asset.path })
       if (stagedAssets.length >= ASSET_CAP) break
     }
   }
@@ -102,7 +107,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ venu
   return NextResponse.json(ctx)
 }
 
-type MediaInput = { type?: string; uri?: string; rightsStatus?: string; moderationStatus?: string }
+// `path` mirrors the shared picker's SelectedMedia shape (dashboard/lib/
+// mediaSelection.ts) so the client can send its selection straight through
+// unmodified. Unlike draft-events' media routes — where events.media is an
+// {uri,type,path?}[] and path is re-attached post-materialization so it
+// survives for the next reload (issue #171) — venues.media stays a flat
+// string[] (see below), so path is accepted here but intentionally does not
+// survive into Firestore; it only matters client-side, during the current
+// editing session, for stable re-selection of a staged asset.
+type MediaInput = { type?: string; uri?: string; rightsStatus?: string; moderationStatus?: string; path?: string }
 
 // PATCH /api/venues/[venueId]/media — persist the picker's selection/order.
 // venues.media stays a flat string[] (client-compat — see GET above); only
