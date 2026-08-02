@@ -122,6 +122,19 @@ function StagedAssetsSection({ draftId, thisPost, selectedKeys, onToggle, onOpen
   )
 }
 
+// NOT migrated to components/MediaManager.tsx (issue #191): the "Staged
+// scraped assets" section below (StagedAssetsSection) renders a per-section
+// scope toggle ("This post" / "All venue assets") that lazy-fetches on
+// demand — a bespoke control MediaManager's lean sections contract
+// (title/options/emptyText, no per-section chrome) has no slot for.
+// Threading it through would mean a flag only this caller needs, which is
+// exactly what the prop-explosion guard says to avoid — so this file keeps
+// composing MediaThumb/Lightbox/SelectedMediaStrip/ConfirmDialog directly
+// instead. venue hero + gallery photos are otherwise identical to
+// VenueMediaPanel/EventMediaPanel's sections, but splitting just those two
+// into MediaManager while leaving staged assets bespoke would fragment one
+// picker across two orchestration paths — not worth it for two sections.
+//
 // Shared by the Publish modal and the Edit Media modal — same three sections
 // (venue hero, gallery photos, staged assets w/ venue-wide browse), same
 // hero+order strip, same lightbox. Selection state is owned by the caller.
