@@ -1,6 +1,7 @@
 "use client"
 import { useCallback, useEffect, useState } from "react"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
+import { useIsMobile } from "@/hooks/useIsMobile"
 import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
 import SearchSelect from "@/components/SearchSelect"
@@ -654,6 +655,89 @@ function formatDateISO(iso: string | null) {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
 }
 
+// Row action cluster — shared by the table row (compact) and the mobile
+// card (full-width, ≥44px touch targets). Same onOpen/onDismiss handlers,
+// two layouts.
+function DraftRowActions({ tab, item, opening, dismissing, onOpen, onDismiss, full }: {
+  tab: "draft" | "published"
+  item: DraftEventListItem
+  opening: string | null
+  dismissing: string | null
+  onOpen: (id: string, action?: "edit-media" | "attach-series") => void
+  onDismiss: (id: string) => void
+  full?: boolean
+}) {
+  const btn: React.CSSProperties = full
+    ? { flex: 1, padding: "12px 0", borderRadius: 8, fontSize: 14, minHeight: 44, border: "none", cursor: "pointer", fontWeight: 600 }
+    : { padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", fontWeight: 600 }
+  return (
+    <div style={{ display: "flex", gap: full ? 8 : 6, width: full ? "100%" : undefined }}>
+      {tab === "draft" ? (
+        <>
+          <button onClick={() => onOpen(item.id)} disabled={opening === item.id} style={{ ...btn, background: "#dcfce7", color: "#15803d", opacity: opening === item.id ? 0.6 : 1 }}>
+            {opening === item.id ? "…" : "Publish"}
+          </button>
+          <button onClick={() => onDismiss(item.id)} disabled={dismissing === item.id} style={{ ...btn, background: "#fee2e2", color: "#b91c1c", opacity: dismissing === item.id ? 0.6 : 1 }}>
+            {dismissing === item.id ? "…" : "Dismiss"}
+          </button>
+        </>
+      ) : (
+        <>
+          <button onClick={() => onOpen(item.id, "edit-media")} disabled={opening === item.id} style={{ ...btn, background: "#e0e7ff", color: "#4338ca", opacity: opening === item.id ? 0.6 : 1 }}>
+            {opening === item.id ? "…" : "Edit media"}
+          </button>
+          <button onClick={() => onOpen(item.id, "attach-series")} disabled={opening === item.id} style={{ ...btn, background: "#fef3c7", color: "#92400e", opacity: opening === item.id ? 0.6 : 1 }}>
+            {opening === item.id ? "…" : "Attach to series"}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function DraftCard({ tab, item, opening, dismissing, onOpen, onDismiss }: {
+  tab: "draft" | "published"
+  item: DraftEventListItem
+  opening: string | null
+  dismissing: string | null
+  onOpen: (id: string, action?: "edit-media" | "attach-series") => void
+  onDismiss: (id: string) => void
+}) {
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 10 }}>
+        {tab === "published" && (
+          item.heroUri ? (
+            // eslint-disable-next-line @next/next/no-img-element -- signed/gallery/venue-hero URLs, rendered direct (never via the IG proxy — see 7/31 PM hotfix commit)
+            <img src={item.heroUri} alt="" width={56} height={56} style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, background: "#f3f4f6", display: "block", flexShrink: 0 }} />
+          ) : (
+            <div style={{ width: 56, height: 56, borderRadius: 8, background: "#f3f4f6", flexShrink: 0 }} />
+          )
+        )}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+          <p style={{ margin: 0, fontWeight: 600, color: "#111827", fontSize: 14 }}>
+            {tab === "published" ? item.liveTitle ?? item.cleanedTitle : item.cleanedTitle}
+          </p>
+          {tab === "published" && item.eventMissing && (
+            <span style={{ fontSize: 11, fontWeight: 500, color: "#b91c1c" }}>⚠ Live event doc missing — showing draft data</span>
+          )}
+          <span style={{ fontSize: 12, color: "#6b7280" }}>{item.venueName}</span>
+          <span style={{ fontSize: 12, color: "#6b7280" }}>
+            {tab === "published" && item.liveDate ? `${item.liveDate}${item.liveTime ? ` · ${item.liveTime}` : ""}` : formatDateISO(item.dateISO)}
+          </span>
+          {item.postUrl ? (
+            <a href={item.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2a7a5a", fontWeight: 600 }}>@{item.sourceAccount || "—"} ↗</a>
+          ) : (
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>@{item.sourceAccount || "—"}</span>
+          )}
+        </div>
+      </div>
+      <CaptionCell caption={item.caption} />
+      <DraftRowActions tab={tab} item={item} opening={opening} dismissing={dismissing} onOpen={onOpen} onDismiss={onDismiss} full />
+    </div>
+  )
+}
+
 export default function DraftEventsPanel() {
   const [tab, setTab] = useState<"draft" | "published">("draft")
   const [drafts, setDrafts] = useState<DraftEventListItem[]>([])
@@ -663,6 +747,7 @@ export default function DraftEventsPanel() {
   const [dismissing, setDismissing] = useState<string | null>(null)
   const [publishCtx, setPublishCtx] = useState<PublishContext | null>(null)
   const [publishAction, setPublishAction] = useState<"edit-media" | "attach-series">("edit-media")
+  const isMobile = useIsMobile()
 
   const load = useCallback(async (status: "draft" | "published") => {
     const data = await authedFetch(`/api/draft-events?status=${status}`)
@@ -726,6 +811,12 @@ export default function DraftEventsPanel() {
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
           {tab === "draft" ? "No draft events. All caught up." : "No published events yet."}
         </div>
+      ) : isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {drafts.map((d) => (
+            <DraftCard key={d.id} tab={tab} item={d} opening={opening} dismissing={dismissing} onOpen={openItem} onDismiss={dismiss} />
+          ))}
+        </div>
       ) : (
         <div className="dash-table-wrap">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
@@ -768,27 +859,7 @@ export default function DraftEventsPanel() {
                   </td>
                   <td style={{ padding: "12px 16px", maxWidth: 320 }}><CaptionCell caption={d.caption} /></td>
                   <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {tab === "draft" ? (
-                        <>
-                          <button onClick={() => openItem(d.id)} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#dcfce7", color: "#15803d", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
-                            {opening === d.id ? "…" : "Publish"}
-                          </button>
-                          <button onClick={() => dismiss(d.id)} disabled={dismissing === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fee2e2", color: "#b91c1c", fontWeight: 600, opacity: dismissing === d.id ? 0.6 : 1 }}>
-                            {dismissing === d.id ? "…" : "Dismiss"}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => openItem(d.id, "edit-media")} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#e0e7ff", color: "#4338ca", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
-                            {opening === d.id ? "…" : "Edit media"}
-                          </button>
-                          <button onClick={() => openItem(d.id, "attach-series")} disabled={opening === d.id} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fef3c7", color: "#92400e", fontWeight: 600, opacity: opening === d.id ? 0.6 : 1 }}>
-                            {opening === d.id ? "…" : "Attach to series"}
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <DraftRowActions tab={tab} item={d} opening={opening} dismissing={dismissing} onOpen={openItem} onDismiss={dismiss} />
                   </td>
                 </tr>
               ))}
