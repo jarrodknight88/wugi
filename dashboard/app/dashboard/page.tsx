@@ -24,6 +24,9 @@ export default function DashboardPage() {
   const { user, hasDashboardAccess, hasUserDocument, role, loading } = useAuthContext()
   const [stats, setStats] = useState({ venues: 0, pendingVenues: 0, events: 0, pendingEvents: 0, galleries: 0, photos: 0 })
   const [recentAudit, setRecentAudit] = useState<any[]>([])
+  // Same strict tier as the app-config page/route — deliberately not
+  // isSuperAdmin, which also admits moderator/support.
+  const isAppConfigAdmin = role === "super_admin"
 
   useEffect(() => {
     if (loading) return
@@ -73,6 +76,7 @@ export default function DashboardPage() {
             { label: "+ Add Venue", href: "/dashboard/venues?new=1", color: "#2a7a5a" },
             { label: "+ Add Event", href: "/dashboard/events?new=1", color: "#1d4ed8" },
             { label: "Review Queue", href: "/dashboard/venues", color: "#7c3aed" },
+            ...(isAppConfigAdmin ? [{ label: "App Config", href: "/dashboard/app-config", color: "#b91c1c" }] : []),
           ].map(btn => (
             <Link key={btn.href} href={btn.href} style={{ padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: btn.color, color: "#fff", textDecoration: "none" }}>{btn.label}</Link>
           ))}
