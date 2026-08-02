@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthContext } from "@/context/AuthContext"
 import { auth } from "@/lib/firebase"
+import { useIsMobile } from "@/hooks/useIsMobile"
 import type { VenueIntelGroup, VenueIntelNeedsAttentionPost, VenueIntelPost, VenueIntelReasonGroup } from "@/app/api/venue-intel/route"
 import type { DiscoveredAccount, AccountType } from "@/app/api/venue-intel-accounts/route"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
@@ -132,30 +133,37 @@ function ModerationBadge({ status }: { status: "clear" | "flagged" | "unscanned"
 }
 
 // onOpen is only passed by NeedsAttentionRow — the plain review queue
-// (PostRow) renders this unclickable, same as before.
-function ThumbCell({ mediaUrl, moderationStatus, onOpen }: { mediaUrl: string | undefined; moderationStatus?: "clear" | "flagged" | "unscanned" | null; onOpen?: () => void }) {
+// (PostRow) renders this unclickable, same as before. ThumbBox is the bare
+// (non-<td>) content, shared by the table's ThumbCell and the mobile cards.
+function ThumbBox({ mediaUrl, moderationStatus, onOpen, size = 64 }: { mediaUrl: string | undefined; moderationStatus?: "clear" | "flagged" | "unscanned" | null; onOpen?: () => void; size?: number }) {
   const [thumb, setThumb] = useProxyThumbnail(mediaUrl)
   const img = (
     // eslint-disable-next-line @next/next/no-img-element -- external, volatile IG CDN URLs
     <img
       src={thumb}
       alt=""
-      width={64}
-      height={64}
+      width={size}
+      height={size}
       onError={() => setThumb(PLACEHOLDER_THUMB)}
-      style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, background: "#f3f4f6", display: "block" }}
+      style={{ width: size, height: size, objectFit: "cover", borderRadius: 8, background: "#f3f4f6", display: "block" }}
     />
   )
   return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      {onOpen ? (
+        <button type="button" onClick={onOpen} aria-label="Expand media" style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block" }}>
+          {img}
+        </button>
+      ) : img}
+      <ModerationBadge status={moderationStatus} />
+    </div>
+  )
+}
+
+function ThumbCell({ mediaUrl, moderationStatus, onOpen }: { mediaUrl: string | undefined; moderationStatus?: "clear" | "flagged" | "unscanned" | null; onOpen?: () => void }) {
+  return (
     <td style={{ padding: "12px 16px", width: 72 }}>
-      <div style={{ position: "relative", width: 64, height: 64 }}>
-        {onOpen ? (
-          <button type="button" onClick={onOpen} aria-label="Expand media" style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block" }}>
-            {img}
-          </button>
-        ) : img}
-        <ModerationBadge status={moderationStatus} />
-      </div>
+      <ThumbBox mediaUrl={mediaUrl} moderationStatus={moderationStatus} onOpen={onOpen} />
     </td>
   )
 }
@@ -182,7 +190,31 @@ function ReasonBadge({ reason }: { reason: string }) {
   )
 }
 
-function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: string, status: "approved" | "dismissed") => void }) {
+// Approve/Dismiss button cluster — shared by the table row (compact) and the
+// mobile card (full-width, ≥44px touch targets). One set of button handlers,
+// two layouts.
+function ApproveDismissActions({ busy, onApprove, onDismiss, full }: {
+  busy: "approved" | "dismissed" | null
+  onApprove: () => void
+  onDismiss: () => void
+  full?: boolean
+}) {
+  const btn: React.CSSProperties = full
+    ? { flex: 1, padding: "12px 0", borderRadius: 8, fontSize: 14, minHeight: 44, border: "none", cursor: "pointer", fontWeight: 600 }
+    : { padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", fontWeight: 600 }
+  return (
+    <div style={{ display: "flex", gap: full ? 8 : 6, width: full ? "100%" : undefined }}>
+      <button onClick={onApprove} disabled={busy !== null} style={{ ...btn, background: "#dcfce7", color: "#15803d", opacity: busy !== null ? 0.6 : 1 }}>
+        {busy === "approved" ? "…" : "Approve"}
+      </button>
+      <button onClick={onDismiss} disabled={busy !== null} style={{ ...btn, background: "#fee2e2", color: "#b91c1c", opacity: busy !== null ? 0.6 : 1 }}>
+        {busy === "dismissed" ? "…" : "Dismiss"}
+      </button>
+    </div>
+  )
+}
+
+function PostRow({ post, onDecide, isMobile }: { post: VenueIntelPost; onDecide: (id: string, status: "approved" | "dismissed") => void; isMobile?: boolean }) {
   const [busy, setBusy] = useState<"approved" | "dismissed" | null>(null)
   const mediaUrl = post.mediaUrls[0]
 
@@ -193,6 +225,29 @@ function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: stri
     } finally {
       setBusy(null)
     }
+  }
+
+  const actions = <ApproveDismissActions busy={busy} onApprove={() => decide("approved")} onDismiss={() => decide("dismissed")} full={isMobile} />
+
+  if (isMobile) {
+    return (
+      <div style={{ background: "#fff", border: "1px solid #f3f4f6", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <ThumbBox mediaUrl={mediaUrl} moderationStatus={post.moderationStatus} size={72} />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+            <CaptionCell caption={post.caption} />
+            <span style={{ fontSize: 12, color: "#6b7280" }}>♥ {post.likesCount.toLocaleString()} · 💬 {post.commentsCount.toLocaleString()}</span>
+            <span style={{ fontSize: 12, color: "#6b7280" }}>{formatDate(post.postedAt)}</span>
+            {post.postUrl && (
+              <a href={post.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2a7a5a", fontWeight: 600 }}>
+                View post ↗
+              </a>
+            )}
+          </div>
+        </div>
+        {actions}
+      </div>
+    )
   }
 
   return (
@@ -213,22 +268,7 @@ function PostRow({ post, onDecide }: { post: VenueIntelPost; onDecide: (id: stri
         )}
       </td>
       <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={() => decide("approved")}
-            disabled={busy !== null}
-            style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#dcfce7", color: "#15803d", fontWeight: 600, opacity: busy !== null ? 0.6 : 1 }}
-          >
-            {busy === "approved" ? "…" : "Approve"}
-          </button>
-          <button
-            onClick={() => decide("dismissed")}
-            disabled={busy !== null}
-            style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fee2e2", color: "#b91c1c", fontWeight: 600, opacity: busy !== null ? 0.6 : 1 }}
-          >
-            {busy === "dismissed" ? "…" : "Dismiss"}
-          </button>
-        </div>
+        {actions}
       </td>
     </tr>
   )
@@ -244,6 +284,7 @@ function GroupCard({
   onBulk: (sourceAccount: string, status: "approved" | "dismissed") => void
 }) {
   const [bulkBusy, setBulkBusy] = useState<"approved" | "dismissed" | null>(null)
+  const isMobile = useIsMobile()
 
   async function bulk(status: "approved" | "dismissed") {
     setBulkBusy(status)
@@ -280,21 +321,84 @@ function GroupCard({
           </button>
         </div>
       </div>
-      <div className="dash-table-wrap" style={{ border: "none", borderRadius: 0, boxShadow: "none" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-          <thead>
-            <tr>
-              {["", "Caption", "Engagement", "Posted", "Link", "Actions"].map((h) => (
-                <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#9ca3af", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+      {isMobile ? (
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {group.posts.map((post) => (
+            <PostRow key={post.id} post={post} onDecide={onDecide} isMobile />
+          ))}
+        </div>
+      ) : (
+        <div className="dash-table-wrap" style={{ border: "none", borderRadius: 0, boxShadow: "none" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr>
+                {["", "Caption", "Engagement", "Posted", "Link", "Actions"].map((h) => (
+                  <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#9ca3af", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {group.posts.map((post) => (
+                <PostRow key={post.id} post={post} onDecide={onDecide} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {group.posts.map((post) => (
-              <PostRow key={post.id} post={post} onDecide={onDecide} />
-            ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Retry/Dismiss button cluster — shared by the table row (compact) and the
+// mobile card (full-width, ≥44px touch targets).
+function RetryDismissActions({ busy, onRetry, onDismiss, full }: {
+  busy: "dismiss" | "retry" | "assign" | null
+  onRetry: () => void
+  onDismiss: () => void
+  full?: boolean
+}) {
+  const btn: React.CSSProperties = full
+    ? { flex: 1, padding: "12px 0", borderRadius: 8, fontSize: 14, minHeight: 44, border: "none", cursor: "pointer", fontWeight: 600 }
+    : { padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", fontWeight: 600 }
+  return (
+    <div style={{ display: "flex", gap: full ? 8 : 6, width: full ? "100%" : undefined }}>
+      <button onClick={onRetry} disabled={busy !== null} style={{ ...btn, background: "#dcfce7", color: "#15803d", opacity: busy !== null ? 0.6 : 1 }}>
+        {busy === "retry" ? "…" : "Retry"}
+      </button>
+      <button onClick={onDismiss} disabled={busy !== null} style={{ ...btn, background: "#fee2e2", color: "#b91c1c", opacity: busy !== null ? 0.6 : 1 }}>
+        {busy === "dismiss" ? "…" : "Dismiss"}
+      </button>
+    </div>
+  )
+}
+
+// Reason badge + venue-assign picker — shared block, full-width on mobile so
+// the SearchSelect dropdown (which fills its container) is finger-usable.
+function NeedsAttentionAssign({ post, busy, onAssignVenue, onOpenNewVenue, full }: {
+  post: VenueIntelNeedsAttentionPost
+  busy: "dismiss" | "retry" | "assign" | null
+  onAssignVenue: (venueId: string, venueName: string) => void
+  onOpenNewVenue: () => void
+  full?: boolean
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start", width: full ? "100%" : undefined }}>
+      <ReasonBadge reason={post.classificationReason} />
+      <div style={{ display: "flex", gap: 6, alignItems: "center", width: "100%", flexDirection: full ? "column" : "row" }}>
+        <div style={{ width: full ? "100%" : 200 }}>
+          <VenuePicker venueId="" onChange={onAssignVenue} placeholder="Assign venue…" disabled={busy !== null} />
+        </div>
+        <button
+          onClick={onOpenNewVenue}
+          disabled={busy !== null}
+          style={{
+            padding: full ? "10px 10px" : "8px 10px", borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb",
+            cursor: "pointer", background: "#fff", color: "#374151", fontWeight: 600, whiteSpace: "nowrap",
+            opacity: busy !== null ? 0.6 : 1, width: full ? "100%" : undefined, minHeight: full ? 44 : undefined,
+          }}
+        >
+          + New venue
+        </button>
       </div>
     </div>
   )
@@ -307,6 +411,7 @@ function NeedsAttentionRow({
   onAssignVenue,
   onOpenLightbox,
   onVenueCreated,
+  isMobile,
 }: {
   post: VenueIntelNeedsAttentionPost
   onDismiss: (id: string) => Promise<void>
@@ -314,6 +419,7 @@ function NeedsAttentionRow({
   onAssignVenue: (id: string, venueId: string, venueName: string) => Promise<void>
   onOpenLightbox: (mediaUrls: string[], index: number) => void
   onVenueCreated: (postId: string, venueId: string, venueName: string) => void
+  isMobile?: boolean
 }) {
   const [busy, setBusy] = useState<"dismiss" | "retry" | "assign" | null>(null)
   const [showNewVenue, setShowNewVenue] = useState(false)
@@ -338,6 +444,40 @@ function NeedsAttentionRow({
     }
   }
 
+  const newVenueModal = showNewVenue && (
+    <NewVenueModal
+      post={post}
+      onClose={() => setShowNewVenue(false)}
+      onCreated={(postId, venueId, venueName) => {
+        setShowNewVenue(false)
+        onVenueCreated(postId, venueId, venueName)
+      }}
+    />
+  )
+
+  if (isMobile) {
+    return (
+      <div style={{ background: "#fff", border: "1px solid #f3f4f6", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <ThumbBox mediaUrl={mediaUrl} moderationStatus={post.moderationStatus} onOpen={post.mediaUrls.length > 0 ? () => onOpenLightbox(post.mediaUrls, 0) : undefined} size={72} />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+            <IGProfileLink handle={post.sourceAccount} />
+            <CaptionCell caption={post.caption} />
+            <span style={{ fontSize: 12, color: "#6b7280" }}>{formatDate(post.postedAt)}</span>
+            {post.postUrl && (
+              <a href={post.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2a7a5a", fontWeight: 600 }}>
+                View post ↗
+              </a>
+            )}
+          </div>
+        </div>
+        <NeedsAttentionAssign post={post} busy={busy} onAssignVenue={assignVenue} onOpenNewVenue={() => setShowNewVenue(true)} full />
+        <RetryDismissActions busy={busy} onRetry={() => run("retry")} onDismiss={() => run("dismiss")} full />
+        {newVenueModal}
+      </div>
+    )
+  }
+
   return (
     <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
       <ThumbCell mediaUrl={mediaUrl} moderationStatus={post.moderationStatus} onOpen={post.mediaUrls.length > 0 ? () => onOpenLightbox(post.mediaUrls, 0) : undefined} />
@@ -351,31 +491,8 @@ function NeedsAttentionRow({
         {/* Reason stays visible — it explains WHY the row is stuck. The
             picker sits alongside it, not in place of it; picking a venue
             immediately assigns + retries (see assignVenueAndRetry). */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
-          <ReasonBadge reason={post.classificationReason} />
-          <div style={{ display: "flex", gap: 6, alignItems: "center", width: "100%" }}>
-            <div style={{ width: 200 }}>
-              <VenuePicker venueId="" onChange={assignVenue} placeholder="Assign venue…" disabled={busy !== null} />
-            </div>
-            <button
-              onClick={() => setShowNewVenue(true)}
-              disabled={busy !== null}
-              style={{ padding: "8px 10px", borderRadius: 8, fontSize: 12, border: "1px solid #e5e7eb", cursor: "pointer", background: "#fff", color: "#374151", fontWeight: 600, whiteSpace: "nowrap", opacity: busy !== null ? 0.6 : 1 }}
-            >
-              + New venue
-            </button>
-          </div>
-        </div>
-        {showNewVenue && (
-          <NewVenueModal
-            post={post}
-            onClose={() => setShowNewVenue(false)}
-            onCreated={(postId, venueId, venueName) => {
-              setShowNewVenue(false)
-              onVenueCreated(postId, venueId, venueName)
-            }}
-          />
-        )}
+        <NeedsAttentionAssign post={post} busy={busy} onAssignVenue={assignVenue} onOpenNewVenue={() => setShowNewVenue(true)} />
+        {newVenueModal}
       </td>
       <td style={{ padding: "12px 16px", fontSize: 13, color: "#6b7280", whiteSpace: "nowrap" }}>{formatDate(post.postedAt)}</td>
       <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
@@ -386,22 +503,7 @@ function NeedsAttentionRow({
         )}
       </td>
       <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={() => run("retry")}
-            disabled={busy !== null}
-            style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#dcfce7", color: "#15803d", fontWeight: 600, opacity: busy !== null ? 0.6 : 1 }}
-          >
-            {busy === "retry" ? "…" : "Retry"}
-          </button>
-          <button
-            onClick={() => run("dismiss")}
-            disabled={busy !== null}
-            style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer", background: "#fee2e2", color: "#b91c1c", fontWeight: 600, opacity: busy !== null ? 0.6 : 1 }}
-          >
-            {busy === "dismiss" ? "…" : "Dismiss"}
-          </button>
-        </div>
+        <RetryDismissActions busy={busy} onRetry={() => run("retry")} onDismiss={() => run("dismiss")} />
       </td>
     </tr>
   )
@@ -426,6 +528,7 @@ function ReasonGroupCard({
 }) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const posts = group.accountGroups.flatMap((ag) => ag.posts)
+  const isMobile = useIsMobile()
 
   async function bulkRetry() {
     setBulkBusy(true)
@@ -453,22 +556,30 @@ function ReasonGroupCard({
           {bulkBusy ? "Retrying…" : "Retry all"}
         </button>
       </div>
-      <div className="dash-table-wrap" style={{ border: "none", borderRadius: 0, boxShadow: "none" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-          <thead>
-            <tr>
-              {["", "Caption", "Account", "Reason / Assign venue", "Posted", "Link", "Actions"].map((h) => (
-                <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#9ca3af", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+      {isMobile ? (
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {posts.map((post) => (
+            <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} onOpenLightbox={onOpenLightbox} onVenueCreated={onVenueCreated} isMobile />
+          ))}
+        </div>
+      ) : (
+        <div className="dash-table-wrap" style={{ border: "none", borderRadius: 0, boxShadow: "none" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr>
+                {["", "Caption", "Account", "Reason / Assign venue", "Posted", "Link", "Actions"].map((h) => (
+                  <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#9ca3af", fontSize: 11, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {posts.map((post) => (
+                <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} onOpenLightbox={onOpenLightbox} onVenueCreated={onVenueCreated} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {posts.map((post) => (
-              <NeedsAttentionRow key={post.id} post={post} onDismiss={onDismiss} onRetry={onRetry} onAssignVenue={onAssignVenue} onOpenLightbox={onOpenLightbox} onVenueCreated={onVenueCreated} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
+import { useIsMobile } from "@/hooks/useIsMobile"
 import { GROUP_COLORS } from "@/components/TableGroupManager"
 import Link from "next/link"
 
@@ -231,10 +232,140 @@ function BalanceEditor({ ticket, onSave, onClose }: {
   )
 }
 
+// ── Ticket row/card ───────────────────────────────────────────────────
+// The check-in toggle and the color/balance action buttons are the same
+// handlers on both the desktop row and the mobile card — only size and
+// layout differ (the mobile card gets a bigger, thumb-friendly check-in
+// circle, "big check-in state" per the mobile audit).
+function CheckinButton({ checkedIn, onToggle, size }: { checkedIn: boolean; onToggle: () => void; size: number }) {
+  return (
+    <button onClick={onToggle} style={{
+      width: size, height: size, borderRadius: "50%", border: "2px solid",
+      cursor: "pointer", fontSize: Math.round(size * 0.44), flexShrink: 0,
+      background: checkedIn ? "#2a7a5a" : "#fff",
+      borderColor: checkedIn ? "#2a7a5a" : "#d1d5db",
+      color: checkedIn ? "#fff" : "#9ca3af",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>{checkedIn ? "✓" : ""}</button>
+  )
+}
+
+function TicketActionButtons({ isColorExpanded, isBalanceExpanded, typeColor, onToggleColor, onToggleBalance, full }: {
+  isColorExpanded: boolean
+  isBalanceExpanded: boolean
+  typeColor: string
+  onToggleColor: () => void
+  onToggleBalance: () => void
+  full?: boolean
+}) {
+  return (
+    <div style={{ display: "flex", gap: full ? 8 : 4, width: full ? "100%" : undefined }}>
+      <button onClick={onToggleColor} title="Set ticket color" style={{
+        width: full ? 44 : 24, height: full ? 44 : 24, borderRadius: full ? 10 : "50%", background: typeColor,
+        border: isColorExpanded ? "2px solid #111827" : "2px solid #fff", cursor: "pointer",
+        boxShadow: "0 0 0 1px #e5e7eb", flexShrink: 0,
+      }} />
+      <button onClick={onToggleBalance} title="Set balance due" style={{
+        padding: full ? "0 14px" : "3px 8px", minHeight: full ? 44 : undefined, flex: full ? 1 : undefined,
+        borderRadius: 6, fontSize: full ? 13 : 11, fontWeight: 600, cursor: "pointer",
+        background: isBalanceExpanded ? "#111827" : "#f3f4f6", color: isBalanceExpanded ? "#fff" : "#374151", border: "none",
+      }}>
+        💰{full ? " Balance" : ""}
+      </button>
+    </div>
+  )
+}
+
+function TicketCard({
+  ticket, typeColor, isColorExpanded, isBalanceExpanded, isMobile,
+  onToggleCheckin, onToggleColor, onToggleBalance, onSaveColor, onSaveBalance, onCloseExpanded,
+}: {
+  ticket: Ticket
+  typeColor: string
+  isColorExpanded: boolean
+  isBalanceExpanded: boolean
+  isMobile: boolean
+  onToggleCheckin: () => void
+  onToggleColor: () => void
+  onToggleBalance: () => void
+  onSaveColor: (c: string) => void
+  onSaveBalance: (ticketId: string, depositCents: number, balanceCents: number) => Promise<void>
+  onCloseExpanded: () => void
+}) {
+  const hasBalance = (ticket.balanceDue ?? 0) > 0
+
+  const badges = (
+    <>
+      <span style={{ padding: "2px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: typeColor + "22", color: typeColor }}>{ticket.ticketTypeName}</span>
+      {ticket.tableAssignment && <span style={{ fontSize: 12, color: "#6b7280" }}>🪑 {ticket.tableAssignment}</span>}
+      {hasBalance && (
+        <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
+          ⚠️ ${((ticket.balanceDue ?? 0) / 100).toFixed(2)} due
+        </span>
+      )}
+      {ticket.checkedIn && ticket.checkedInAt && (
+        <span style={{ fontSize: 11, color: "#9ca3af" }}>{ticket.checkedInAt?.toDate?.()?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) || ""}</span>
+      )}
+    </>
+  )
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", borderLeft: `5px solid ${typeColor}`, padding: "12px 14px", opacity: ticket.status === "refunded" ? 0.5 : 1 }}>
+      {isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <CheckinButton checkedIn={ticket.checkedIn} onToggle={onToggleCheckin} size={52} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "#111827" }}>{ticket.holderName || "—"}</p>
+                {ticket.source === "door" && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#f5f3ff", color: "#7c3aed", fontWeight: 700 }}>DOOR</span>}
+              </div>
+              <p style={{ margin: "1px 0 0", fontSize: 12, color: "#6b7280" }}>{ticket.holderEmail || "no email"}</p>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{badges}</div>
+          <TicketActionButtons
+            isColorExpanded={isColorExpanded} isBalanceExpanded={isBalanceExpanded} typeColor={typeColor}
+            onToggleColor={onToggleColor} onToggleBalance={onToggleBalance} full
+          />
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <CheckinButton checkedIn={ticket.checkedIn} onToggle={onToggleCheckin} size={34} />
+          <div style={{ flex: 1, minWidth: 130 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#111827" }}>{ticket.holderName || "—"}</p>
+              {ticket.source === "door" && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#f5f3ff", color: "#7c3aed", fontWeight: 700 }}>DOOR</span>}
+            </div>
+            <p style={{ margin: "1px 0 0", fontSize: 12, color: "#6b7280" }}>{ticket.holderEmail || "no email"}</p>
+          </div>
+          {badges}
+          <TicketActionButtons
+            isColorExpanded={isColorExpanded} isBalanceExpanded={isBalanceExpanded} typeColor={typeColor}
+            onToggleColor={onToggleColor} onToggleBalance={onToggleBalance}
+          />
+        </div>
+      )}
+
+      {isColorExpanded && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: "#374151", margin: "0 0 6px" }}>Color for this ticket only</p>
+          <ColorDots value={ticket.color || ""} onChange={onSaveColor} />
+        </div>
+      )}
+
+      {isBalanceExpanded && (
+        <BalanceEditor ticket={ticket} onSave={onSaveBalance} onClose={onCloseExpanded} />
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────
 export default function CheckinPage({ params }: { params: Promise<{ eventId: string }> }) {
   const router = useRouter()
   const { user, loading, hasDashboardAccess } = useAuthContext()
+  const isMobile = useIsMobile()
   const [eventId, setEventId]       = useState("")
   const [event, setEvent]           = useState<EventDoc | null>(null)
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([])
@@ -505,78 +636,24 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {displayed.map(ticket => {
               const typeColor = ticket.color || ticketTypes.find(t => t.id === ticket.ticketTypeId)?.color || "#2a7a5a"
-              const hasBalance = (ticket.balanceDue ?? 0) > 0
               const isColorExpanded   = expandedTicketId === ticket.id && expandedSection === "color"
               const isBalanceExpanded = expandedTicketId === ticket.id && expandedSection === "balance"
 
               return (
-                <div key={ticket.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", borderLeft: `5px solid ${typeColor}`, padding: "12px 14px", opacity: ticket.status === "refunded" ? 0.5 : 1 }}>
-
-                  {/* Main row */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    {/* Check-in circle */}
-                    <button onClick={() => toggleCheckin(ticket)} style={{
-                      width: 34, height: 34, borderRadius: "50%", border: "2px solid",
-                      cursor: "pointer", fontSize: 15, flexShrink: 0,
-                      background: ticket.checkedIn ? "#2a7a5a" : "#fff",
-                      borderColor: ticket.checkedIn ? "#2a7a5a" : "#d1d5db",
-                      color: ticket.checkedIn ? "#fff" : "#9ca3af",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>{ticket.checkedIn ? "✓" : ""}</button>
-
-                    {/* Name + email */}
-                    <div style={{ flex: 1, minWidth: 130 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#111827" }}>{ticket.holderName || "—"}</p>
-                        {ticket.source === "door" && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#f5f3ff", color: "#7c3aed", fontWeight: 700 }}>DOOR</span>}
-                      </div>
-                      <p style={{ margin: "1px 0 0", fontSize: 12, color: "#6b7280" }}>{ticket.holderEmail || "no email"}</p>
-                    </div>
-
-                    {/* Tier badge */}
-                    <span style={{ padding: "2px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: typeColor + "22", color: typeColor }}>{ticket.ticketTypeName}</span>
-
-                    {/* Table */}
-                    {ticket.tableAssignment && <span style={{ fontSize: 12, color: "#6b7280" }}>🪑 {ticket.tableAssignment}</span>}
-
-                    {/* Balance warning */}
-                    {hasBalance && (
-                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
-                        ⚠️ ${((ticket.balanceDue ?? 0) / 100).toFixed(2)} due
-                      </span>
-                    )}
-
-                    {/* Check-in time */}
-                    {ticket.checkedIn && ticket.checkedInAt && (
-                      <span style={{ fontSize: 11, color: "#9ca3af" }}>{ticket.checkedInAt?.toDate?.()?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) || ""}</span>
-                    )}
-
-                    {/* Action buttons */}
-                    <div style={{ display: "flex", gap: 4 }}>
-                      {/* Color dot — independent of colorPanel */}
-                      <button onClick={() => toggleExpanded(ticket.id, "color")} title="Set ticket color"
-                        style={{ width: 24, height: 24, borderRadius: "50%", background: typeColor, border: isColorExpanded ? "2px solid #111827" : "2px solid #fff", cursor: "pointer", boxShadow: "0 0 0 1px #e5e7eb", flexShrink: 0 }} />
-                      {/* Balance button */}
-                      <button onClick={() => toggleExpanded(ticket.id, "balance")} title="Set balance due"
-                        style={{ padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", background: isBalanceExpanded ? "#111827" : "#f3f4f6", color: isBalanceExpanded ? "#fff" : "#374151", border: "none" }}>
-                        💰
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Expanded: per-ticket color picker */}
-                  {isColorExpanded && (
-                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: "#374151", margin: "0 0 6px" }}>Color for this ticket only</p>
-                      <ColorDots value={ticket.color || ""} onChange={c => assignColorToTicket(ticket.id, c)} />
-                    </div>
-                  )}
-
-                  {/* Expanded: balance editor */}
-                  {isBalanceExpanded && (
-                    <BalanceEditor ticket={ticket} onSave={saveBalance} onClose={() => { setExpandedTicketId(null); setExpandedSection(null) }} />
-                  )}
-                </div>
+                <TicketCard
+                  key={ticket.id}
+                  ticket={ticket}
+                  typeColor={typeColor}
+                  isColorExpanded={isColorExpanded}
+                  isBalanceExpanded={isBalanceExpanded}
+                  isMobile={isMobile}
+                  onToggleCheckin={() => toggleCheckin(ticket)}
+                  onToggleColor={() => toggleExpanded(ticket.id, "color")}
+                  onToggleBalance={() => toggleExpanded(ticket.id, "balance")}
+                  onSaveColor={c => assignColorToTicket(ticket.id, c)}
+                  onSaveBalance={saveBalance}
+                  onCloseExpanded={() => { setExpandedTicketId(null); setExpandedSection(null) }}
+                />
               )
             })}
           </div>
