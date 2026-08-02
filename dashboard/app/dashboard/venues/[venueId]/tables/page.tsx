@@ -22,27 +22,21 @@ export default function VenueTablesPage() {
   }, [venueId])
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
-        <div className="text-zinc-400">Loading…</div>
-      </div>
-    )
+    return <div className="dash-page" style={{ color: "#9ca3af", fontSize: 14 }}>Loading…</div>
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <nav className="flex items-center gap-2 text-sm text-zinc-500 mb-6">
-          <Link href="/dashboard" className="hover:text-zinc-700 dark:hover:text-zinc-300">Dashboard</Link>
-          <span>/</span>
-          <Link href="/dashboard/venues" className="hover:text-zinc-700 dark:hover:text-zinc-300">Venues</Link>
-          <span>/</span>
-          <span className="text-zinc-900 dark:text-white">{venueName}</span>
-          <span>/</span>
-          <span className="text-zinc-900 dark:text-white">Tables</span>
-        </nav>
-        <TableColorManager venueId={venueId} venueName={venueName} />
-      </div>
+    <div className="dash-page">
+      <nav className="flex items-center gap-2 text-sm text-zinc-500 mb-6">
+        <Link href="/dashboard" className="hover:text-zinc-700 dark:hover:text-zinc-300">Dashboard</Link>
+        <span>/</span>
+        <Link href="/dashboard/venues" className="hover:text-zinc-700 dark:hover:text-zinc-300">Venues</Link>
+        <span>/</span>
+        <span className="text-zinc-900 dark:text-white">{venueName}</span>
+        <span>/</span>
+        <span className="text-zinc-900 dark:text-white">Tables</span>
+      </nav>
+      <TableColorManager venueId={venueId} venueName={venueName} />
     </div>
   )
 }

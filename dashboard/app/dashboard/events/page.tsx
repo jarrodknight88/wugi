@@ -6,7 +6,6 @@ import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, getDoc
 import { db } from "@/lib/firebase"
 import { logAudit } from "@/lib/auditLog"
 import { useAuthContext } from "@/context/AuthContext"
-import DashboardLayout from "@/components/DashboardLayout"
 import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
 import SearchSelect from "@/components/SearchSelect"
@@ -127,7 +126,7 @@ function EventsPageInner() {
   if (loading || !user || !hasDashboardAccess) return null
 
   return (
-    <DashboardLayout>
+    <>
       <div className="dash-page">
         <div className="dash-header">
           <div>
@@ -317,7 +316,7 @@ function EventsPageInner() {
           </div>
         </div>
       )}
-    </DashboardLayout>
+    </>
   )
 }
 

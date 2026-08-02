@@ -1,5 +1,4 @@
 "use client"
-import DashboardLayout from "@/components/DashboardLayout"
 import SearchSelect from "@/components/SearchSelect"
 import { useAuthContext } from "@/context/AuthContext"
 import { useEffect, useMemo, useState } from "react"
@@ -135,7 +134,7 @@ export default function TicketsPage() {
   const refundCheckIn = refundTarget ? checkedIn[refundTarget.id] : undefined
 
   return (
-    <DashboardLayout>
+    <>
       <div className="dash-page">
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Tickets</h1>
@@ -279,7 +278,7 @@ export default function TicketsPage() {
           </div>
         </div>
       )}
-    </DashboardLayout>
+    </>
   )
 }
 

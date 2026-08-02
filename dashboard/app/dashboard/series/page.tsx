@@ -1,5 +1,4 @@
 "use client"
-import DashboardLayout from "@/components/DashboardLayout"
 import SearchSelect from "@/components/SearchSelect"
 import DatePicker from "@/components/DatePicker"
 import TimePicker from "@/components/TimePicker"
@@ -237,7 +236,7 @@ export default function SeriesPage() {
   if (loading || !user || !hasDashboardAccess) return null
 
   return (
-    <DashboardLayout>
+    <>
       <div className="dash-page">
         <div className="dash-header">
           <div>
@@ -426,6 +425,6 @@ export default function SeriesPage() {
           </div>
         </div>
       )}
-    </DashboardLayout>
+    </>
   )
 }

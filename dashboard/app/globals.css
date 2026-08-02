@@ -19,3 +19,13 @@ body {
   margin: 0;
   padding: 0;
 }
+
+.wg-skeleton {
+  background: #e5e7eb;
+  animation: wg-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes wg-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

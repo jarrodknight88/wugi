@@ -1,5 +1,4 @@
 "use client"
-import DashboardLayout from "@/components/DashboardLayout"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore"
@@ -43,7 +42,6 @@ export default function AuditLogsPage() {
   const CARD = { background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0 }}>Audit Log</h1>
@@ -78,6 +76,5 @@ export default function AuditLogsPage() {
           </table>
         </div>
       </div>
-    </DashboardLayout>
   )
 }

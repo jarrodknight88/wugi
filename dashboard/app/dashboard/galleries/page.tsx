@@ -1,5 +1,4 @@
 "use client"
-import DashboardLayout from "@/components/DashboardLayout"
 import { useAuthContext } from "@/context/AuthContext"
 import { useEffect, useState } from "react"
 import { collection, onSnapshot } from "firebase/firestore"
@@ -46,7 +45,6 @@ export default function GalleriesPage() {
   if (loading || !user || !hasDashboardAccess) return null
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
 
         {/* Header */}
@@ -169,6 +167,5 @@ export default function GalleriesPage() {
           </div>
         )}
       </div>
-    </DashboardLayout>
   )
 }

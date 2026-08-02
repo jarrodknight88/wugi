@@ -7,7 +7,6 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
-import DashboardLayout from "@/components/DashboardLayout"
 import { GROUP_COLORS } from "@/components/TableGroupManager"
 import Link from "next/link"
 
@@ -392,10 +391,9 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
   const checkinPct    = tickets.length > 0 ? Math.round((totalChecked / tickets.length) * 100) : 0
 
   if (loading || !user || !hasDashboardAccess) return null
-  if (!event) return <DashboardLayout><div className="dash-page" style={{ color: "#9ca3af" }}>Loading...</div></DashboardLayout>
+  if (!event) return <div className="dash-page" style={{ color: "#9ca3af" }}>Loading...</div>
 
   return (
-    <DashboardLayout>
       <div className="dash-page">
 
         {/* Toast */}
@@ -590,6 +588,5 @@ export default function CheckinPage({ params }: { params: Promise<{ eventId: str
             onClose={() => setShowWalkin(false)} onCreated={msg => { showToast(msg); setShowWalkin(false) }} />
         )}
       </div>
-    </DashboardLayout>
   )
 }
