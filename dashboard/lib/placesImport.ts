@@ -211,6 +211,36 @@ function mapPriceLevel(level: number | string | undefined): string {
   return (["", "$", "$$", "$$$", "$$$$"] as const)[level as number] || "$$"
 }
 
+// ── Address casing (issue #179 bug 2) ───────────────────────────────────
+// Google's formattedAddress comes back all-lowercase for some sources
+// ('1086 alco st ne'). Title-case each word, but keep US state postal
+// codes (GA) and street directional/ordinal suffixes (N, S, E, W, NE, NW,
+// SE, SW) ALL-CAPS — title-casing those reads wrong ('Ne', 'Ga').
+const US_STATE_ABBRS = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+  "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+  "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+  "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+  "WI", "WY", "DC",
+])
+const DIRECTIONAL_ABBRS = new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW"])
+
+function titleCaseToken(token: string): string {
+  const match = token.match(/^([A-Za-z]+)(.*)$/)
+  if (!match) return token
+  const [, letters, rest] = match
+  const upper = letters.toUpperCase()
+  if (letters.length <= 2 && (DIRECTIONAL_ABBRS.has(upper) || US_STATE_ABBRS.has(upper))) {
+    return upper + rest
+  }
+  return letters[0].toUpperCase() + letters.slice(1).toLowerCase() + rest
+}
+
+export function titleCaseAddress(address: string): string {
+  if (!address) return address
+  return address.split(" ").map(titleCaseToken).join(" ")
+}
+
 // ── Hero image selection ────────────────────────────────────────────────
 const HERO_MIN_ASPECT = 1.2
 
@@ -319,14 +349,17 @@ export function buildVenueDoc(
       }
     : {}
 
-  const fields = { name, address: place.formattedAddress || "", phone: place.nationalPhoneNumber || "", website: place.websiteUri || "", hours, photos: media, parking }
+  const address = titleCaseAddress(place.formattedAddress || "")
+  const fields = { name, address, phone: place.nationalPhoneNumber || "", website: place.websiteUri || "", hours, photos: media, parking }
   const confidence = calculateConfidence(fields)
 
   const primaryCategory = assertPrimaryCategory(inferPrimaryCategory(types, primaryType, name))
   const nightlifeSignal = evaluateNightlifeSignal(place, primaryCategory)
 
   const loc = place.location || {}
-  const { neighborhood, neighborhoodSlug, neighborhoodBounds } = deriveNeighborhood(loc.latitude || 0, loc.longitude || 0)
+  const lat = loc.latitude || 0
+  const lng = loc.longitude || 0
+  const { neighborhood, neighborhoodSlug, neighborhoodBounds } = deriveNeighborhood(lat, lng)
 
   const normalizedHandle = instagramHandle.trim().replace(/^@/, "")
 
@@ -334,7 +367,7 @@ export function buildVenueDoc(
     name,
     category: mapCategory(types, name),
     primaryCategory,
-    address: place.formattedAddress || "",
+    address,
     phone: place.nationalPhoneNumber || "",
     website: place.websiteUri || "",
     instagram: normalizedHandle ? `@${normalizedHandle}` : "",
@@ -346,7 +379,11 @@ export function buildVenueDoc(
     heroImage,
     needsPhotoRepull,
     menuDescription: "",
-    location: { latitude: loc.latitude || 0, longitude: loc.longitude || 0 },
+    // 4-key superset — {lat,lng} for the venue edit form's read, {latitude,
+    // longitude} for parity with Google's own shape. See
+    // scripts/upsert-flagged-venues.js's location comment for why: three
+    // shapes coexist live, and the edit form only reads lat/lng (issue #179).
+    location: { lat, lng, latitude: lat, longitude: lng },
     neighborhood,
     neighborhoodSlug,
     neighborhoodBounds,

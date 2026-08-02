@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore"
 import { getAdminDb } from "@/lib/firebase-admin"
 import { requireVenueIntelStaff } from "@/lib/venueIntelAuth"
 import { logAuditServer } from "@/lib/serverAuditLog"
-import { buildVenueDoc, getPlaceDetails, searchPlacesText, type PlaceSearchResult } from "@/lib/placesImport"
+import { buildVenueDoc, getPlaceDetails, searchPlacesText, titleCaseAddress, type PlaceSearchResult } from "@/lib/placesImport"
 
 export const dynamic = "force-dynamic"
 
@@ -100,12 +100,16 @@ export async function POST(req: NextRequest) {
 
     const normalizedHandle = sourceAccount.trim().replace(/^@/, "")
     const now = FieldValue.serverTimestamp()
+    // Manual mode doesn't collect an address today (NewVenueModal only takes
+    // name + neighborhood), but routes the field through the same
+    // titleCaseAddress normalizer buildVenueDoc uses so it stays consistent
+    // if/when this path grows one (issue #179).
     venue = {
       name,
       neighborhood,
       category: "",
       primaryCategory: "Bar",
-      address: "",
+      address: titleCaseAddress(""),
       phone: "",
       website: "",
       instagram: normalizedHandle ? `@${normalizedHandle}` : "",
