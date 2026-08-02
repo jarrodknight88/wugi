@@ -7,7 +7,9 @@ import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
 import VenuePicker from "@/components/VenuePicker"
 import Lightbox from "@/components/Lightbox"
-import { MediaThumb, AssetBadges, PlayBadge } from "@/components/MediaThumb"
+import { MediaThumb, AssetBadges } from "@/components/MediaThumb"
+import SelectedMediaStrip from "@/components/SelectedMediaStrip"
+import ConfirmDialog from "@/components/ConfirmDialog"
 import type { DraftEventListItem } from "@/app/api/draft-events/route"
 import type { PublishContext, MediaOption } from "@/app/api/draft-events/[id]/route"
 import { type SelectedMedia, mediaOptionKey, selectedMediaKey, toggleSelectedMedia, reorderSelectedMedia } from "@/lib/mediaSelection"
@@ -119,61 +121,17 @@ function StagedAssetsSection({ draftId, thisPost, selectedKeys, onToggle, onOpen
   )
 }
 
-// Selection is an ORDERED list — index 0 is the hero, persisted that way
-// into the event's media array. Reordering here is the only way to change
-// hero/order; clicking a thumb only adds/removes from the end.
-function SelectedMediaStrip({ items, onMove, onRemove }: { items: SelectedMedia[]; onMove: (from: number, to: number) => void; onRemove: (key: string) => void }) {
-  if (items.length === 0) return null
-  return (
-    <div>
-      <p style={{ ...LABEL, marginBottom: 8 }}>Selected media ({items.length}) — first is the hero</p>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {items.map((m, i) => (
-          <div key={selectedMediaKey(m)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 84 }}>
-            <div style={{ position: "relative", width: 84, height: 84, borderRadius: 10, overflow: "hidden", background: "#f3f4f6" }}>
-              {m.type === "video" ? (
-                m.thumbUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- signed/external URLs
-                  <img src={m.thumbUrl} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                ) : (
-                  // No poster known (e.g. preloaded from an already-published
-                  // event's media, which only stores {uri, type} — no
-                  // posterPath) — the browser renders the video's first frame
-                  // as a thumbnail without playing it.
-                  <video src={m.uri} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                )
-              ) : (
-                /* eslint-disable-next-line @next/next/no-img-element -- signed/external URLs */
-                <img src={m.uri} alt="" width={84} height={84} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              )}
-              {m.type === "video" && <PlayBadge />}
-              {i === 0 && (
-                <span style={{ position: "absolute", top: 4, left: 4, background: "#111827", color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6, letterSpacing: 0.5 }}>HERO</span>
-              )}
-            </div>
-            <AssetBadges opt={m} />
-            <div style={{ display: "flex", gap: 3 }}>
-              <button type="button" disabled={i === 0} onClick={() => onMove(i, i - 1)} title="Move up" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 11 }}>↑</button>
-              <button type="button" disabled={i === items.length - 1} onClick={() => onMove(i, i + 1)} title="Move down" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #e5e7eb", background: "#fff", cursor: i === items.length - 1 ? "default" : "pointer", opacity: i === items.length - 1 ? 0.35 : 1, fontSize: 11 }}>↓</button>
-              <button type="button" onClick={() => onRemove(selectedMediaKey(m))} title="Remove" style={{ width: 22, height: 22, borderRadius: 5, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 11 }}>✕</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // Shared by the Publish modal and the Edit Media modal — same three sections
 // (venue hero, gallery photos, staged assets w/ venue-wide browse), same
 // hero+order strip, same lightbox. Selection state is owned by the caller.
-function MediaPicker({ draftId, media, selectedMedia, onToggle, onMove, onRemove }: {
+function MediaPicker({ draftId, media, selectedMedia, onToggle, onMove, onRemove, disabled }: {
   draftId: string
   media: { venueHero: string | null; galleryPhotos: MediaOption[]; stagedAssets: MediaOption[] }
   selectedMedia: SelectedMedia[]
   onToggle: (opt: MediaOption) => void
   onMove: (from: number, to: number) => void
   onRemove: (key: string) => void
+  disabled?: boolean
 }) {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null)
   const selectedKeys = selectedMedia.map((m) => selectedMediaKey(m))
@@ -181,7 +139,13 @@ function MediaPicker({ draftId, media, selectedMedia, onToggle, onMove, onRemove
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <SelectedMediaStrip items={selectedMedia} onMove={onMove} onRemove={onRemove} />
+      <SelectedMediaStrip
+        items={selectedMedia}
+        onMove={onMove}
+        onRemove={onRemove}
+        label={selectedMedia.length > 0 ? `Selected media (${selectedMedia.length}) — first is the hero` : undefined}
+        disabled={disabled}
+      />
       <MediaSection title="Venue hero" options={venueHeroOptions} selectedKeys={selectedKeys} onToggle={onToggle} onOpen={(i) => setLightbox({ options: venueHeroOptions, index: i })} emptyText="No venue hero image on file." />
       <MediaSection title="Gallery photos" options={media.galleryPhotos} selectedKeys={selectedKeys} onToggle={onToggle} onOpen={(i) => setLightbox({ options: media.galleryPhotos, index: i })} emptyText="No permissioned gallery photos for this venue yet." />
       <StagedAssetsSection draftId={draftId} thisPost={media.stagedAssets} selectedKeys={selectedKeys} onToggle={onToggle} onOpen={(options, i) => setLightbox({ options, index: i })} />
@@ -227,6 +191,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null)
 
   const seriesOptions: SelectOption[] = ctx.eventSeries.map((s) => ({ id: s.id, label: s.name, sub: `${s.day} · ${s.frequency}` }))
 
@@ -292,21 +257,34 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
     } catch (e) { setError(errorMessage(e)) } finally { setGenericGenerating(false) }
   }
 
-  async function publish() {
+  // riskyInfo() is recomputed at both the gate check and the actual save —
+  // selection can't change in between (the ConfirmDialog overlay blocks the
+  // form underneath), this just avoids threading the numbers through state.
+  function riskyInfo() {
+    const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
+    const riskyCount = selectedMedia.filter(isRiskyMedia).length + (isSpecialEdition ? genericMedia.filter(isRiskyMedia).length : 0)
+    const totalCount = selectedMedia.length + (isSpecialEdition ? genericMedia.length : 0)
+    return { riskyCount, totalCount }
+  }
+
+  function publish() {
     if (!title.trim()) { setError("Title is required"); return }
     if (!date) { setError("Date is required"); return }
     if (!time) { setError("Time is required — drafts don't carry a time"); return }
     if (seriesMode === "attach" && !attachSeriesId) { setError("Choose a series to attach to"); return }
     if (seriesMode === "new-series" && editionMode === "special" && !seriesName.trim()) { setError("Series name is required for a special edition"); return }
 
-    const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
-    const riskyCount = selectedMedia.filter(isRiskyMedia).length + (isSpecialEdition ? genericMedia.filter(isRiskyMedia).length : 0)
-    const totalCount = selectedMedia.length + (isSpecialEdition ? genericMedia.length : 0)
-    const hasUnverifiedMedia = riskyCount > 0
-    if (hasUnverifiedMedia && !confirm(`${riskyCount} of ${totalCount} selected items have unverified rights or were flagged — save anyway?`)) {
+    const { riskyCount, totalCount } = riskyInfo()
+    if (riskyCount > 0) {
+      setConfirmMessage(`${riskyCount} of ${totalCount} selected items have unverified rights or were flagged — save anyway?`)
       return
     }
+    doPublish()
+  }
 
+  async function doPublish() {
+    const isSpecialEdition = seriesMode === "new-series" && editionMode === "special"
+    const { riskyCount } = riskyInfo()
     setSaving(true); setError("")
     try {
       const res = await authedFetch(`/api/draft-events/${ctx.draft.id}/publish`, {
@@ -314,7 +292,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
         body: JSON.stringify({
           title, about, date, time, age, vibes,
           media: selectedMedia,
-          confirmedUnverifiedRights: hasUnverifiedMedia,
+          confirmedUnverifiedRights: riskyCount > 0,
           seriesMode,
           newSeries: seriesMode === "new-series" ? {
             frequency: newSeriesFrequency,
@@ -400,7 +378,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
           {/* Media picker */}
           <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
             <label style={LABEL}>Media</label>
-            <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={selectedMedia} onToggle={toggleMedia} onMove={moveMedia} onRemove={removeMedia} />
+            <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={selectedMedia} onToggle={toggleMedia} onMove={moveMedia} onRemove={removeMedia} disabled={saving} />
           </div>
 
           {/* Series */}
@@ -460,7 +438,7 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
                     <div>
                       <label style={LABEL}>Generic Media</label>
                       <div style={{ marginTop: 8 }}>
-                        <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={genericMedia} onToggle={toggleGenericMedia} onMove={moveGenericMedia} onRemove={removeGenericMedia} />
+                        <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={genericMedia} onToggle={toggleGenericMedia} onMove={moveGenericMedia} onRemove={removeGenericMedia} disabled={saving} />
                       </div>
                     </div>
                   </div>
@@ -495,6 +473,15 @@ function PublishModal({ ctx, onClose, onPublished }: { ctx: PublishContext; onCl
           </button>
         </div>
       </div>
+
+      {confirmMessage && (
+        <ConfirmDialog
+          message={confirmMessage}
+          confirmLabel="Publish anyway"
+          onConfirm={() => { setConfirmMessage(null); doPublish() }}
+          onCancel={() => setConfirmMessage(null)}
+        />
+      )}
     </div>
   )
 }
@@ -515,6 +502,7 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null)
 
   function toggleMedia(opt: MediaOption) {
     setSelectedMedia((m) => toggleSelectedMedia(m, opt))
@@ -526,11 +514,17 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
     setSelectedMedia((m) => m.filter((x) => selectedMediaKey(x) !== key))
   }
 
-  async function save() {
+  function save() {
     const riskyCount = selectedMedia.filter(isRiskyMedia).length
-    if (riskyCount > 0 && !confirm(`${riskyCount} of ${selectedMedia.length} selected items have unverified rights or were flagged — save anyway?`)) {
+    if (riskyCount > 0) {
+      setConfirmMessage(`${riskyCount} of ${selectedMedia.length} selected items have unverified rights or were flagged — save anyway?`)
       return
     }
+    doSave()
+  }
+
+  async function doSave() {
+    const riskyCount = selectedMedia.filter(isRiskyMedia).length
     setSaving(true); setError("")
     try {
       await authedFetch(`/api/draft-events/${ctx.draft.id}/media`, {
@@ -557,7 +551,7 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
 
         <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
           {error && <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13 }}>{error}</div>}
-          <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={selectedMedia} onToggle={toggleMedia} onMove={moveMedia} onRemove={removeMedia} />
+          <MediaPicker draftId={ctx.draft.id} media={ctx.media} selectedMedia={selectedMedia} onToggle={toggleMedia} onMove={moveMedia} onRemove={removeMedia} disabled={saving} />
         </div>
 
         <div style={{ padding: "16px 28px", borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -567,6 +561,15 @@ function EditMediaModal({ ctx, onClose, onSaved }: { ctx: PublishContext; onClos
           </button>
         </div>
       </div>
+
+      {confirmMessage && (
+        <ConfirmDialog
+          message={confirmMessage}
+          confirmLabel="Save anyway"
+          onConfirm={() => { setConfirmMessage(null); doSave() }}
+          onCancel={() => setConfirmMessage(null)}
+        />
+      )}
     </div>
   )
 }

@@ -10,6 +10,7 @@
     "test:publish-media": "node scripts/test-publish-media.js",
     "test:draft-title": "node scripts/test-draft-title.js",
     "test:media-selection": "node scripts/test-media-selection.js",
+    "test:media-reorder": "node scripts/test-media-reorder.js",
     "test:places-import": "node scripts/test-places-import.js"
   },
   "dependencies": {
