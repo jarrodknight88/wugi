@@ -29,6 +29,7 @@ export { onUserCreated }        from './users/onUserCreated';
 export { generateSeriesEvents, generateSeriesEventsScheduled } from './series/generateSeriesEvents';
 export { rollForwardSeriesAnchors } from './series/rollForwardSeriesAnchors';
 export { createTerminalConnectionToken, createTerminalPaymentIntent, captureTerminalPayment, refundDoorSale, cancelDoorSale, autoSettlePendingDoorSales } from './terminal/terminalFunctions';
+export { refundTicketOrder }  from './orders/refundTicketOrder';
 export { onTicketColorChange } from './passes/ticketColorSync';
 export { asanaWebhook }       from './bridge/asanaWebhook';
 export { githubWebhook }      from './bridge/githubWebhook';

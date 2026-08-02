@@ -10,6 +10,7 @@ import { verifyStaffPin, isManagerOrAbove } from '../door/staffAuth';
 import { logDoorSecurityEvent } from '../door/auditLog';
 import { SUPER_ADMIN_SECRETS } from '../door/validateSuperAdminPin';
 import { GEOFENCE_RADIUS_METERS, extractVenueLatLng, haversineMeters } from '../door/geofence';
+import { issueStripeRefund } from '../stripe/refundUtils';
 
 const db = admin.firestore();
 
@@ -465,38 +466,11 @@ export const refundDoorSale = functions
       throw new functions.https.HttpsError('permission-denied', 'Manager or Super Admin PIN required to issue a refund');
     }
 
-    // First check our Firestore record for the chargeId (faster and works if PI was test mode)
-    const refundPaymentSnap = await db.collection('terminalPayments')
-      .where('paymentIntentId', '==', paymentIntentId).limit(1).get();
-    
-    let chargeId: string | null = null;
-    
-    if (!refundPaymentSnap.empty) {
-      const paymentData = refundPaymentSnap.docs[0].data();
-      chargeId = paymentData.chargeId || null;
-    }
-    
-    // Fall back to retrieving from Stripe if not in Firestore
-    if (!chargeId) {
-      try {
-        const pi = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] });
-        if (pi.status !== 'succeeded') {
-          throw new functions.https.HttpsError('failed-precondition', 'Payment not succeeded — cannot refund');
-        }
-        const charge = pi.latest_charge as any;
-        chargeId = typeof charge === 'string' ? charge : charge?.id;
-      } catch (stripeErr: any) {
-        throw new functions.https.HttpsError('not-found', 
-          `Cannot find payment to refund. The transaction may have been created in test mode. Error: ${stripeErr.message}`);
-      }
-    }
-    
-    if (!chargeId) throw new functions.https.HttpsError('not-found', 'No charge ID found for this payment');
-
-    // Issue instant refund
-    const refund = await stripe.refunds.create({
-      charge: chargeId,
-      reason: 'fraudulent',
+    // Resolve the chargeId + issue the Stripe refund — shared with the
+    // dashboard's refundTicketOrder so both refund surfaces call the
+    // exact same Stripe logic (see stripe/refundUtils.ts).
+    const refund = await issueStripeRefund(paymentIntentId, {
+      stripeReason: 'fraudulent',
       metadata: {
         refundReason: reason,
         staffUid: context.auth.uid,
@@ -506,6 +480,7 @@ export const refundDoorSale = functions
         approvedByIdentity: staff.identity,
       },
     });
+    const chargeId = typeof refund.charge === 'string' ? refund.charge : refund.charge?.id ?? null;
 
     // Record refund in Firestore
     await db.collection('terminalRefunds').add({
