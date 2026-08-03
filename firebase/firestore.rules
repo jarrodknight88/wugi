@@ -408,6 +408,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // targetedScrapes/{apifyRunId} — on-demand Apify scrape requests
+    // (Cloud Function runTargetedScrape, admin-only). Tracking only; no
+    // client ever reads or writes this collection directly. Server-only,
+    // same pattern as venueIntel.
+    match /targetedScrapes/{apifyRunId} {
+      allow read, write: if false;
+    }
+
     // ── Catch-all ────────────────────────────────────────────────────
     // Collections still relying on this fallback (isAuth()-gated read, no
     // write) rather than an explicit match block of their own: `photos`
