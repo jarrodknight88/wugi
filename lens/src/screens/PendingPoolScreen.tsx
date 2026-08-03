@@ -10,6 +10,7 @@ import {
   Image, Alert, ActivityIndicator, Dimensions,
 } from 'react-native'
 import { subscribePendingPhotos, moderatePhotos } from '../lib/firebase'
+import { PendingPhotoViewer } from './PendingPhotoViewer'
 import type { PendingPhoto } from '../types'
 
 const { width: SW } = Dimensions.get('window')
@@ -20,39 +21,44 @@ type Props = {
   onClose:   () => void
 }
 
-function PendingThumb({ photo, selected, onToggle }: {
-  photo: PendingPhoto
-  selected: boolean
-  onToggle: () => void
+function PendingThumb({ photo, selected, selectMode, onPress }: {
+  photo:      PendingPhoto
+  selected:   boolean
+  selectMode: boolean
+  onPress:    () => void
 }) {
   return (
     <TouchableOpacity
-      onPress={onToggle}
+      onPress={onPress}
       activeOpacity={0.8}
       style={{
         width: THUMB_SIZE, height: THUMB_SIZE, margin: 2, borderRadius: 8,
         overflow: 'hidden', backgroundColor: '#1a1a1a',
-        borderWidth: 2, borderColor: selected ? '#2a7a5a' : 'transparent',
+        borderWidth: 2, borderColor: selectMode && selected ? '#2a7a5a' : 'transparent',
       }}
     >
       <Image source={{ uri: photo.thumbUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover"/>
-      <View style={{
-        position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11,
-        backgroundColor: selected ? '#2a7a5a' : 'rgba(0,0,0,0.5)',
-        borderWidth: 1.5, borderColor: selected ? '#2a7a5a' : '#888',
-        alignItems: 'center', justifyContent: 'center',
-      }}>
-        {selected && <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>✓</Text>}
-      </View>
+      {selectMode && (
+        <View style={{
+          position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11,
+          backgroundColor: selected ? '#2a7a5a' : 'rgba(0,0,0,0.5)',
+          borderWidth: 1.5, borderColor: selected ? '#2a7a5a' : '#888',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          {selected && <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>✓</Text>}
+        </View>
+      )}
     </TouchableOpacity>
   )
 }
 
 export function PendingPoolScreen({ galleryId, onClose }: Props) {
-  const [photos,   setPhotos]   = useState<PendingPhoto[]>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [loading,  setLoading]  = useState(true)
-  const [busy,     setBusy]     = useState(false)
+  const [photos,     setPhotos]     = useState<PendingPhoto[]>([])
+  const [selected,   setSelected]   = useState<Set<string>>(new Set())
+  const [selectMode, setSelectMode] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
+  const [loading,    setLoading]    = useState(true)
+  const [busy,       setBusy]       = useState(false)
 
   useEffect(() => {
     const unsub = subscribePendingPhotos(
@@ -103,6 +109,20 @@ export function PendingPoolScreen({ galleryId, onClose }: Props) {
     }
   }
 
+  // Default interaction is tap-to-view: a full-screen single-photo viewer
+  // with its own Approve/Reject. "Select" mode switches taps to multi-select
+  // for the batch action bar below.
+  if (viewerIndex !== null && photos[viewerIndex]) {
+    return (
+      <PendingPhotoViewer
+        galleryId={galleryId}
+        photos={photos}
+        startIndex={viewerIndex}
+        onClose={() => setViewerIndex(null)}
+      />
+    )
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
       <SafeAreaView>
@@ -113,13 +133,23 @@ export function PendingPoolScreen({ galleryId, onClose }: Props) {
           <View style={{ flex: 1 }}>
             <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>Pending Pool</Text>
             <Text style={{ color: '#555', fontSize: 12 }}>
-              {photos.length} awaiting review{selected.size > 0 ? ` · ${selected.size} selected` : ''}
+              {photos.length} awaiting review{selectMode && selected.size > 0 ? ` · ${selected.size} selected` : ''}
             </Text>
           </View>
-          {photos.length > 0 && (
-            <TouchableOpacity onPress={selectAll} style={{ padding: 4 }}>
+          {selectMode && photos.length > 0 && (
+            <TouchableOpacity onPress={selectAll} style={{ padding: 4, marginRight: 12 }}>
               <Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '700' }}>
                 {allSelected ? 'Clear' : 'Select All'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {photos.length > 0 && (
+            <TouchableOpacity
+              onPress={() => { setSelectMode(m => !m); setSelected(new Set()) }}
+              style={{ padding: 4 }}
+            >
+              <Text style={{ color: '#2a7a5a', fontSize: 13, fontWeight: '700' }}>
+                {selectMode ? 'Done' : 'Select'}
               </Text>
             </TouchableOpacity>
           )}
@@ -143,47 +173,54 @@ export function PendingPoolScreen({ galleryId, onClose }: Props) {
           data={photos}
           keyExtractor={p => p.id}
           numColumns={3}
-          contentContainerStyle={{ padding: 6, paddingBottom: 120 }}
-          renderItem={({ item }) => (
-            <PendingThumb photo={item} selected={selected.has(item.id)} onToggle={() => toggle(item.id)}/>
+          contentContainerStyle={{ padding: 6, paddingBottom: selectMode ? 120 : 24 }}
+          renderItem={({ item, index }) => (
+            <PendingThumb
+              photo={item}
+              selected={selected.has(item.id)}
+              selectMode={selectMode}
+              onPress={() => selectMode ? toggle(item.id) : setViewerIndex(index)}
+            />
           )}
         />
       )}
 
-      {/* Action bar */}
-      <SafeAreaView style={{ borderTopWidth: 1, borderTopColor: '#1a1a1a', backgroundColor: '#0d0d0d' }}>
-        <View style={{ flexDirection: 'row', padding: 12, gap: 10 }}>
-          <TouchableOpacity
-            onPress={() => act('reject')}
-            disabled={selected.size === 0 || busy}
-            style={{
-              flex: 1, backgroundColor: '#ef444422', borderRadius: 14, paddingVertical: 14,
-              alignItems: 'center', borderWidth: 1, borderColor: '#ef4444',
-              opacity: selected.size === 0 || busy ? 0.4 : 1,
-            }}
-          >
-            <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '700' }}>
-              Reject{selected.size > 0 ? ` (${selected.size})` : ''}
-            </Text>
-          </TouchableOpacity>
+      {/* Batch action bar — only in Select mode; single-photo actions live in the viewer. */}
+      {selectMode && (
+        <SafeAreaView style={{ borderTopWidth: 1, borderTopColor: '#1a1a1a', backgroundColor: '#0d0d0d' }}>
+          <View style={{ flexDirection: 'row', padding: 12, gap: 10 }}>
+            <TouchableOpacity
+              onPress={() => act('reject')}
+              disabled={selected.size === 0 || busy}
+              style={{
+                flex: 1, backgroundColor: '#ef444422', borderRadius: 14, paddingVertical: 14,
+                alignItems: 'center', borderWidth: 1, borderColor: '#ef4444',
+                opacity: selected.size === 0 || busy ? 0.4 : 1,
+              }}
+            >
+              <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '700' }}>
+                Reject{selected.size > 0 ? ` (${selected.size})` : ''}
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => act('approve')}
-            disabled={selected.size === 0 || busy}
-            style={{
-              flex: 1, backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14,
-              alignItems: 'center', opacity: selected.size === 0 || busy ? 0.4 : 1,
-            }}
-          >
-            {busy
-              ? <ActivityIndicator color="#fff" size="small"/>
-              : <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
-                  Approve & Publish{selected.size > 0 ? ` (${selected.size})` : ''}
-                </Text>
-            }
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+            <TouchableOpacity
+              onPress={() => act('approve')}
+              disabled={selected.size === 0 || busy}
+              style={{
+                flex: 1, backgroundColor: '#2a7a5a', borderRadius: 14, paddingVertical: 14,
+                alignItems: 'center', opacity: selected.size === 0 || busy ? 0.4 : 1,
+              }}
+            >
+              {busy
+                ? <ActivityIndicator color="#fff" size="small"/>
+                : <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
+                    Approve & Publish{selected.size > 0 ? ` (${selected.size})` : ''}
+                  </Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      )}
     </View>
   )
 }
