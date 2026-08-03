@@ -422,6 +422,7 @@ type Props = {
   onEventPress:     (event: EventData)      => void;
   onVenuePress:     (venue: VenueData)      => void;
   onGalleryPress:   (gallery: GalleryData)  => void;
+  onDealPress:      (deal: FSDeal)          => void;
   // Weekend-itinerary hero banner slot (Thu/Fri, see getHomeBannerSlot)
   // deep-links into ItineraryDetailScreen — same wiring RootNavigator
   // already uses for DiscoverEditorialScreen's itinerary card.
@@ -430,7 +431,7 @@ type Props = {
   onCameraPress:    () => void;
 };
 
-export function HomeScreen({ theme, onEventPress, onVenuePress, onItineraryPress, userVibes, onCameraPress }: Props) {
+export function HomeScreen({ theme, onEventPress, onVenuePress, onDealPress, onItineraryPress, userVibes, onCameraPress }: Props) {
   const [events,       setEvents]       = useState<FSEvent[]>([]);
   const [venues,       setVenues]       = useState<FSVenue[]>([]);
   const [deals,        setDeals]        = useState<FSDeal[]>([]);
@@ -682,23 +683,6 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onItineraryPress
     });
   }
 
-  // ── Deals venue lookup (for onPress wiring) ───────────────────────────
-  // Find the VenueData matching a deal's venueName for CTA routing.
-  // Falls back to null if no match; card becomes non-navigating.
-  const venueList = venues.map(toVenueData);
-  function dealVenue(deal: FSDeal): VenueData | null {
-    if (deal.venueId) {
-      const byId = venueList.find(v => v.id === deal.venueId);
-      if (byId) return byId;
-    }
-    // Fallback: fuzzy match on venue name
-    return venueList.find(v =>
-      v.name === deal.venueName ||
-      v.name?.includes(deal.venueName) ||
-      deal.venueName?.includes((v.name || '').split(' ')[0])
-    ) || null;
-  }
-
   if (status === 'loading') {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -773,18 +757,16 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onItineraryPress
           </>
         )}
 
-        {/* Deals & Specials — real getActiveDeals data, wired to venue/event */}
+        {/* Deals & Specials — real getActiveDeals data, routes to DealScreen */}
         {deals.length > 0 && (
           <>
             <ShelfHeader kicker="LIMITED TIME" title="Deals & Specials" theme={theme}/>
             <FlatList
               data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-              renderItem={({ item }) => {
-                const targetVenue = dealVenue(item);
-                const handlePress = targetVenue ? () => onVenuePress(targetVenue) : undefined;
-                return <DealCard deal={item} theme={theme} onPress={handlePress}/>;
-              }}
+              renderItem={({ item }) => (
+                <DealCard deal={item} theme={theme} onPress={() => onDealPress(item)}/>
+              )}
             />
           </>
         )}
