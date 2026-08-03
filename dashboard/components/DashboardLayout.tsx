@@ -51,6 +51,12 @@ const Icon = {
       <path d="M5 12h2m4 0h2m4 0h2"/>
     </svg>
   ),
+  Deals: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.59 13.41 13 21l-9-9V3h9l7.59 7.59a2 2 0 0 1 0 2.82Z"/>
+      <circle cx="7.5" cy="7.5" r="1.5"/>
+    </svg>
+  ),
   Audit: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -72,6 +78,7 @@ const NAV = [
   { href: "/dashboard",             label: "Overview",     Icon: Icon.Overview   },
   { href: "/dashboard/venues",      label: "Venues",       Icon: Icon.Venues     },
   { href: "/dashboard/events",      label: "Events",       Icon: Icon.Events     },
+  { href: "/dashboard/deals",       label: "Deals",        Icon: Icon.Deals      },
   { href: "/dashboard/tickets",     label: "Tickets",      Icon: Icon.Tickets    },
   { href: "/dashboard/series",      label: "Series",       Icon: Icon.Series     },
   { href: "/dashboard/galleries",   label: "Galleries",    Icon: Icon.Galleries  },
