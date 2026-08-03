@@ -166,6 +166,19 @@ export function InstagramIcon({ color }: { color: string }) {
   );
 }
 
+// Ride-hail glyph for the "Get a ride" Uber deep-link action.
+export function CarIcon({ color, size = 16 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M3 16v-3.5A1.5 1.5 0 014.5 11h15A1.5 1.5 0 0121 12.5V16" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M3 16v3a1 1 0 001 1h1a1 1 0 001-1v-1M19 18v1a1 1 0 001 1h1a1 1 0 001-1v-3" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+      <Circle cx={7.5} cy={16} r={1.5} fill={color}/>
+      <Circle cx={16.5} cy={16} r={1.5} fill={color}/>
+    </Svg>
+  );
+}
+
 // ── Kebab / overflow menu icon (3 vertical dots) ─────────────────────
 export function KebabVerticalIcon({ color }: { color: string }) {
   return (

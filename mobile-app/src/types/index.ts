@@ -143,6 +143,11 @@ export type VenueData = {
   reservationUrlWithDefaults?: string;
   ctaPrimary?: string;         // e.g. "Reserve a table" or "Get a Section"
   ctaSecondary?: string;       // e.g. "Directions"
+  // Geocoded coordinates (Phase 2 ingest / Google Place lookup). Optional —
+  // absent on hand-seeded/mock venues and on VenueData built by screens that
+  // don't resolve the full Firestore doc. Drives the "Get a ride" Uber deep
+  // link; that action hides itself when this is missing (real-data-only).
+  location?: { latitude: number; longitude: number };
 };
 
 // ── Menu ──────────────────────────────────────────────────────────────

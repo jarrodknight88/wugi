@@ -44,6 +44,7 @@ export function useVenueById(venueId: string | null): {
           bestSellers:     [],
           upcomingEvents:  [],
           galleries:       [],
+          location:        d.location ?? undefined,
         });
         setLoading(false);
       } catch {

@@ -34,6 +34,8 @@ import type { Theme } from '../constants/colors';
 import type { VenueData, ItineraryDoc, EditorialCard } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, ChevronRightIcon, KebabVerticalIcon } from '../components/icons';
+import { GetARideButton } from '../components/GetARideButton';
+import type { RideDropoff } from '../utils/uberDeepLink';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.1);   // aspect 1.1 per spec
@@ -62,6 +64,7 @@ function toVenueData(v: any): VenueData {
     reservationProvider: v.reservationProvider, reservationUrl: v.reservationUrl,
     reservationUrlWithDefaults: v.reservationUrlWithDefaults,
     ctaPrimary: v.ctaPrimary, ctaSecondary: v.ctaSecondary,
+    location: v.location ?? undefined,
   } as VenueData;
 }
 
@@ -130,6 +133,13 @@ function StopRow({ n, card, theme, isLast, onVenuePress }: {
 export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress }: Props) {
   const [itinerary, setItinerary] = useState<ItineraryDoc | null>(null);
   const [loading,   setLoading]   = useState(true);
+  // "Get a ride" is page-level (to the first stop) rather than per-stop —
+  // resolving coordinates for every stop up front would mean N Firestore
+  // reads for a route the user hasn't tapped into yet, for stops most users
+  // never open individually. One extra read (the first stop's venue doc,
+  // same call handleStopTap already makes on tap) covers the "get me to the
+  // start of the night" use case this action is for.
+  const [firstStopRide, setFirstStopRide] = useState<RideDropoff | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +147,16 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
       try {
         const svc = await import('../../firestoreService');
         const doc = await svc.getItineraryById(itineraryId);
-        if (!cancelled) setItinerary(doc);
+        if (cancelled) return;
+        setItinerary(doc);
+
+        const firstStop = (doc?.cards || []).find(c => c.kind === 'stop' && !!c.venueId);
+        if (firstStop?.venueId) {
+          const v = await svc.getVenueById(firstStop.venueId);
+          if (!cancelled && v?.location) {
+            setFirstStopRide({ ...v.location, nickname: v.name || firstStop.title });
+          }
+        }
       } catch (e) {
         console.log('ItineraryDetailScreen: load failed', e);
       } finally {
@@ -280,6 +299,15 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
             </View>
           )}
         </View>
+
+        {/* "Get a ride" — Uber deep link to the first stop's coordinates
+            (page-level, not per-stop — see the state comment above). Hidden
+            when the first stop's venue has no geocoded location. */}
+        {!!firstStopRide && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+            <GetARideButton dropoff={firstStopRide} theme={theme} label="Get a ride to the first stop"/>
+          </View>
+        )}
 
         {/* Blurb — render only when seeded subtitle exists (real data only). */}
         {!!itinerary.subtitle && (

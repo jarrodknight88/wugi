@@ -37,14 +37,17 @@ import { View, Text, TouchableOpacity, ScrollView, FlatList, Dimensions, Linking
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { Video, ResizeMode } from 'expo-av';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, GalleryDoc, FavoriteItem, FSDeal } from '../types';
 import { BackIcon, ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon, LocationIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
 import { DealCard } from '../components/DealCard';
+import { GetARideButton } from '../components/GetARideButton';
 import { orderDealsForDisplay } from '../utils/deals';
 import { formatEventDateLabel } from '../utils/eventDateTime';
+import { hexToRgba } from '../utils/color';
 import { makeGallery } from '../constants/mockData';
 import { logVenueViewed } from '../analytics/analyticsService';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
@@ -359,6 +362,7 @@ function VenueGalleriesGrid({ galleries, venueId, theme, onGalleryPress, onAllGa
 // ── Main screen ────────────────────────────────────────────────────────
 export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, onAllGalleries, onAllEvents, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
+  const [isMuted, setIsMuted] = useState(true);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
   const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
   const [deals, setDeals] = useState<FSDeal[]>([]);
@@ -546,7 +550,9 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false}>
 
-        {/* 1. Hero — paged carousel with venue name overlaid */}
+        {/* 1. Hero — paged carousel. Video-aware: renders Video for
+             type:'video' items (muted-by-default, loop, plays only while its
+             page is active), Image otherwise — matching EventScreen's hero. */}
         <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT, position: 'relative' }}>
           <FlatList
             ref={heroRef}
@@ -558,43 +564,52 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             showsHorizontalScrollIndicator={false}
             onScroll={onHeroScroll}
             scrollEventThrottle={16}
-            renderItem={({ item }) => (
-              <Image cachePolicy="memory-disk" source={{ uri: item.uri }} style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }} contentFit="cover"/>
+            renderItem={({ item, index }) => (
+              item.type === 'video' ? (
+                <Video
+                  source={{ uri: item.uri }}
+                  style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }}
+                  resizeMode={ResizeMode.COVER}
+                  shouldPlay={index === heroIndex}
+                  isLooping
+                  isMuted={isMuted}
+                />
+              ) : (
+                <Image cachePolicy="memory-disk" source={{ uri: item.uri }} style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }} contentFit="cover"/>
+              )
             )}
           />
+          {/* Bottom scrim — transitions into theme.bg so the seam into the
+              title block below (moved off the media overlay) is invisible. */}
           <LinearGradient
             pointerEvents="none"
-            colors={['transparent', 'transparent', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.85)']}
-            locations={[0, 0.45, 0.78, 1]}
+            colors={['transparent', 'transparent', 'rgba(0,0,0,0.25)', theme.bg]}
+            locations={[0, 0.55, 0.78, 1]}
             style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
           />
-          {/* Top controls — back + kebab, same glass-blur pattern as Event */}
-          <View
-            style={{
-              position: 'absolute', top: 64, left: 20, right: 20,
-              flexDirection: 'row', justifyContent: 'space-between',
-              zIndex: 2,
-            }}
-          >
-            <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
-              <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}/>
-                <BackIcon color="#f4efe1"/>
-              </BlurView>
+          {/* Top controls (back + kebab) and the status-bar wash both moved
+              OUT of the hero — rendered as fixed siblings of the ScrollView
+              below so they stay sticky on scroll instead of parallaxing away
+              with the media. */}
+          {/* Mute toggle for video */}
+          {heroMedia[heroIndex]?.type === 'video' && (
+            <TouchableOpacity
+              onPress={() => setIsMuted(p => !p)}
+              style={{
+                position: 'absolute', bottom: 24, right: 14,
+                width: 34, height: 34, borderRadius: 17,
+                backgroundColor: theme.overlayMedium,
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                {isMuted
+                  ? (<><Path d="M11 5L6 9H2v6h4l5 4V5z" stroke={theme.onImage} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Path d="M23 9l-6 6M17 9l6 6" stroke={theme.onImage} strokeWidth={1.8} strokeLinecap="round"/></>)
+                  : (<><Path d="M11 5L6 9H2v6h4l5 4V5z" stroke={theme.onImage} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/><Path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14" stroke={theme.onImage} strokeWidth={1.8} strokeLinecap="round"/></>)
+                }
+              </Svg>
             </TouchableOpacity>
-            <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
-              <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}/>
-                <KebabVerticalIcon color="#f4efe1"/>
-              </BlurView>
-            </TouchableOpacity>
-          </View>
-          {/* Venue name overlay */}
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 30, paddingHorizontal: 20 }}>
-            <Text style={{ color: theme.onImage, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.2, lineHeight: 36 }} numberOfLines={3}>
-              {venue.name}
-            </Text>
-          </View>
+          )}
           {/* Carousel dots */}
           {hasMultiHero && (
             <View style={{ position: 'absolute', bottom: 14, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 }}>
@@ -603,6 +618,14 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
               ))}
             </View>
           )}
+        </View>
+
+        {/* 1b. Venue title — BELOW the media (moved off the hero overlay),
+             above the category line (the venue "details row"). */}
+        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+          <Text style={{ color: theme.text, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.2, lineHeight: 36 }} numberOfLines={3}>
+            {venue.name}
+          </Text>
         </View>
 
         {/* 2. Category line */}
@@ -614,6 +637,14 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
 
         {/* 3. FIND US (hours / website / instagram expand from the chevron) */}
         <VenueContactBlock venue={venue} theme={theme} onMapPress={onMapPress}/>
+
+        {/* "Get a ride" — Uber deep link to the venue's coordinates. Hidden
+            when the venue has no geocoded location (real-data-only). */}
+        {!!venue.location && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+            <GetARideButton dropoff={{ ...venue.location, nickname: venue.name }} theme={theme}/>
+          </View>
+        )}
 
         {/* 4. ABOUT THE PLACE */}
         <VenueAboutBlock venue={venue} theme={theme}/>
@@ -644,6 +675,41 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
 
         <View style={{ height: stickyHeight + 16 }}/>
       </ScrollView>
+
+      {/* ── Status-bar wash — theme-matched, semi-opaque ──────────────────
+           Pinned to the screen top (sibling of the ScrollView, so it never
+           scrolls or parallaxes). Matches theme.bg (black in dark mode,
+           beige in light mode) so the status bar reads correctly against the
+           page background while media scrolls behind it. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={[hexToRgba(theme.bg, 0.92), hexToRgba(theme.bg, 0.55), hexToRgba(theme.bg, 0)]}
+        locations={[0, 0.6, 1]}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 100, zIndex: 40 }}
+      />
+
+      {/* Top controls — back + kebab, same glass-blur pattern as Event.
+          Sticky: fixed sibling of the ScrollView so it never scrolls away. */}
+      <View
+        style={{
+          position: 'absolute', top: 64, left: 20, right: 20,
+          flexDirection: 'row', justifyContent: 'space-between',
+          zIndex: 50,
+        }}
+      >
+        <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
+          <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+            <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}/>
+            <BackIcon color="#f4efe1"/>
+          </BlurView>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
+          <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+            <LinearGradient colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}/>
+            <KebabVerticalIcon color="#f4efe1"/>
+          </BlurView>
+        </TouchableOpacity>
+      </View>
 
       {/* 10. Sticky CTAs: Get Tickets (if active) over Directions + Reserve */}
       {(showTicketCTA || showReserve) && (
