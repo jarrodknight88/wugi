@@ -43,7 +43,7 @@ import {
 } from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import type {
-  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc,
+  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc, MenuItem,
 } from './src/types';
 import { recordNonFatal } from './src/lib/crashlyticsService';
 
@@ -1051,14 +1051,53 @@ export async function createReport(
 }
 
 // ── For You Feed ──────────────────────────────────────────────────────
+// UAT-W2D: bumped from (10, 5) so the round-robin pool in ForYouScreen has
+// enough events/venues to interleave with galleries/deals/menu items and
+// approach the 100/day suggestion cap on an active day, instead of
+// dead-ending after ~15 cards. Still a single generous fetch, not real
+// cursor pagination — see forYouSuggestionCap.ts for how the feed's
+// "continuous" behavior and end-state are actually implemented.
 export async function getForYouFeed(
   userVibes?: string[]
 ): Promise<{ events: FSEvent[]; venues: FSVenue[] }> {
   const [events, venues] = await Promise.all([
-    getApprovedEvents(userVibes, 10),
-    getApprovedVenues(userVibes, 5),
+    getApprovedEvents(userVibes, 30),
+    getApprovedVenues(userVibes, 20),
   ]);
   return { events, venues };
+}
+
+// ── For You: Food/Menu Items suggestion source (UAT-W2D) ───────────────
+// Cross-venue menu browsing has no `collectionGroup('menu')` index or
+// `match /{path=**}/menu/{id}` rule today — see the TYPE_MENUS_TODO note in
+// DiscoverEditorialScreen.tsx, which explicitly flags adding that infra as
+// out-of-scope for a screen-level task. So instead of a collectionGroup
+// query, this fans out the SAME per-venue subcollection read MenuScreen
+// already does (`venues/{venueId}/menu`) across a bounded sample of venues
+// already surfaced in the feed — no rules/index changes required.
+export async function getMenuItemsForVenues(
+  venueIds: string[],
+  maxPerVenue: number = 2
+): Promise<(MenuItem & { venueId: string })[]> {
+  try {
+    const sample = venueIds.slice(0, 15);
+    const perVenue = await Promise.all(sample.map(async venueId => {
+      try {
+        const snap = await getDocs(collection(db, 'venues', venueId, 'menu'));
+        return snap.docs.slice(0, maxPerVenue).map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => {
+          const data = (d.data() as object) as Partial<MenuItem>;
+          return { ...data, id: data.id ?? d.id, venueId } as MenuItem & { venueId: string };
+        });
+      } catch {
+        return [] as (MenuItem & { venueId: string })[];
+      }
+    }));
+    return perVenue.flat();
+  } catch (e) {
+    console.log('getMenuItemsForVenues error:', e);
+    recordNonFatal('getMenuItemsForVenues', e);
+    return [];
+  }
 }
 
 // ── Editorial Discover shelves ────────────────────────────────────────
