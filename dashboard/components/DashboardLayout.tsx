@@ -66,18 +66,25 @@ const Icon = {
       <path d="M8 12l2 2 4-4"/>
     </svg>
   ),
+  Itineraries: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/>
+      <path d="M8.3 7.7c2 1.2 3.4 2.9 4.2 4.6.9 1.9 2.6 3.4 4.4 4.2"/>
+    </svg>
+  ),
 }
 
 const NAV = [
-  { href: "/dashboard",             label: "Overview",     Icon: Icon.Overview   },
-  { href: "/dashboard/venues",      label: "Venues",       Icon: Icon.Venues     },
-  { href: "/dashboard/events",      label: "Events",       Icon: Icon.Events     },
-  { href: "/dashboard/tickets",     label: "Tickets",      Icon: Icon.Tickets    },
-  { href: "/dashboard/series",      label: "Series",       Icon: Icon.Series     },
-  { href: "/dashboard/galleries",   label: "Galleries",    Icon: Icon.Galleries  },
-  { href: "/dashboard/venue-intel", label: "Venue Intel",  Icon: Icon.VenueIntel },
-  { href: "/dashboard/users",       label: "Users",        Icon: Icon.Users      },
-  { href: "/dashboard/audit",       label: "Audit Log",    Icon: Icon.Audit      },
+  { href: "/dashboard",             label: "Overview",     Icon: Icon.Overview     },
+  { href: "/dashboard/venues",      label: "Venues",       Icon: Icon.Venues       },
+  { href: "/dashboard/events",      label: "Events",       Icon: Icon.Events       },
+  { href: "/dashboard/tickets",     label: "Tickets",      Icon: Icon.Tickets      },
+  { href: "/dashboard/series",      label: "Series",       Icon: Icon.Series       },
+  { href: "/dashboard/galleries",   label: "Galleries",    Icon: Icon.Galleries    },
+  { href: "/dashboard/itineraries", label: "Itineraries",  Icon: Icon.Itineraries  },
+  { href: "/dashboard/venue-intel", label: "Venue Intel",  Icon: Icon.VenueIntel   },
+  { href: "/dashboard/users",       label: "Users",        Icon: Icon.Users        },
+  { href: "/dashboard/audit",       label: "Audit Log",    Icon: Icon.Audit        },
 ]
 
 const TOPBAR_H = 52 // px — fixed mobile topbar height
@@ -97,6 +104,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (item.href === "/dashboard/users")       return canManageUsers
     if (item.href === "/dashboard/audit")       return isSuperAdmin
     if (item.href === "/dashboard/venue-intel") return isVenueIntelStaff
+    // Itineraries are Wugi editorial content (firestore.rules: isStaff()-only
+    // write, same as neighborhoodGuides/photographerFeatures) — not
+    // venue/event-owned, so venue_admin/event_admin etc. have no reason to
+    // see this section.
+    if (item.href === "/dashboard/itineraries") return isSuperAdmin
     return true
   })
 
