@@ -1,13 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — FavoritesScreen (design: "Saved")
 //
-// Three sections:
-//   1. Passes      — real Firestore data (passes collection, userId query)
-//   2. Saved events — items swiped-right via ForYou, type === 'event'
-//   3. Saved venues — items swiped-right via ForYou, type === 'venue'
-//
-// Photo galleries (Wugi Lens) — DROPPED: no real backing store.
-// "Tonight" / "This week" groupings — DROPPED: no date metadata on saved items.
+// UAT-W2C hierarchy (fixed order — do not reorder without a spec update):
+//   1. Tickets (your passes) — real Firestore data (passes collection)
+//   2. Saved for tonight     — items swiped-right via ForYou, type === 'event'
+//   3. Photos                — liked photos (Wugi Lens)
+//   4. Upcoming Events       — stub slot, see note above `upcomingEvents` below
+//   5. Food Items            — stub slot, see note above `savedFood` below
+//   6. Venues                — items swiped-right via ForYou, type === 'venue'
 //
 // Typography: FONTS.display titles · FONTS.body body · FONTS.medium
 // buttons/labels · MONO ALLCAPS eyebrows.
@@ -352,6 +352,12 @@ export function FavoritesScreen({
   const savedVenues  = favorites.filter(f => f.type === 'venue');
   const savedPhotos  = favorites.filter(f => f.type === 'photo');
 
+  // Stub slots for the UAT-W2C hierarchy — no backing data source yet.
+  // See the section comments below for what each is reserved for; both
+  // stay empty (and hidden) until a real source is wired up.
+  const upcomingEvents: FavoriteItem[] = [];
+  const savedFood: FavoriteItem[] = [];
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* Header */}
@@ -412,10 +418,12 @@ export function FavoritesScreen({
           );
         })()}
 
-        {/* ── Saved Events — preview carousel, "View All" → SavedListScreen ── */}
+        {/* ── Saved for tonight — preview carousel, "View All" → SavedListScreen.
+            Same swipe-saved event wishlist as before (UAT-V3), relabeled +
+            repositioned per the UAT-W2C hierarchy spec. ── */}
         <SectionHeader
-          kicker="SAVED EVENTS"
-          title="Events you liked"
+          kicker="SAVED FOR TONIGHT"
+          title="Saved for tonight"
           count={savedEvents.length > 0 ? savedEvents.length : undefined}
           theme={theme}
           onViewAll={savedEvents.length > 0 && onViewAllSaved ? () => onViewAllSaved('event') : undefined}
@@ -434,36 +442,6 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
-                onRequestRemove={() => requestRemoval(item.id)}
-                pending={pendingId === item.id}
-                onUndo={undoPending}
-              />
-            )}
-          />
-        )}
-
-        {/* ── Saved Venues — preview carousel, "View All" → SavedListScreen ── */}
-        <SectionHeader
-          kicker="SAVED VENUES"
-          title="Places you like"
-          count={savedVenues.length > 0 ? savedVenues.length : undefined}
-          theme={theme}
-          onViewAll={savedVenues.length > 0 && onViewAllSaved ? () => onViewAllSaved('venue') : undefined}
-        />
-        {savedVenues.length === 0 ? (
-          <EmptySection label="Swipe right on venues in the For You tab to save them here." theme={theme}/>
-        ) : (
-          <FlatList
-            data={savedVenues.slice(0, PREVIEW_LIMIT)}
-            keyExtractor={f => f.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-            renderItem={({ item }) => (
-              <SavedCard
-                item={item}
-                theme={theme}
-                onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
                 onRequestRemove={() => requestRemoval(item.id)}
                 pending={pendingId === item.id}
                 onUndo={undoPending}
@@ -498,6 +476,104 @@ export function FavoritesScreen({
                 item={item}
                 theme={theme}
                 onPress={() => { onMarkRead(item.id); onPhotoPress?.(item.id); }}
+                onRequestRemove={() => requestRemoval(item.id)}
+                pending={pendingId === item.id}
+                onUndo={undoPending}
+              />
+            )}
+          />
+        )}
+
+        {/* ── Upcoming Events — UAT-W2C hierarchy stub slot. Distinct from
+            "Saved for tonight" above: reserved for a future dated-events
+            data source (e.g. events resolved off the user's passes) rather
+            than the swipe-saved wishlist, which already lives in the
+            "Saved for tonight" section. Not wired to a data source yet —
+            renders only once `upcomingEvents` is populated, same
+            renders-only-when-data-exists contract as Food Items below. ── */}
+        {upcomingEvents.length > 0 && (
+          <>
+            <SectionHeader
+              kicker="UPCOMING EVENTS"
+              title="Upcoming Events"
+              count={upcomingEvents.length}
+              theme={theme}
+            />
+            <FlatList
+              data={upcomingEvents.slice(0, PREVIEW_LIMIT)}
+              keyExtractor={f => f.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              renderItem={({ item }) => (
+                <SavedCard
+                  item={item}
+                  theme={theme}
+                  onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
+                  onRequestRemove={() => requestRemoval(item.id)}
+                  pending={pendingId === item.id}
+                  onUndo={undoPending}
+                />
+              )}
+            />
+          </>
+        )}
+
+        {/* ── Food Items — UAT-W2C hierarchy stub slot. Menu-item favoriting
+            doesn't exist yet (FavoriteItem only models event/venue/photo);
+            this slot reserves the correct hierarchy position so nothing
+            needs to move once that save path ships. Renders only when
+            `savedFood` is populated. ── */}
+        {savedFood.length > 0 && (
+          <>
+            <SectionHeader
+              kicker="FOOD ITEMS"
+              title="Food Items"
+              count={savedFood.length}
+              theme={theme}
+            />
+            <FlatList
+              data={savedFood.slice(0, PREVIEW_LIMIT)}
+              keyExtractor={f => f.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              renderItem={({ item }) => (
+                <SavedCard
+                  item={item}
+                  theme={theme}
+                  onPress={() => onMarkRead(item.id)}
+                  onRequestRemove={() => requestRemoval(item.id)}
+                  pending={pendingId === item.id}
+                  onUndo={undoPending}
+                />
+              )}
+            />
+          </>
+        )}
+
+        {/* ── Saved Venues — preview carousel, "View All" → SavedListScreen ── */}
+        <SectionHeader
+          kicker="SAVED VENUES"
+          title="Places you like"
+          count={savedVenues.length > 0 ? savedVenues.length : undefined}
+          theme={theme}
+          onViewAll={savedVenues.length > 0 && onViewAllSaved ? () => onViewAllSaved('venue') : undefined}
+        />
+        {savedVenues.length === 0 ? (
+          <EmptySection label="Swipe right on venues in the For You tab to save them here." theme={theme}/>
+        ) : (
+          <FlatList
+            data={savedVenues.slice(0, PREVIEW_LIMIT)}
+            keyExtractor={f => f.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+            renderItem={({ item }) => (
+              <SavedCard
+                item={item}
+                theme={theme}
+                onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
                 onRequestRemove={() => requestRemoval(item.id)}
                 pending={pendingId === item.id}
                 onUndo={undoPending}
