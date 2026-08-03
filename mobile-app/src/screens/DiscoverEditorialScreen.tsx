@@ -117,6 +117,7 @@ type Props = {
   onEventPress: (event: EventData) => void;
   onVenuePress: (venue: VenueData) => void;
   onGalleryPress: (gallery: GalleryData) => void;
+  onDealPress: (deal: FSDeal) => void;
   onItineraryPress: (itineraryId: string) => void;
 };
 
@@ -872,7 +873,7 @@ function SearchBody({
 }
 
 // ── Top-level screen ────────────────────────────────────────────────────
-export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenuePress, onGalleryPress, onItineraryPress }: Props) {
+export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenuePress, onGalleryPress, onDealPress, onItineraryPress }: Props) {
   // Editorial-state data (always loaded, even when searching, so cancel is instant).
   const [shelves, setShelves] = useState<EditorialShelf[]>([]);
   const [editorialLoading, setEditorialLoading] = useState(true);
@@ -1106,21 +1107,8 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
   const handleSearchEvent = (e: FSEvent) => onEventPress(toEventData(e));
   const handleSearchVenue = (v: FSVenue) => onVenuePress(toVenueData(v));
 
-  // Deal tap → open its venue (resolve venueId → VenueData). Non-navigating
-  // if the deal carries no venueId or the lookup misses.
-  const handleDealPress = async (d: FSDeal) => {
-    if (!d.venueId || navigatingRef.current) return;
-    navigatingRef.current = true;
-    try {
-      const svc = await import('../../firestoreService');
-      const v = await svc.getVenueById(d.venueId);
-      if (v) onVenuePress(toVenueData(v));
-    } catch (e) {
-      console.log('DiscoverEditorialScreen: deal nav failed', e);
-    } finally {
-      setTimeout(() => { navigatingRef.current = false; }, 350);
-    }
-  };
+  // Deal tap → open DealScreen.
+  const handleDealPress = (d: FSDeal) => onDealPress(d);
 
   const removeChip = (dim: FilterDim, opt: string) => {
     setPicked(p => ({ ...p, [dim]: p[dim].filter(o => o !== opt) }));

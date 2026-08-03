@@ -336,7 +336,10 @@ export type NavEntry =
   // Venue galleries list — full-list "All →" destination from VenueScreen's
   // GALLERIES section when a venue has more than the 4 inline tiles.
   | { screen: 'venueGalleries'; venueId: string }
-  | { screen: 'venueEvents'; venueId: string };
+  | { screen: 'venueEvents'; venueId: string }
+  // Deal detail — reached from a deal card (Home + Discover), modeled on
+  // the event/venue profile screens.
+  | { screen: 'deal'; deal: FSDeal };
 
 // ── Firestore (local stubs until Firebase is wired) ───────────────────
 export type FSEvent = {

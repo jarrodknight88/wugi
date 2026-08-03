@@ -11,7 +11,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, useColorScheme, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
-import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
+import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem, FSDeal } from '../types';
 import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
 import { parseClaimToken } from '../utils/deepLink';
 import { formatEventDateShort } from '../utils/eventDateTime';
@@ -31,6 +31,7 @@ import { FavoritesScreen }  from '../screens/FavoritesScreen';
 import { AccountScreen }    from '../screens/AccountScreen';
 import { EventScreen }      from '../screens/EventScreen';
 import { VenueScreen }      from '../screens/VenueScreen';
+import { DealScreen }       from '../screens/DealScreen';
 import { MenuScreen }       from '../screens/MenuScreen';
 import { MenuItemScreen }   from '../screens/MenuItemScreen';
 import { GalleryScreen }    from '../screens/GalleryScreen';
@@ -136,6 +137,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
 
   const navigateToEvent   = (event: EventData)    => push({ screen: 'event', event });
   const navigateToVenue   = (venue: VenueData)    => push({ screen: 'venue', venue });
+  const navigateToDeal    = (deal: FSDeal)        => push({ screen: 'deal', deal });
   const navigateToMap     = (address: string, venueName: string) => push({ screen: 'map', address, venueName });
   const navigateToGallery = (gallery: GalleryData) => push({ screen: 'gallery', gallery });
   const navigateToPhoto   = (photos: GalleryPhoto[], initialIndex: number, gallery: GalleryData) =>
@@ -661,6 +663,16 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       />
     );
 
+    if (current.screen === 'deal') return (
+      <DealScreen
+        deal={current.deal}
+        onBack={pop}
+        onNavigateToVenue={(resolvedVenue) => navigateToVenue(resolvedVenue)}
+        onMapPress={(addr, name) => navigateToMap(addr, name)}
+        theme={theme}
+      />
+    );
+
     if (current.screen === 'menu') return (
       <MenuScreen
         venueId={current.venueId}
@@ -693,8 +705,8 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
 
       {/* Tabs — always mounted, hidden behind stack */}
       <View style={{ flex: 1, display: stackVisible ? 'none' : 'flex' }}>
-        {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
-        {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })}/>}
+        {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onDealPress={navigateToDeal} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
+        {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onDealPress={navigateToDeal} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite} userVibes={userVibes} savedVenueIds={favorites.filter(f => f.type === 'venue').map(f => f.id)}/>}
         {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllPasses={() => push(uid ? { screen: 'passes' } : { screen: 'auth', intent: 'passes' })} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto} onGoToForYou={() => setActiveTab('forYou')}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })} onViewPhotos={() => push({ screen: 'myPhotos' })}/>}

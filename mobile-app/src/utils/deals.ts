@@ -171,3 +171,47 @@ export function orderDealsForDisplay(deals: FSDeal[], now: Date = new Date()): F
 export function dealOffer(deal: FSDeal): string {
   return deal.detail || deal.description || '';
 }
+
+// ── Schedule display (DealScreen time window/validity line) ────────────
+
+const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "HH:MM" (24h) → "9 PM" / "9:30 PM", or "" if unparseable. */
+function formatTime12(t?: string | null): string {
+  const mins = toMinutes(t);
+  if (mins == null) return '';
+  const h24 = Math.floor(mins / 60);
+  const m = mins % 60;
+  const meridiem = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return m === 0 ? `${h12} ${meridiem}` : `${h12}:${String(m).padStart(2, '0')} ${meridiem}`;
+}
+
+/**
+ * Human-readable schedule line for the deal detail screen, e.g.
+ * "Mon–Fri · 5–7 PM" (recurring), "SAT JUN 21 · 9 PM–12 AM" (one-off), or
+ * "" when the deal carries no timing fields at all (always-on/legacy deal —
+ * callers should fall back to their own "no schedule" copy).
+ */
+export function formatDealSchedule(deal: FSDeal): string {
+  const start = formatTime12(deal.startTime);
+  const end = formatTime12(deal.endTime);
+  const timeRange = start && end ? `${start}–${end}` : (start || end);
+
+  if (deal.daysOfWeek && deal.daysOfWeek.length > 0) {
+    const days = [...deal.daysOfWeek].sort((a, b) => a - b);
+    const isConsecutiveRun = days.length > 1 && days.every((d, i) => i === 0 || d === days[i - 1] + 1);
+    const dayLabel = days.length === 7
+      ? 'Every day'
+      : isConsecutiveRun
+        ? `${DAY_ABBR[days[0]]}–${DAY_ABBR[days[days.length - 1]]}`
+        : days.map(d => DAY_ABBR[d]).join(', ');
+    return timeRange ? `${dayLabel} · ${timeRange}` : dayLabel;
+  }
+
+  if (deal.date) {
+    return timeRange ? `${deal.date} · ${timeRange}` : deal.date;
+  }
+
+  return timeRange || '';
+}
