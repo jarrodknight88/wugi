@@ -47,6 +47,8 @@ import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { WeatherBadge } from '../components/WeatherBadge';
+import { RecentGalleries } from '../components/RecentGalleries';
 import { formatEventDateShort } from '../utils/eventDateTime';
 import { selectPicksForYou, selectThisWeekend } from '../utils/homeFeedSelectors';
 
@@ -431,7 +433,7 @@ type Props = {
   onCameraPress:    () => void;
 };
 
-export function HomeScreen({ theme, onEventPress, onVenuePress, onDealPress, onItineraryPress, userVibes, onCameraPress }: Props) {
+export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, onDealPress, onItineraryPress, userVibes, onCameraPress }: Props) {
   const [events,       setEvents]       = useState<FSEvent[]>([]);
   const [venues,       setVenues]       = useState<FSVenue[]>([]);
   const [deals,        setDeals]        = useState<FSDeal[]>([]);
@@ -720,6 +722,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onDealPress, onI
       <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
+          <View style={{ position: 'absolute', right: 0 }}>
+            <WeatherBadge theme={theme}/>
+          </View>
         </View>
         {userVibes.length > 0 && (
           <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 6, fontFamily: MONO, letterSpacing: 0.4 }}>
@@ -770,6 +775,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onDealPress, onI
             />
           </>
         )}
+
+        {/* Recent galleries — most recently added Lens galleries */}
+        <RecentGalleries theme={theme} onGalleryPress={onGalleryPress}/>
 
         {/* Where to start — StartHereShelf: horizontal venue cards */}
         <StartHereShelf starters={starters} theme={theme} onVenuePress={onVenuePress}/>
