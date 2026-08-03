@@ -34,6 +34,7 @@ import type { Theme } from '../constants/colors';
 import type { VenueData, ItineraryDoc, EditorialCard } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, ChevronRightIcon, KebabVerticalIcon } from '../components/icons';
+import { GetARideButton } from '../components/GetARideButton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.1);   // aspect 1.1 per spec
@@ -130,6 +131,12 @@ function StopRow({ n, card, theme, isLast, onVenuePress }: {
 export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress }: Props) {
   const [itinerary, setItinerary] = useState<ItineraryDoc | null>(null);
   const [loading,   setLoading]   = useState(true);
+  // UAT-W2B: page-level "Get a ride" — implementer's call was per-page
+  // (rather than per-stop) pointed at the FIRST stop's venue, since that's
+  // the leg the user actually needs a ride for when opening the route from
+  // outside. EditorialCard (the stop shape) doesn't carry coordinates, so
+  // this re-resolves the first stop's venue doc for its `location`.
+  const [firstStopRide, setFirstStopRide] = useState<{ location: { latitude: number; longitude: number }; venueName: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +145,12 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
         const svc = await import('../../firestoreService');
         const doc = await svc.getItineraryById(itineraryId);
         if (!cancelled) setItinerary(doc);
+        const firstStop = (doc?.cards || []).find(c => c.kind === 'stop' && !!c.venueId);
+        if (firstStop?.venueId) {
+          const v = await svc.getVenueById(firstStop.venueId);
+          const loc = (v as any)?.location;
+          if (!cancelled && loc) setFirstStopRide({ location: loc, venueName: v!.name });
+        }
       } catch (e) {
         console.log('ItineraryDetailScreen: load failed', e);
       } finally {
@@ -280,6 +293,14 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
             </View>
           )}
         </View>
+
+        {/* Get a ride — Uber deep link, page-level to the first stop
+            (UAT-W2B). Hidden when that venue has no geocoded coordinates. */}
+        {!!firstStopRide && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+            <GetARideButton location={firstStopRide.location} venueName={firstStopRide.venueName} theme={theme}/>
+          </View>
+        )}
 
         {/* Blurb — render only when seeded subtitle exists (real data only). */}
         {!!itinerary.subtitle && (
