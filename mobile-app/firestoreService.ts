@@ -27,6 +27,7 @@
 import {
   getFirestore,
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -43,7 +44,7 @@ import {
 } from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import type {
-  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc,
+  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc, MenuItem,
 } from './src/types';
 import { recordNonFatal } from './src/lib/crashlyticsService';
 
@@ -1051,14 +1052,64 @@ export async function createReport(
 }
 
 // ── For You Feed ──────────────────────────────────────────────────────
+// Limits bumped from the original 10/5 (UAT-W2D continuous-suggestions pass)
+// so the round-robin deck built in ForYouScreen has a deep enough pool per
+// source to not dead-end well before the daily suggestion cap.
 export async function getForYouFeed(
   userVibes?: string[]
 ): Promise<{ events: FSEvent[]; venues: FSVenue[] }> {
   const [events, venues] = await Promise.all([
-    getApprovedEvents(userVibes, 10),
-    getApprovedVenues(userVibes, 5),
+    getApprovedEvents(userVibes, 60),
+    getApprovedVenues(userVibes, 60),
   ]);
   return { events, venues };
+}
+
+// Browsable menu items across ALL venues, for the For You "Food/Menu Items"
+// suggestion source (UAT-W2D audit — this content type had no cross-venue
+// fetcher before; MenuScreen only reads a single venue's
+// `venues/{venueId}/menu` subcollection). Uses a collectionGroup query across
+// every venue's `menu` subcollection, then resolves each item's parent venue
+// (dedup'd) via getVenueById to get a display name/category and to drop
+// items whose venue is a test venue or non-visible status — getVenueById
+// itself applies no status filter, so that check happens here.
+export type MenuItemBrowseEntry = {
+  item: MenuItem;
+  venueId: string;
+  venueName: string;
+  venueCategory: string;
+};
+
+const VISIBLE_VENUE_STATUSES = new Set(['approved', 'unclaimed', 'pending_review']);
+
+export async function getMenuItemsBrowse(max: number = 60): Promise<MenuItemBrowseEntry[]> {
+  try {
+    const snap = await getDocs(query(collectionGroup(db, 'menu'), limit(max)));
+    const raw: { item: MenuItem; venueId: string }[] = snap.docs
+      .map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => {
+        const venueRef = d.ref.parent?.parent ?? null;
+        if (!venueRef) return null;
+        const data = (d.data() as object) as Partial<MenuItem>;
+        return { item: { ...data, id: data.id ?? d.id } as MenuItem, venueId: venueRef.id };
+      })
+      .filter((x: { item: MenuItem; venueId: string } | null): x is { item: MenuItem; venueId: string } => x !== null);
+
+    const venueIds: string[] = Array.from(new Set(raw.map(r => r.venueId)));
+    const venues = await Promise.all(venueIds.map(id => getVenueById(id).catch(() => null)));
+    const venueById = new Map(venueIds.map((id, i) => [id, venues[i]]));
+
+    return raw
+      .map(r => {
+        const v = venueById.get(r.venueId);
+        if (!v || !notTestVenue(v) || !VISIBLE_VENUE_STATUSES.has(v.status)) return null;
+        return { item: r.item, venueId: r.venueId, venueName: v.name, venueCategory: v.category || '' };
+      })
+      .filter((x): x is MenuItemBrowseEntry => x !== null);
+  } catch (e) {
+    console.log('getMenuItemsBrowse error:', e);
+    recordNonFatal('getMenuItemsBrowse', e);
+    return [];
+  }
 }
 
 // ── Editorial Discover shelves ────────────────────────────────────────

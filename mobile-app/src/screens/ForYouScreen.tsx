@@ -8,18 +8,33 @@ import Constants from 'expo-constants';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal } from '../types';
-import { getForYouFeed, getDealsBrowse, type FSEvent, type FSVenue } from '../../firestoreService';
+import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal, GalleryDoc } from '../types';
+import {
+  getForYouFeed, getDealsBrowse, getApprovedGalleries, getMenuItemsBrowse, getVenueById,
+  type FSEvent, type FSVenue, type MenuItemBrowseEntry,
+} from '../../firestoreService';
 import { ErrorState, EmptyState } from '../components/StateViews';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
 import { formatEventDateShort } from '../utils/eventDateTime';
+import { buildPhotoId } from '../utils/photoId';
+import { getRemainingSuggestions, recordSuggestionShown, FOR_YOU_DAILY_CAP } from '../utils/forYouSuggestionCap';
+import { logForYouInteraction } from '../analytics/analyticsService';
 
 // Status-bar inset (expo-constants — the app doesn't depend on
 // react-native-safe-area-context). Reused below as extra bottom clearance
 // for the swipe CTA row so it never sits close to the TabBar (UAT-A2 #3).
 const STATUS_BAR_H = Constants.statusBarHeight ?? 0;
+
+// Content type as logged to analytics (UAT-W2D) — finer-grained than
+// ForYouCard['type'] since Gallery Photos and Venue Photos share the card
+// type ('gallery') but are distinct suggestion sources per the audit.
+type ForYouContentType = 'event' | 'venue' | 'deal' | 'gallery_photo' | 'venue_photo' | 'food';
+
+const GALLERY_PHOTO_COLOR = '#0891b2';
+const VENUE_PHOTO_COLOR   = '#0e7490';
+const FOOD_COLOR          = '#d4a85c';
 
 function fsEventToCard(e: FSEvent): ForYouCard {
   return {
@@ -72,6 +87,55 @@ function fsDealToCard(d: FSDeal): ForYouCard {
     subtitle: offer ? `${d.venueName} · ${offer}` : d.venueName,
     image: d.image || `https://picsum.photos/seed/deal-${d.id}/600/900`,
     tag: dealTypeLabel(d.dealType), tagColor: DEAL_COLOR,
+    data: null,
+  };
+}
+
+// Gallery/Venue Photo suggestion cards (UAT-W2D audit — these two content
+// types didn't feed For You before). Both read the same top-level
+// `galleries` collection; the split is whether the gallery is linked to an
+// event (Gallery Photo) or not (Venue Photo, e.g. venue ambiance shots).
+// Card id is the synthetic `${galleryId}-${index}` photo id (see
+// utils/photoId) at index 0 (the gallery's lead/cover photo) — swiping right
+// favorites it as a 'photo' FavoriteItem, preserving the id contract that
+// PhotoViewer/RootNavigator/spendFreeUnlock also rely on. Non-navigating
+// (data:null), like deal cards — there's no photo-detail destination from a
+// suggestion-card tap today.
+function fsGalleryToCard(
+  g: GalleryDoc,
+  contentType: 'gallery_photo' | 'venue_photo',
+  venueName: string,
+): ForYouCard {
+  const images = (g.images || []).filter(Boolean);
+  const image = g.coverImage || images[0] || `https://picsum.photos/seed/gallery-${g.id}/600/900`;
+  const dateLabel = formatEventDateShort(g.date);
+  return {
+    id: buildPhotoId(g.id, 0),
+    type: 'gallery',
+    title: g.title || venueName || 'Photo',
+    subtitle: dateLabel ? `${venueName} · ${dateLabel}` : venueName,
+    image,
+    tag: contentType === 'gallery_photo' ? 'Gallery Photo' : 'Venue Photo',
+    tagColor: contentType === 'gallery_photo' ? GALLERY_PHOTO_COLOR : VENUE_PHOTO_COLOR,
+    data: null,
+  };
+}
+
+// Food/Menu Item suggestion cards (UAT-W2D audit — new source, backed by the
+// new getMenuItemsBrowse() collectionGroup fetcher). Non-navigating
+// (data:null) — MenuItemScreen needs a venueId/venueName/MenuItem triple via
+// NavEntry['menuItem'], which onEventPress/onVenuePress don't carry; adding a
+// new nav callback is out of this screen's lane, so — like deal cards — the
+// suggestion card itself is a teaser, not a tap-through.
+function fsMenuItemToCard(entry: MenuItemBrowseEntry): ForYouCard {
+  const { item, venueName } = entry;
+  return {
+    id: `food_${entry.venueId}_${item.id}`,
+    type: 'food',
+    title: item.name,
+    subtitle: item.priceDisplay ? `${venueName} · ${item.priceDisplay}` : venueName,
+    image: item.imageUrl || `https://picsum.photos/seed/food-${item.id}/600/900`,
+    tag: 'Menu Pick', tagColor: FOOD_COLOR,
     data: null,
   };
 }
@@ -177,6 +241,32 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
   );
 }
 
+// ── Friendly end-states (UAT-W2D — the deck must never just go blank) ──
+function CaughtUpEndState({ theme, onRestart }: { theme: Theme; onRestart: () => void }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+      <Text style={{ fontSize: 48, marginBottom: 16 }}>🎉</Text>
+      <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, textAlign: 'center', marginBottom: 8 }}>You're all caught up!</Text>
+      <Text style={{ color: theme.subtext, fontSize: 15, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>Check back later for more Atlanta nightlife and dining recommendations.</Text>
+      <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={onRestart}>
+        <Text style={{ color: '#fff', fontSize: 15, fontFamily: FONTS.medium }}>Start Over</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function DailyCapEndState({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+      <Text style={{ fontSize: 48, marginBottom: 16 }}>✨</Text>
+      <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, textAlign: 'center', marginBottom: 8 }}>That's today's picks!</Text>
+      <Text style={{ color: theme.subtext, fontSize: 15, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 22 }}>
+        You've hit today's {FOR_YOU_DAILY_CAP}-suggestion limit. Come back tomorrow for a fresh set of Atlanta nightlife picks.
+      </Text>
+    </View>
+  );
+}
+
 // ── ForYouScreen ──────────────────────────────────────────────────────
 type Props = {
   theme: Theme;
@@ -194,56 +284,170 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDone, setIsDone]         = useState(false);
   const [status, setStatus]         = useState<'loading' | 'ready' | 'error'>('loading');
+  // 'pool'  — every fetched source is exhausted, but today's cap has room left.
+  // 'cap'   — the daily suggestion cap is what ended the session, not content.
+  const [endReason, setEndReason]   = useState<'pool' | 'cap'>('pool');
+  const [dayCapped, setDayCapped]   = useState(false);
+
+  // Per-card logging metadata (content type + venue category), keyed by
+  // card.id. Kept alongside `cards` rather than on ForYouCard itself so the
+  // Gallery Photo / Venue Photo split (same card `type`, different analytics
+  // content_type) doesn't need a shared-type change.
+  const cardMetaRef = useRef(new Map<string, { contentType: ForYouContentType; venueCategory: string | null }>());
+  const lastLoggedIdRef = useRef<string | null>(null);
 
   // Real data only — a failed fetch surfaces the error state (with retry)
   // instead of silently substituting mock cards.
-  const loadFeed = () => {
+  const loadFeed = async () => {
     setStatus('loading');
-    Promise.all([getForYouFeed(), getDealsBrowse(40).catch(() => [] as FSDeal[])])
-      .then(([{ events, venues }, rawDeals]) => {
-        // Interleave events and venues for variety
-        const base: ForYouCard[] = [];
-        const maxLen = Math.max(events.length, venues.length);
-        for (let i = 0; i < maxLen; i++) {
-          if (events[i])  base.push(fsEventToCard(events[i]));
-          if (venues[i])  base.push(fsVenueToCard(venues[i]));
-        }
+    setDayCapped(false);
+    setIsDone(false);
 
-        // Light deal preference: saved venues OR matching vibes; if nothing
-        // matches, fall back to a few eligible deals so deals still appear.
-        const eligible = orderDealsForDisplay(rawDeals);
-        const savedSet = new Set(savedVenueIds || []);
-        const vibeSet  = new Set((userVibes || []).map(v => v.toLowerCase()));
-        const preferred = eligible.filter(d =>
-          (d.venueId && savedSet.has(d.venueId)) ||
-          (d.vibes || []).some(v => vibeSet.has(v.toLowerCase()))
-        );
-        const dealPool = (preferred.length > 0 ? preferred : eligible).slice(0, 5);
+    // Cap check FIRST — a lightweight local read, so an already-exhausted day
+    // never costs a Firestore fetch.
+    const remainingAtLoad = await getRemainingSuggestions();
+    if (remainingAtLoad <= 0) {
+      cardMetaRef.current.clear();
+      lastLoggedIdRef.current = null;
+      setCards([]);
+      setDayCapped(true);
+      setStatus('ready');
+      return;
+    }
 
-        // Inject a deal card after every 3rd base card; append any remainder.
-        const built: ForYouCard[] = [];
-        let di = 0;
-        for (let i = 0; i < base.length; i++) {
-          built.push(base[i]);
-          if ((i + 1) % 3 === 0 && di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
-        }
-        while (di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
+    try {
+      const [{ events, venues }, rawDeals, galleries, menuItems] = await Promise.all([
+        getForYouFeed(userVibes),
+        getDealsBrowse(60).catch(() => [] as FSDeal[]),
+        getApprovedGalleries(80).catch(() => [] as GalleryDoc[]),
+        getMenuItemsBrowse(60).catch(() => [] as MenuItemBrowseEntry[]),
+      ]);
 
-        setCards(built);
-        setCurrentIndex(0);
-        setIsDone(false);
-        setStatus('ready');
-      })
-      .catch(e => {
-        console.log('ForYouScreen: feed fetch failed', e);
-        setStatus('error');
+      // Venue name/category lookup for gallery-sourced cards. Start from the
+      // venues already fetched for the venue-card source, then resolve any
+      // additional venueIds galleries reference but that fetch didn't cover
+      // (galleries aren't limited to the same venue set) — bounded by the
+      // number of distinct venues behind this session's galleries, not by
+      // gallery count.
+      const venueById = new Map<string, FSVenue>(venues.map(v => [v.id, v]));
+      const missingVenueIds = Array.from(new Set(
+        galleries.map(g => g.venueId).filter(id => id && !venueById.has(id))
+      ));
+      if (missingVenueIds.length > 0) {
+        const fetched = await Promise.all(missingVenueIds.map(id => getVenueById(id).catch(() => null)));
+        fetched.forEach((v, i) => { if (v) venueById.set(missingVenueIds[i], v); });
+      }
+
+      const meta = new Map<string, { contentType: ForYouContentType; venueCategory: string | null }>();
+
+      const eventCards = events.map(e => {
+        const card = fsEventToCard(e);
+        meta.set(card.id, { contentType: 'event', venueCategory: (e.venueId && venueById.get(e.venueId)?.category) || null });
+        return card;
       });
+
+      const venueCards = venues.map(v => {
+        const card = fsVenueToCard(v);
+        meta.set(card.id, { contentType: 'venue', venueCategory: v.category || null });
+        return card;
+      });
+
+      // Light deal preference: saved venues OR matching vibes; if nothing
+      // matches, fall back to eligible deals so deals still appear. Cap
+      // raised from 5 to 25 (continuous-suggestions pass) so this source
+      // doesn't dry up well ahead of the others.
+      const eligible = orderDealsForDisplay(rawDeals);
+      const savedSet = new Set(savedVenueIds || []);
+      const vibeSet  = new Set((userVibes || []).map(v => v.toLowerCase()));
+      const preferred = eligible.filter(d =>
+        (d.venueId && savedSet.has(d.venueId)) ||
+        (d.vibes || []).some(v => vibeSet.has(v.toLowerCase()))
+      );
+      const dealPool = (preferred.length > 0 ? preferred : eligible).slice(0, 25);
+      const dealCards = dealPool.map(d => {
+        const card = fsDealToCard(d);
+        meta.set(card.id, { contentType: 'deal', venueCategory: (d.venueId && venueById.get(d.venueId)?.category) || null });
+        return card;
+      });
+
+      // Gallery Photos (event-linked) vs Venue Photos (not linked to any
+      // event) — the audit's two missing photo sources, both backed by the
+      // same top-level `galleries` collection, split on `eventId`.
+      const galleryPhotoCards: ForYouCard[] = [];
+      const venuePhotoCards: ForYouCard[] = [];
+      galleries.forEach(g => {
+        const images = (g.images || []).filter(Boolean);
+        if (images.length === 0 && !g.coverImage) return; // nothing to show
+        const venue = venueById.get(g.venueId);
+        const venueName = venue?.name || 'Wugi';
+        const contentType: 'gallery_photo' | 'venue_photo' = g.eventId ? 'gallery_photo' : 'venue_photo';
+        const card = fsGalleryToCard(g, contentType, venueName);
+        meta.set(card.id, { contentType, venueCategory: venue?.category || null });
+        (contentType === 'gallery_photo' ? galleryPhotoCards : venuePhotoCards).push(card);
+      });
+
+      // Food/Menu Items — new source, backed by getMenuItemsBrowse().
+      const foodCards = menuItems.map(entry => {
+        const card = fsMenuItemToCard(entry);
+        meta.set(card.id, { contentType: 'food', venueCategory: entry.venueCategory || null });
+        return card;
+      });
+
+      // Round-robin interleave across all 6 sources so no single source
+      // dominates the deck and the feed stays varied as sources deplete at
+      // different rates (continuous-suggestions pass — replaces the old
+      // fixed events/venues interleave + "inject a deal every 3rd").
+      const sourceLists = [eventCards, venueCards, dealCards, galleryPhotoCards, venuePhotoCards, foodCards];
+      const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
+      const built: ForYouCard[] = [];
+      for (let i = 0; i < maxLen; i++) {
+        for (const list of sourceLists) {
+          if (list[i]) built.push(list[i]);
+        }
+      }
+
+      cardMetaRef.current = meta;
+      lastLoggedIdRef.current = null;
+
+      if (built.length === 0) {
+        setCards([]);
+        setCurrentIndex(0);
+        setStatus('ready');
+        return;
+      }
+
+      // Cap enforcement: never show more than remainingAtLoad cards this
+      // session. If that's fewer than the full pool, the eventual end-state
+      // is the daily-cap message, not "you're all caught up".
+      const sliceLen = Math.min(built.length, remainingAtLoad);
+      setEndReason(remainingAtLoad < built.length ? 'cap' : 'pool');
+      setCards(built.slice(0, sliceLen));
+      setCurrentIndex(0);
+      setStatus('ready');
+    } catch (e) {
+      console.log('ForYouScreen: feed fetch failed', e);
+      setStatus('error');
+    }
   };
 
   useEffect(() => {
     loadFeed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Log a 'view' + advance the daily cap counter exactly once per genuine
+  // transition to a new top card (guarded by lastLoggedIdRef, not the index,
+  // so a swiped-up card that reappears later at a different index re-logs a
+  // fresh view rather than being silently skipped).
+  useEffect(() => {
+    if (status !== 'ready' || isDone || dayCapped) return;
+    const card = cards[currentIndex];
+    if (!card || lastLoggedIdRef.current === card.id) return;
+    lastLoggedIdRef.current = card.id;
+    const m = cardMetaRef.current.get(card.id);
+    recordSuggestionShown();
+    logForYouInteraction({ action: 'view', contentType: m?.contentType ?? 'event', venueCategory: m?.venueCategory ?? null });
+  }, [currentIndex, cards, status, isDone, dayCapped]);
 
   if (status === 'loading') {
     return (
@@ -260,6 +464,10 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
         <ErrorState theme={theme} onRetry={loadFeed}/>
       </View>
     );
+  }
+
+  if (dayCapped) {
+    return <DailyCapEndState theme={theme}/>;
   }
 
   // Successful fetch, but no cards to deal — honest empty state, no mock deck.
@@ -280,16 +488,32 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
     else setCurrentIndex(p => p + 1);
   };
 
+  const logSwipe = (card: ForYouCard, action: 'like' | 'skip') => {
+    const m = cardMetaRef.current.get(card.id);
+    logForYouInteraction({ action, contentType: m?.contentType ?? 'event', venueCategory: m?.venueCategory ?? null });
+  };
+
   const handleSwipeRight = () => {
     const card = cards[currentIndex];
-    if (card.data) {
-      if (card.type === 'event') onFavoriteToggle({ id: card.id, type: 'event', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as EventData });
-      else if (card.type === 'venue') onFavoriteToggle({ id: card.id, type: 'venue', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as VenueData });
+    if (card) {
+      if (card.data) {
+        if (card.type === 'event') onFavoriteToggle({ id: card.id, type: 'event', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as EventData });
+        else if (card.type === 'venue') onFavoriteToggle({ id: card.id, type: 'venue', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as VenueData });
+      } else if (card.type === 'gallery') {
+        // card.id is already the synthetic `${galleryId}-${index}` photo id —
+        // preserve that contract for the Saved-tab / PhotoViewer hydration path.
+        onFavoriteToggle({ id: card.id, type: 'photo', title: card.title, subtitle: card.subtitle, image: card.image, read: false });
+      }
+      logSwipe(card, 'like');
     }
     advance();
   };
 
-  const handleSwipeLeft = () => advance();
+  const handleSwipeLeft = () => {
+    const card = cards[currentIndex];
+    if (card) logSwipe(card, 'skip');
+    advance();
+  };
 
   const handleSwipeUp = () => {
     const card = cards[currentIndex];
@@ -307,17 +531,25 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
     else if (card.type === 'venue' && card.data) onVenuePress(card.data as VenueData);
   };
 
+  // Re-checks the cap before allowing a restart — otherwise looping "Start
+  // Over" on an exhausted-pool deck could quietly blow past the daily cap
+  // across repeated passes through the same cards within one session.
+  const handleRestart = async () => {
+    const remaining = await getRemainingSuggestions();
+    if (remaining <= 0) {
+      setDayCapped(true);
+      setIsDone(false);
+      return;
+    }
+    lastLoggedIdRef.current = null;
+    setCurrentIndex(0);
+    setIsDone(false);
+  };
+
   if (isDone) {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
-        <Text style={{ fontSize: 48, marginBottom: 16 }}>🎉</Text>
-        <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, textAlign: 'center', marginBottom: 8 }}>You're all caught up!</Text>
-        <Text style={{ color: theme.subtext, fontSize: 15, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>Check back later for more Atlanta nightlife and dining recommendations.</Text>
-        <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={() => { setCurrentIndex(0); setIsDone(false); }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontFamily: FONTS.medium }}>Start Over</Text>
-        </TouchableOpacity>
-      </View>
-    );
+    return endReason === 'cap'
+      ? <DailyCapEndState theme={theme}/>
+      : <CaughtUpEndState theme={theme} onRestart={handleRestart}/>;
   }
 
   const currentCard = cards[currentIndex];

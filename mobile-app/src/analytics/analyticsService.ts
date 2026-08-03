@@ -78,3 +78,20 @@ export function logVenueViewed(params: {
     venue_name: params.venueName,
   });
 }
+
+// For You suggestion-deck interactions (UAT-W2D). Raw signal for the
+// separate Picks-personalization task — content type + venue category let
+// that work bucket affinity without re-deriving it from the card payload.
+// venueCategory is null when the source doc doesn't denormalize a venue
+// category cheaply available at card-build time (see ForYouScreen).
+export function logForYouInteraction(params: {
+  action: 'view' | 'like' | 'skip';
+  contentType: 'event' | 'venue' | 'deal' | 'gallery_photo' | 'venue_photo' | 'food';
+  venueCategory: string | null;
+}): void {
+  logEvent('for_you_interaction', {
+    action:         params.action,
+    content_type:   params.contentType,
+    venue_category: params.venueCategory,
+  });
+}
