@@ -2,16 +2,9 @@
 
 End-to-end test of the hardware-capture ingest pipeline using
 `scripts/lens-simulate-device.js` in place of the physical device.
-Everything below runs locally against `wugi-prod`.
-
-`lens-provision-device.js` (step 1) needs `serviceAccount.json` (in `scripts/`
-or `mobile-app/scripts/`) since creating the Auth user and writing
-admin-only device fields are genuinely admin operations. `lens-simulate-device.js`
-(step 2 onward) does **not** — it signs in as the device's own Firebase Auth
-user via the Identity Toolkit REST API (the client-SDK sign-in flow), so
-every write it makes is enforced by the real `storage.rules`/`firestore.rules`,
-exactly like the physical device. A one-time `npm install` at the repo root
-(for `sharp`) is still required by both scripts.
+Everything below runs locally against `wugi-prod`; the only prerequisites
+are `serviceAccount.json` (in `scripts/` or `mobile-app/scripts/`) and a
+one-time `npm install` at the repo root (for `sharp`).
 
 ## Architecture recap
 
@@ -63,19 +56,11 @@ This creates (idempotently):
 with — the pending-pool query and the approve writes are rule-checked
 against `photographerId`.
 
-The provision script prints the device auth user's password ONCE (only if
-you don't pass `--password`) — store it, you need it for step 2.
-
 ## 2. Simulate the device
 
 ```bash
-export LENS_DEVICE_PASSWORD='<password printed by lens-provision-device.js>'
 node scripts/lens-simulate-device.js --device lens-proto-01 --count 8 --interval 2000
 ```
-
-No `serviceAccount.json` needed — the simulator signs in as
-`lens-proto-01@devices.wugi.us` itself (override with `LENS_DEVICE_EMAIL`).
-Use `--photos ./some-dir` to upload real JPEGs instead of generated ones.
 
 Each upload lands in `lens-ingest/` and the deployed function fans out.
 Watch it live: `firebase functions:log --only ingestLensUpload --project wugi-prod`
@@ -131,13 +116,9 @@ claim page + consumer gallery update with no review step.
 
 ## Storage-rules smoke test (device auth path)
 
-Steps 2 and 5 above already exercise the real device-auth write path — the
-simulator signs in as `lens-proto-01@devices.wugi.us` via the Identity
-Toolkit REST API (not the Admin SDK), so every upload and heartbeat write is
-enforced by the deployed `storage.rules`/`firestore.rules`, same as the
-physical device. Two things worth confirming manually once (or once the
-hardware arrives), since the simulator only ever acts as one device:
-
-- A write to `lens-ingest/other-device/...` while signed in as
-  `lens-proto-01` is DENIED (`request.auth.token.lensDeviceId` won't match).
-- Unauthenticated reads of `lens-ingest/...` are DENIED.
+The simulator uses the Admin SDK, which bypasses Storage rules. Before the
+demo, verify the real device write path once the hardware arrives (or with
+any Firebase client SDK): sign in as `lens-proto-01@devices.wugi.us` and
+confirm (a) a write to `lens-ingest/lens-proto-01/<assigned-gallery>/x.jpg`
+succeeds, (b) a write to `lens-ingest/other-device/...` is DENIED, and
+(c) unauthenticated reads of `lens-ingest/...` are DENIED.
