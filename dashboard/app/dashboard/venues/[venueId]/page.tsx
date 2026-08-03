@@ -20,11 +20,20 @@ type Venue = {
   neighborhood: string; phone: string; website: string; instagram: string
   about: string; status: string; isFeatured: boolean; vibes: string[]
   venueLatitude?: number; venueLongitude?: number
+  // Reserve CTA — read by mobile VenueScreen's Reserve button (src/screens/VenueScreen.tsx)
+  reservationUrl?: string
   // Payment settings
   paymentDescriptor?: string
   idVerificationThreshold?: number
   stripeConnectAccountId?: string
   paymentDescriptorNote?: string
+}
+
+// Mobile Linking.openURL only works reliably over https — enforce it here so
+// a pasted http:// (or non-URL) link doesn't silently no-op the Reserve CTA.
+function isValidReservationUrl(url: string): boolean {
+  if (!url) return true
+  return /^https:\/\/.+/i.test(url.trim())
 }
 
 const INPUT: React.CSSProperties = {
@@ -161,6 +170,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
         phone: d.phone || "", website: d.website || "", instagram: d.instagram || "",
         about: d.about || "", status: d.status || "", isFeatured: d.isFeatured || false,
         vibes: d.vibes || [], venueLatitude: d.venueLatitude, venueLongitude: d.venueLongitude,
+        reservationUrl: d.reservationUrl || "",
         paymentDescriptor: d.paymentDescriptor || "",
         idVerificationThreshold: d.idVerificationThreshold ?? 30000,
         stripeConnectAccountId: d.stripeConnectAccountId || "",
@@ -288,6 +298,21 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
                 <input style={INPUT} value={form.instagram || ""} onChange={e => setForm(f => ({ ...f, instagram: e.target.value }))} />
               </div>
               <div style={{ gridColumn: "1/-1" }}>
+                <label style={LABEL}>Reservation Link</label>
+                <input
+                  style={INPUT}
+                  value={form.reservationUrl || ""}
+                  placeholder="https://resy.com/cities/atl/your-venue"
+                  onChange={e => setForm(f => ({ ...f, reservationUrl: e.target.value.trim() }))}
+                />
+                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+                  Direct booking link (OpenTable, Resy, Tock, etc.) — powers the Reserve button on the venue's mobile page.
+                </p>
+                {!isValidReservationUrl(form.reservationUrl || "") && (
+                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>⚠️ Must be a valid https:// link</p>
+                )}
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <label style={{ ...LABEL, marginBottom: 0 }}>About</label>
                   <button type="button" onClick={handleGenerate} disabled={generating} style={{
@@ -316,8 +341,8 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
               {canWrite ? (
                 <button
                   onClick={handleSave}
-                  disabled={saving}
-                  style={{ padding: "10px 24px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", cursor: saving ? "default" : "pointer", fontWeight: 600, fontSize: 14, opacity: saving ? 0.7 : 1 }}
+                  disabled={saving || !isValidReservationUrl(form.reservationUrl || "")}
+                  style={{ padding: "10px 24px", borderRadius: 8, background: "#2a7a5a", color: "#fff", border: "none", cursor: saving ? "default" : "pointer", fontWeight: 600, fontSize: 14, opacity: saving || !isValidReservationUrl(form.reservationUrl || "") ? 0.7 : 1 }}
                 >
                   {saving ? "Saving…" : saved ? "✓ Saved!" : "Save Changes"}
                 </button>
