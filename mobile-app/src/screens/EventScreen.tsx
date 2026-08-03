@@ -60,6 +60,7 @@ import { useVenueById } from '../hooks/useVenueById';
 import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { formatEventDateShort, formatEventTimeLabel } from '../utils/eventDateTime';
 import { hexToRgba } from '../utils/color';
+import { attachableImageUri, buildEventShareMessage } from '../utils/share';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Design hero: default aspectRatio 0.95 → height = width / 0.95. Used for
@@ -247,11 +248,23 @@ function EventScreenInner({
           data: event,
         });
       } else if (index === 1) {
-        // Share
-        Share.share({
-          message: `Check out ${event.title} at ${venueName} on Wugi!`,
-          title: event.title,
-        }).catch(() => {});
+        // Share — hero image (iOS only, see utils/share.ts) + blurb + about
+        // text ending with "powered by @wugi" + link.
+        (async () => {
+          try {
+            const heroUri = media[0]?.uri || '';
+            const localImageUri = await attachableImageUri(heroUri, event.id);
+            const message = buildEventShareMessage(event);
+            await Share.share(
+              localImageUri
+                ? { message, url: localImageUri, title: event.title }
+                : { message, title: event.title },
+            );
+          } catch (_) {
+            // User cancelled or the share sheet failed to open — no-op,
+            // matches this menu's other actions.
+          }
+        })();
       } else if (index === 2) {
         // Add to Calendar — real expo-calendar write
         (async () => {
