@@ -96,6 +96,11 @@ export type EventData = {
   age: string;
   about: string;
   media: { type: string; uri: string }[];
+  // Optional editorial override for hero/banner surfaces (e.g. Home hero
+  // carousel). Falls back to media[0].uri when absent — see
+  // resolveEventBannerImage() in HomeScreen.tsx. Dashboard-writable field,
+  // not yet exposed in the dashboard UI (UAT-W3-1 follow-up).
+  bannerImage?: string;
   gallery: GalleryData;
   hasTickets?: boolean;
 };
@@ -253,6 +258,9 @@ type EditorialShelfBase = {
   title:      string;
   subtitle:   string;
   coverImage: string;
+  // Optional editorial override for hero/banner surfaces (e.g. Home hero
+  // carousel weekend-itinerary slot). Falls back to coverImage when absent.
+  bannerImage?: string;
   cards:      EditorialCard[];
   order:      number;
   status:     'live' | 'draft';
@@ -349,6 +357,11 @@ export type FSEvent = {
   eventFeatured?: boolean;
   isFeatured?: boolean;
   createdAt: any;
+  // Optional editorial override for hero/banner surfaces (e.g. Home hero
+  // carousel). Falls back to media[0].uri when absent — see
+  // resolveEventBannerImage() in HomeScreen.tsx. Dashboard-writable field,
+  // not yet exposed in the dashboard UI (UAT-W3-1 follow-up).
+  bannerImage?: string;
 };
 
 export type FSVenue = {
