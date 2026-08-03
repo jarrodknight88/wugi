@@ -61,13 +61,19 @@ once measured its own baseline instead of trusting the docs because the docs
 disagreed with each other; that is exactly how a regression slips through
 review. **If a baseline legitimately changes, update it here immediately.**
 
-Measured directly on `main`, 2026-07-26/27:
+Measured directly on `main`, 2026-08-02 (mobile-app re-measured; others last
+measured 2026-07-26/27 and unchanged):
 
 | Package        | Errors | Command (run from the package dir)          |
 |-----------------|--------|-----------------------------------------------|
 | `functions/`    | 0      | `node node_modules/typescript/bin/tsc --noEmit` |
-| `mobile-app/`   | 31     | `npx tsc --noEmit`                            |
+| `mobile-app/`   | 38     | `npx tsc --noEmit`                            |
 | `check-in-app/` | 5      | `npx tsc --noEmit` (PaymentScreen.tsx, ScannerScreen.tsx) |
+
+- `mobile-app/` drifted from 31 → 38 between 2026-07-27 and 2026-08-02 via
+  other merged work (unrelated to any single dispatch) — none of the 38 sit
+  in files this UAT-A2 batch touched. Re-measured directly on `main` HEAD
+  (`63fb5f5`) before starting the batch.
 
 - `check-in-app/` had no recorded baseline before 2026-07-26 — `node_modules`
   was never installed there until that session, so it was never measured.

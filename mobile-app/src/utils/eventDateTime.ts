@@ -32,3 +32,56 @@ export function formatEventTimeLabel(raw?: string | null): string {
   const upperMeridiem = meridiem.toUpperCase();
   return minuteStr === '00' ? `${hour} ${upperMeridiem}` : `${hour}:${minuteStr} ${upperMeridiem}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// formatEventDateShort — the UAT-A2 date standard: "Fri Nov 21" (weekday
+// abbrev + month abbrev + day, title case, NO year). `includeYear` is for
+// archival gallery/photo contexts only.
+//
+// Accepts a real Date/timestamp or an ISO "YYYY-MM-DD" string — both format
+// through Intl with timeZone America/New_York, so the result is correct
+// regardless of the device's local timezone. Also accepts Wugi's existing
+// pre-formatted display strings ("TUE JUN 9", see file header) for call
+// sites that only have that string on hand — those carry no absolute
+// instant to convert, so they're simply re-cased in place (never carry a
+// year, so `includeYear` has no effect on this path).
+// ─────────────────────────────────────────────────────────────────────
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/;
+
+function titleCase(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+function formatInEastern(date: Date, includeYear?: boolean): string {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric',
+  };
+  if (includeYear) options.year = 'numeric';
+  return new Intl.DateTimeFormat('en-US', options).format(date);
+}
+
+export function formatEventDateShort(
+  value?: string | Date | null,
+  opts?: { includeYear?: boolean }
+): string {
+  if (!value) return '';
+
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? '' : formatInEastern(value, opts?.includeYear);
+  }
+
+  const trimmed = value.trim();
+  const isoMatch = trimmed.match(ISO_DATE_RE);
+  if (isoMatch) {
+    // Noon UTC always falls on the same America/New_York calendar day
+    // (ET trails UTC year-round), so this is DST-safe without a TZ lib —
+    // mirrors dayOfWeekET() in firestoreService.ts.
+    const d = new Date(`${trimmed.slice(0, 10)}T12:00:00Z`);
+    if (!isNaN(d.getTime())) return formatInEastern(d, opts?.includeYear);
+  }
+
+  const displayMatch = trimmed.match(DATE_RE);
+  if (!displayMatch) return trimmed;
+  const [, dow, mon, day] = displayMatch;
+  return `${titleCase(dow)} ${titleCase(mon)} ${parseInt(day, 10)}`;
+}

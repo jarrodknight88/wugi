@@ -44,7 +44,7 @@ import { BackIcon, ChevronRightIcon, ChevronDownIcon, GlobeIcon, InstagramIcon, 
 import { FONTS, MONO } from '../constants/fonts';
 import { DealCard } from '../components/DealCard';
 import { orderDealsForDisplay } from '../utils/deals';
-import { formatEventDateLabel } from '../utils/eventDateTime';
+import { formatEventDateShort } from '../utils/eventDateTime';
 import { makeGallery } from '../constants/mockData';
 import { logVenueViewed } from '../analytics/analyticsService';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
@@ -272,7 +272,7 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
         data={visible} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
         renderItem={({ item }) => (
-          <VibeEventCard event={item} label={formatEventDateLabel(item.date)} theme={theme} onPress={() => onEventPress(item)}/>
+          <VibeEventCard event={item} label={formatEventDateShort(item.date)} theme={theme} onPress={() => onEventPress(item)}/>
         )}
       />
     </>
@@ -280,29 +280,23 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
 }
 
 // "DEALS · N" — this venue's deals, rendered with the shared DealCard
-// (active-now first). Empty state when the venue has no deals.
+// (active-now first). UAT-A2: hidden entirely when the venue has no active
+// deals/specials — no empty-state placeholder.
 function VenueDealsBlock({ deals, theme }: { deals: FSDeal[]; theme: Theme }) {
+  if (deals.length === 0) return null;
   return (
     <>
       <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
         <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 4 }}>
-          DEALS{deals.length > 0 ? ` · ${deals.length}` : ''}
+          DEALS · {deals.length}
         </Text>
         <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>Specials &amp; happy hours</Text>
       </View>
-      {deals.length === 0 ? (
-        <View style={{ marginHorizontal: 16, backgroundColor: theme.card, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 20 }}>
-          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 20 }}>
-            No deals here right now. Check back soon.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-          renderItem={({ item }) => <DealCard deal={item} theme={theme}/>}
-        />
-      )}
+      <FlatList
+        data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+        renderItem={({ item }) => <DealCard deal={item} theme={theme}/>}
+      />
     </>
   );
 }
@@ -470,7 +464,9 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   const directionsLabel = venue.ctaSecondary || 'Directions';
   const showReserve = !!reservationHref;
   const showTicketCTA = !!(onGetTickets && activeTicketEvent);
-  const stickyHeight = (showReserve ? 60 : 0) + (showTicketCTA ? 60 : 0) + (showReserve || showTicketCTA ? 32 : 0);
+  // Directions always renders (below), so the sticky block's height always
+  // includes that row + its padding, plus Get Tickets when active.
+  const stickyHeight = (showTicketCTA ? 60 : 0) + 60 + 32;
 
   const onHeroScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const i = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -645,27 +641,37 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
         <View style={{ height: stickyHeight + 16 }}/>
       </ScrollView>
 
-      {/* 10. Sticky CTAs: Get Tickets (if active) over Directions + Reserve */}
-      {(showTicketCTA || showReserve) && (
-        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, gap: 10 }}>
-          {showTicketCTA && (
-            <TouchableOpacity onPress={() => onGetTickets!(activeTicketEvent!)} style={{ backgroundColor: theme.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center' }}>
-              <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: 0.3 }}>Get Tickets</Text>
+      {/* 10. Sticky CTAs: Get Tickets (if active) over Directions + Reserve.
+           UAT-A2: Directions always renders; Reserve only when the venue has
+           a reservation URL (venue.reservationUrl / .reservationUrlWithDefaults
+           — see VenueDataForm / dashboard field name). With no URL, Directions
+           becomes the sole full-width action. */}
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, gap: 10 }}>
+        {showTicketCTA && (
+          <TouchableOpacity onPress={() => onGetTickets!(activeTicketEvent!)} style={{ backgroundColor: theme.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center' }}>
+            <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: 0.3 }}>Get Tickets</Text>
+          </TouchableOpacity>
+        )}
+        <View style={{ flexDirection: 'row', gap: showReserve ? 10 : 0 }}>
+          <TouchableOpacity
+            onPress={onMapPress}
+            style={{
+              flex: showReserve ? undefined : 1,
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+              borderRadius: 14, paddingVertical: 15, paddingHorizontal: 22,
+            }}
+          >
+            <LocationIcon color={theme.subtext}/>
+            <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.medium }}>{directionsLabel}</Text>
+          </TouchableOpacity>
+          {showReserve && (
+            <TouchableOpacity onPress={openReserve} style={{ flex: 1, backgroundColor: theme.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', shadowColor: theme.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 6 }}>
+              <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: -0.1 }}>{reserveLabel}</Text>
             </TouchableOpacity>
           )}
-          {showReserve && (
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity onPress={onMapPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingVertical: 15, paddingHorizontal: 22 }}>
-                <LocationIcon color={theme.subtext}/>
-                <Text style={{ color: theme.text, fontSize: 14, fontFamily: FONTS.medium }}>{directionsLabel}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={openReserve} style={{ flex: 1, backgroundColor: theme.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', shadowColor: theme.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 6 }}>
-                <Text style={{ color: theme.onAccent, fontSize: 16, fontFamily: FONTS.display, letterSpacing: -0.1 }}>{reserveLabel}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
-      )}
+      </View>
     </View>
   );
 }

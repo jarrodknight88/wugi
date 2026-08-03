@@ -14,6 +14,7 @@ import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem } from '../types';
 import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
 import { parseClaimToken } from '../utils/deepLink';
+import { formatEventDateShort } from '../utils/eventDateTime';
 import { logBreadcrumb } from '../lib/crashlyticsService';
 
 // Screens
@@ -368,7 +369,8 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             } as unknown as EventData;
             return {
               id: e.id, type: 'event', title: e.title,
-              subtitle: e.venue || '', image: (e.media || [])[0]?.uri || '',
+              subtitle: e.date ? `${e.venue || ''} · ${formatEventDateShort(e.date)}` : (e.venue || ''),
+              image: (e.media || [])[0]?.uri || '',
               read: true, data,
             };
           }
@@ -692,7 +694,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         {activeTab === 'home'      && <HomeScreen      theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} userVibes={userVibes} onCameraPress={() => push({ screen: 'camera' })}/>}
         {activeTab === 'discover'  && <DiscoverEditorialScreen theme={theme} onMapTap={() => push({ screen: 'discoverSearch', initialMapOn: true })} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onGalleryPress={navigateToGallery} onItineraryPress={(itineraryId) => push({ screen: 'itinerary', itineraryId })}/>}
         {activeTab === 'forYou'    && <ForYouScreen    theme={theme} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onFavoriteToggle={toggleFavorite} userVibes={userVibes} savedVenueIds={favorites.filter(f => f.type === 'venue').map(f => f.id)}/>}
-        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllPasses={() => push(uid ? { screen: 'passes' } : { screen: 'auth', intent: 'passes' })} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto}/>}
+        {activeTab === 'favorites' && <FavoritesScreen theme={theme} favorites={favorites} onEventPress={navigateToEvent} onVenuePress={navigateToVenue} onRemove={removeFavorite} onMarkRead={markFavoriteRead} onViewAllPasses={() => push(uid ? { screen: 'passes' } : { screen: 'auth', intent: 'passes' })} onViewAllSaved={kind => push({ screen: 'savedList', kind })} onPhotoPress={openLikedPhoto} onGoToForYou={() => setActiveTab('forYou')}/>}
         {activeTab === 'account'   && <AccountScreen   theme={theme} onViewPasses={() => push({ screen: 'passes' })} onViewPhotos={() => push({ screen: 'myPhotos' })}/>}
         <TabBar activeTab={activeTab} onTabPress={setActiveTab} theme={theme} unreadFavCount={unreadFavCount}/>
       </View>

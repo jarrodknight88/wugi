@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions, ActivityIndicator,  } from 'react-native';
 import { Image } from 'expo-image';
+import Constants from 'expo-constants';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
@@ -13,11 +14,17 @@ import { ErrorState, EmptyState } from '../components/StateViews';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
+import { formatEventDateShort } from '../utils/eventDateTime';
+
+// Status-bar inset (expo-constants — the app doesn't depend on
+// react-native-safe-area-context). Reused below as extra bottom clearance
+// for the swipe CTA row so it never sits close to the TabBar (UAT-A2 #3).
+const STATUS_BAR_H = Constants.statusBarHeight ?? 0;
 
 function fsEventToCard(e: FSEvent): ForYouCard {
   return {
     id: e.id, type: 'event',
-    title: e.title, subtitle: `${e.venue} · ${e.date}`,
+    title: e.title, subtitle: `${e.venue} · ${formatEventDateShort(e.date)}`,
     image: e.media?.[0]?.uri || `https://picsum.photos/seed/${e.id}/600/900`,
     tag: e.vibes?.[0] || 'Event', tagColor: '#2a7a5a',
     data: {
@@ -335,18 +342,20 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
         {currentCard && <ForYouCardComponent key={currentCard.id} card={currentCard} isTop={true} onSwipeLeft={handleSwipeLeft} onSwipeRight={handleSwipeRight} onSwipeUp={handleSwipeUp} onTap={handleTap}/>}
       </View>
 
-      <View style={{ alignItems: 'center', marginBottom: 8 }}>
+      <View style={{ alignItems: 'center', marginBottom: 10 }}>
         <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: FONTS.body }}>↑ Swipe up to see later</Text>
       </View>
 
-      <SafeAreaView style={{ paddingBottom: 16 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 40 }}>
-          <TouchableOpacity onPress={handleSwipeLeft} style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#e74c3c', alignItems: 'center', justifyContent: 'center', shadowColor: '#e74c3c', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }}>
+      {/* Extra bottom padding (beyond SafeAreaView's own inset) so the X/heart
+          CTAs fully clear the TabBar below instead of crowding it (UAT-A2 #3). */}
+      <SafeAreaView style={{ paddingBottom: 24 + STATUS_BAR_H }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 48 }}>
+          <TouchableOpacity onPress={handleSwipeLeft} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#e74c3c', alignItems: 'center', justifyContent: 'center', shadowColor: '#e74c3c', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }}>
             <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
               <Path d="M18 6L6 18M6 6l12 12" stroke="#fff" strokeWidth={2.5} strokeLinecap="round"/>
             </Svg>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleSwipeRight} style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.accent, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
+          <TouchableOpacity onPress={handleSwipeRight} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: theme.accent, alignItems: 'center', justifyContent: 'center', shadowColor: theme.accent, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
             <Svg width={28} height={28} viewBox="0 0 24 24">
               <Path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" fill="#fff"/>
             </Svg>
