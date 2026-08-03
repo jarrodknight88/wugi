@@ -27,6 +27,7 @@
 import {
   getFirestore,
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -43,7 +44,7 @@ import {
 } from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import type {
-  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc,
+  EditorialShelf, NeighborhoodGuideDoc, ItineraryDoc, PhotographerFeatureDoc, GalleryDoc, MenuItem,
 } from './src/types';
 import { recordNonFatal } from './src/lib/crashlyticsService';
 
@@ -1051,12 +1052,17 @@ export async function createReport(
 }
 
 // ── For You Feed ──────────────────────────────────────────────────────
+// Limits raised from the original 10/5 (UAT-W2D "continuous suggestions" —
+// a small fixed batch dead-ended the swipe deck long before the 100/day cap
+// kicked in). ForYouScreen also layers in Deals, Gallery Photos, Venue
+// Photos, and Food/Menu Items on top of this, so the combined pool is what
+// actually determines whether a session ends on "pool exhausted" or the cap.
 export async function getForYouFeed(
   userVibes?: string[]
 ): Promise<{ events: FSEvent[]; venues: FSVenue[] }> {
   const [events, venues] = await Promise.all([
-    getApprovedEvents(userVibes, 10),
-    getApprovedVenues(userVibes, 5),
+    getApprovedEvents(userVibes, 30),
+    getApprovedVenues(userVibes, 20),
   ]);
   return { events, venues };
 }
@@ -1189,6 +1195,28 @@ export async function getApprovedGalleries(max: number = 50): Promise<GalleryDoc
   } catch (e) {
     console.log('getApprovedGalleries error:', e);
     recordNonFatal('getApprovedGalleries', e);
+    return [];
+  }
+}
+
+// Menu items live at venues/{venueId}/menu/{itemId} (per-venue subcollection —
+// there is no top-level `menu` collection). Used by the For You "Food/Menu
+// Items" suggestion source, which needs a browsable cross-venue sample rather
+// than one venue's menu. collectionGroup queries every `menu` subcollection
+// at once; no where()/orderBy() is applied so no composite index is required.
+// venueId is derived from the doc's parent path since MenuItem itself doesn't
+// carry it.
+export async function getMenuItemsBrowse(max: number = 30): Promise<(MenuItem & { venueId: string })[]> {
+  try {
+    const snap = await getDocs(query(collectionGroup(db, 'menu'), limit(max)));
+    return snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({
+      ...(d.data() as object),
+      id: d.id,
+      venueId: d.ref.parent.parent?.id || '',
+    } as MenuItem & { venueId: string }));
+  } catch (e) {
+    console.log('getMenuItemsBrowse error:', e);
+    recordNonFatal('getMenuItemsBrowse', e);
     return [];
   }
 }

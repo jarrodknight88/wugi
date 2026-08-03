@@ -7,12 +7,37 @@ import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal } from '../types';
-import { getForYouFeed, getDealsBrowse, type FSEvent, type FSVenue } from '../../firestoreService';
+import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal, GalleryDoc, MenuItem } from '../types';
+import { getForYouFeed, getDealsBrowse, getApprovedGalleries, getMenuItemsBrowse, type FSEvent, type FSVenue } from '../../firestoreService';
 import { ErrorState, EmptyState } from '../components/StateViews';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
+import { buildPhotoId } from '../utils/photoId';
+import { FOR_YOU_DAILY_CAP, getRemainingSuggestions, recordSuggestionsShown } from '../utils/forYouSuggestionCap';
+import { logForYouInteraction } from '../analytics/analyticsService';
+
+// ── Content-source audit (UAT-W2D) ─────────────────────────────────────
+// Required set: Events, Gallery Photos, Venue Photos, Deals, Food/Menu Items.
+//   Events            — pre-existing (fsEventToCard, getForYouFeed→getApprovedEvents)
+//   Deals             — pre-existing (fsDealToCard, getDealsBrowse)
+//   Venues            — pre-existing, kept (not in the required set, but
+//                        already a working suggestion source with its own
+//                        full-profile tap-through — no reason to remove it)
+//   Gallery Photos    — ADDED: event-linked galleries (GalleryDoc.eventId
+//                        truthy) via getApprovedGalleries, one card per photo
+//   Venue Photos      — ADDED: venue-only galleries (GalleryDoc.eventId
+//                        absent) via the same getApprovedGalleries call
+//   Food/Menu Items   — ADDED: venues/{venueId}/menu subcollection via a new
+//                        getMenuItemsBrowse collectionGroup query (no
+//                        cross-venue "menu" fetcher existed before this)
+// See PR description for the full before/after table.
+
+const PER_GALLERY_PHOTO_CAP = 2;   // cards drawn from a single gallery doc
+const GALLERY_BUCKET_CAP    = 24;  // total Gallery Photo cards per load
+const VENUE_PHOTO_BUCKET_CAP = 24; // total Venue Photo cards per load
+const FOOD_BUCKET_CAP       = 24;  // total Food/Menu cards per load
+const DEAL_BUCKET_CAP       = 5;
 
 function fsEventToCard(e: FSEvent): ForYouCard {
   return {
@@ -67,6 +92,60 @@ function fsDealToCard(d: FSDeal): ForYouCard {
     tag: dealTypeLabel(d.dealType), tagColor: DEAL_COLOR,
     data: null,
   };
+}
+
+// Gallery/venue photo cards are non-navigating teasers (data:null), like
+// deals — but liking one must still produce the synthetic `${galleryId}-${index}`
+// favorite id (utils/photoId.ts) so it lands correctly in Saved / PhotoViewer.
+function galleryDocToPhotoCards(
+  g: GalleryDoc,
+  kind: 'gallery' | 'venuePhoto',
+  venueName: string | undefined,
+): ForYouCard[] {
+  const images = (g.images || []).filter(Boolean).slice(0, PER_GALLERY_PHOTO_CAP);
+  const tag      = kind === 'gallery' ? 'Gallery' : 'Venue Photo';
+  const tagColor = kind === 'gallery' ? '#b8478f' : '#1f8fa3';
+  return images.map((uri, i) => ({
+    id: buildPhotoId(g.id, i),
+    type: kind,
+    title: g.title || (kind === 'gallery' ? 'Event Photos' : 'Venue Photos'),
+    subtitle: venueName || g.date || 'Atlanta nightlife',
+    image: uri,
+    tag, tagColor,
+    data: null,
+  }));
+}
+
+// Food/menu cards are non-navigating teasers too — MenuItem isn't a
+// ForYouCard.data payload type, and MenuScreen's own notes confirm most
+// items have no per-item image yet, hence the placeholder fallback.
+function menuItemToCard(item: MenuItem & { venueId: string }, venueName: string | undefined): ForYouCard {
+  return {
+    id: `food_${item.venueId}_${item.id}`,
+    type: 'food',
+    title: item.name,
+    subtitle: [venueName, item.priceDisplay].filter(Boolean).join(' · ') || 'On the menu',
+    image: item.imageUrl || `https://picsum.photos/seed/food-${item.venueId}-${item.id}/600/900`,
+    tag: 'Food', tagColor: '#e08a1e',
+    data: null,
+  };
+}
+
+// Round-robin across every non-empty source bucket so the deck stays mixed
+// regardless of which optional sources (galleries, menu items) are
+// populated for a given catalog snapshot.
+function interleaveBuckets(buckets: ForYouCard[][]): ForYouCard[] {
+  const out: ForYouCard[] = [];
+  const queues = buckets.map(b => [...b]);
+  let hasMore = true;
+  while (hasMore) {
+    hasMore = false;
+    for (const q of queues) {
+      const next = q.shift();
+      if (next) { out.push(next); hasMore = true; }
+    }
+  }
+  return out;
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -165,6 +244,13 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
             </View>
           </View>
         )}
+        {(card.type === 'gallery' || card.type === 'venuePhoto') && (
+          <View style={{ marginTop: 10 }}>
+            <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: '#fff', fontSize: 12, fontFamily: FONTS.medium }}>❤️ Swipe right to save</Text>
+            </View>
+          </View>
+        )}
       </View>
     </Animated.View>
   );
@@ -186,57 +272,140 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   const [cards, setCards]           = useState<ForYouCard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDone, setIsDone]         = useState(false);
+  const [dayCapped, setDayCapped]   = useState(false);
   const [status, setStatus]         = useState<'loading' | 'ready' | 'error'>('loading');
+
+  // Local mirror of the persisted daily-cap counter (utils/forYouSuggestionCap).
+  // A ref (not state) because it's read/written on every swipe and must never
+  // trigger a re-render on its own — only isDone/dayCapped drive the UI.
+  const remainingRef = useRef<number>(FOR_YOU_DAILY_CAP);
+  // Best-effort card id → venue category, for interaction logging only.
+  const cardCategoryRef = useRef<Map<string, string | null>>(new Map());
 
   // Real data only — a failed fetch surfaces the error state (with retry)
   // instead of silently substituting mock cards.
   const loadFeed = () => {
     setStatus('loading');
-    Promise.all([getForYouFeed(), getDealsBrowse(40).catch(() => [] as FSDeal[])])
-      .then(([{ events, venues }, rawDeals]) => {
-        // Interleave events and venues for variety
-        const base: ForYouCard[] = [];
-        const maxLen = Math.max(events.length, venues.length);
-        for (let i = 0; i < maxLen; i++) {
-          if (events[i])  base.push(fsEventToCard(events[i]));
-          if (venues[i])  base.push(fsVenueToCard(venues[i]));
-        }
+    setIsDone(false);
+    setDayCapped(false);
 
-        // Light deal preference: saved venues OR matching vibes; if nothing
-        // matches, fall back to a few eligible deals so deals still appear.
-        const eligible = orderDealsForDisplay(rawDeals);
-        const savedSet = new Set(savedVenueIds || []);
-        const vibeSet  = new Set((userVibes || []).map(v => v.toLowerCase()));
-        const preferred = eligible.filter(d =>
-          (d.venueId && savedSet.has(d.venueId)) ||
-          (d.vibes || []).some(v => vibeSet.has(v.toLowerCase()))
-        );
-        const dealPool = (preferred.length > 0 ? preferred : eligible).slice(0, 5);
-
-        // Inject a deal card after every 3rd base card; append any remainder.
-        const built: ForYouCard[] = [];
-        let di = 0;
-        for (let i = 0; i < base.length; i++) {
-          built.push(base[i]);
-          if ((i + 1) % 3 === 0 && di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
-        }
-        while (di < dealPool.length) built.push(fsDealToCard(dealPool[di++]));
-
-        setCards(built);
+    getRemainingSuggestions().then(remaining => {
+      remainingRef.current = remaining;
+      if (remaining <= 0) {
+        setCards([]);
         setCurrentIndex(0);
-        setIsDone(false);
+        setDayCapped(true);
+        setIsDone(true);
         setStatus('ready');
-      })
-      .catch(e => {
-        console.log('ForYouScreen: feed fetch failed', e);
-        setStatus('error');
-      });
+        return;
+      }
+
+      Promise.all([
+        getForYouFeed(userVibes),
+        getDealsBrowse(40).catch(() => [] as FSDeal[]),
+        getApprovedGalleries(50).catch(() => [] as GalleryDoc[]),
+        getMenuItemsBrowse(FOOD_BUCKET_CAP).catch(() => [] as (MenuItem & { venueId: string })[]),
+      ])
+        .then(([{ events, venues }, rawDeals, rawGalleries, rawMenuItems]) => {
+          const venueById = new Map(venues.map(v => [v.id, v]));
+          const categoryOf = (venueId: string | undefined | null): string | null =>
+            (venueId && venueById.get(venueId)?.category) || null;
+          const categoryMap = new Map<string, string | null>();
+
+          const eventCards = events.map(e => {
+            const card = fsEventToCard(e);
+            categoryMap.set(card.id, categoryOf(e.venueId));
+            return card;
+          });
+          const venueCards = venues.map(v => {
+            const card = fsVenueToCard(v);
+            categoryMap.set(card.id, v.category || null);
+            return card;
+          });
+
+          // Light deal preference: saved venues OR matching vibes; if nothing
+          // matches, fall back to a few eligible deals so deals still appear.
+          const eligible = orderDealsForDisplay(rawDeals);
+          const savedSet = new Set(savedVenueIds || []);
+          const vibeSet  = new Set((userVibes || []).map(v => v.toLowerCase()));
+          const preferred = eligible.filter(d =>
+            (d.venueId && savedSet.has(d.venueId)) ||
+            (d.vibes || []).some(v => vibeSet.has(v.toLowerCase()))
+          );
+          const dealPool = (preferred.length > 0 ? preferred : eligible).slice(0, DEAL_BUCKET_CAP);
+          const dealCards = dealPool.map(d => {
+            const card = fsDealToCard(d);
+            categoryMap.set(card.id, categoryOf(d.venueId));
+            return card;
+          });
+
+          // Gallery Photos = event-linked galleries; Venue Photos = the rest
+          // (venue-only galleries, no eventId). Same source query, split
+          // client-side — see the audit comment above.
+          const galleryPhotoCards: ForYouCard[] = [];
+          const venuePhotoCards: ForYouCard[] = [];
+          for (const g of rawGalleries) {
+            if (galleryPhotoCards.length >= GALLERY_BUCKET_CAP && venuePhotoCards.length >= VENUE_PHOTO_BUCKET_CAP) break;
+            const venueName = g.venueId ? venueById.get(g.venueId)?.name : undefined;
+            const kind = g.eventId ? 'gallery' : 'venuePhoto';
+            const built = galleryDocToPhotoCards(g, kind, venueName);
+            for (const c of built) {
+              categoryMap.set(c.id, categoryOf(g.venueId));
+              if (kind === 'gallery' && galleryPhotoCards.length < GALLERY_BUCKET_CAP) galleryPhotoCards.push(c);
+              else if (kind === 'venuePhoto' && venuePhotoCards.length < VENUE_PHOTO_BUCKET_CAP) venuePhotoCards.push(c);
+            }
+          }
+
+          const foodCards = rawMenuItems.slice(0, FOOD_BUCKET_CAP).map(item => {
+            const card = menuItemToCard(item, venueById.get(item.venueId)?.name);
+            categoryMap.set(card.id, categoryOf(item.venueId));
+            return card;
+          });
+
+          cardCategoryRef.current = categoryMap;
+
+          const built = interleaveBuckets([
+            eventCards, venueCards, dealCards, galleryPhotoCards, venuePhotoCards, foodCards,
+          ]);
+
+          setCards(built);
+          setCurrentIndex(0);
+          setStatus('ready');
+        })
+        .catch(e => {
+          console.log('ForYouScreen: feed fetch failed', e);
+          setStatus('error');
+        });
+    });
   };
 
   useEffect(() => {
     loadFeed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const logInteraction = (action: 'view' | 'like' | 'skip', card: ForYouCard) => {
+    logForYouInteraction({
+      action,
+      contentType: card.type,
+      contentId: card.id,
+      venueCategory: cardCategoryRef.current.get(card.id) ?? null,
+    });
+  };
+
+  // Fires once per card actually shown to the user (initial load + every
+  // advance). Background-only: logs the "view" interaction and updates the
+  // persisted daily-suggestion counter. Never itself changes what's
+  // rendered — the cap is only enforced at the next swipe, in advance(),
+  // so a card the user is actively looking at is never yanked away.
+  useEffect(() => {
+    if (status !== 'ready' || isDone) return;
+    const card = cards[currentIndex];
+    if (!card) return;
+    logInteraction('view', card);
+    recordSuggestionsShown(1).then(remaining => { remainingRef.current = remaining; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, cards, status, isDone]);
 
   if (status === 'loading') {
     return (
@@ -256,7 +425,9 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   }
 
   // Successful fetch, but no cards to deal — honest empty state, no mock deck.
-  if (cards.length === 0) {
+  // (Day-capped-with-zero-cards also lands here structurally but is caught by
+  // the isDone branch below before this renders, since isDone is set first.)
+  if (cards.length === 0 && !isDone) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
         <EmptyState
@@ -269,28 +440,40 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   }
 
   const advance = () => {
-    if (currentIndex >= cards.length - 1) setIsDone(true);
-    else setCurrentIndex(p => p + 1);
+    if (remainingRef.current <= 0) { setDayCapped(true); setIsDone(true); return; }
+    if (currentIndex >= cards.length - 1) { setIsDone(true); return; }
+    setCurrentIndex(p => p + 1);
   };
 
   const handleSwipeRight = () => {
     const card = cards[currentIndex];
-    if (card.data) {
-      if (card.type === 'event') onFavoriteToggle({ id: card.id, type: 'event', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as EventData });
-      else if (card.type === 'venue') onFavoriteToggle({ id: card.id, type: 'venue', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as VenueData });
+    if (card.type === 'event' && card.data) {
+      onFavoriteToggle({ id: card.id, type: 'event', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as EventData });
+    } else if (card.type === 'venue' && card.data) {
+      onFavoriteToggle({ id: card.id, type: 'venue', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as VenueData });
+    } else if (card.type === 'gallery' || card.type === 'venuePhoto') {
+      // Preserve the synthetic ${galleryId}-${index} favorite id contract —
+      // card.id was already built with buildPhotoId at construction time.
+      onFavoriteToggle({ id: card.id, type: 'photo', title: card.title, subtitle: card.subtitle, image: card.image, read: false });
     }
+    logInteraction('like', card);
     advance();
   };
 
-  const handleSwipeLeft = () => advance();
+  const handleSwipeLeft = () => {
+    logInteraction('skip', cards[currentIndex]);
+    advance();
+  };
 
   const handleSwipeUp = () => {
     const card = cards[currentIndex];
+    logInteraction('skip', card); // deferred (watch-later), not a like — logged as skip
     const newCards = [...cards];
     newCards.splice(currentIndex, 1);
     const insertAt = Math.min(currentIndex + 3, newCards.length);
     newCards.splice(insertAt, 0, card);
     setCards(newCards);
+    if (remainingRef.current <= 0) { setDayCapped(true); setIsDone(true); return; }
     if (currentIndex >= newCards.length) setIsDone(true);
   };
 
@@ -303,12 +486,20 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   if (isDone) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
-        <Text style={{ fontSize: 48, marginBottom: 16 }}>🎉</Text>
-        <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, textAlign: 'center', marginBottom: 8 }}>You're all caught up!</Text>
-        <Text style={{ color: theme.subtext, fontSize: 15, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>Check back later for more Atlanta nightlife and dining recommendations.</Text>
-        <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={() => { setCurrentIndex(0); setIsDone(false); }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontFamily: FONTS.medium }}>Start Over</Text>
-        </TouchableOpacity>
+        <Text style={{ fontSize: 48, marginBottom: 16 }}>{dayCapped ? '⏳' : '🎉'}</Text>
+        <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, textAlign: 'center', marginBottom: 8 }}>
+          {dayCapped ? "That's today's suggestions!" : "You're all caught up!"}
+        </Text>
+        <Text style={{ color: theme.subtext, fontSize: 15, fontFamily: FONTS.body, textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>
+          {dayCapped
+            ? `You've hit today's ${FOR_YOU_DAILY_CAP}-suggestion limit. Come back tomorrow for more Atlanta nightlife and dining recommendations.`
+            : 'Check back later for more Atlanta nightlife and dining recommendations.'}
+        </Text>
+        {!dayCapped && (
+          <TouchableOpacity style={{ backgroundColor: theme.accent, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 }} onPress={loadFeed}>
+            <Text style={{ color: '#fff', fontSize: 15, fontFamily: FONTS.medium }}>Refresh</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }

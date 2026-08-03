@@ -78,3 +78,20 @@ export function logVenueViewed(params: {
     venue_name: params.venueName,
   });
 }
+
+// For You swipe-feed interactions (UAT-W2D). The raw signal for the
+// separate Picks personalization task — content type + venue category let
+// that task bucket engagement without re-deriving it from card ids.
+export function logForYouInteraction(params: {
+  action: 'view' | 'like' | 'skip';
+  contentType: 'event' | 'venue' | 'deal' | 'gallery' | 'venuePhoto' | 'food' | 'video';
+  contentId: string;
+  venueCategory: string | null;
+}): void {
+  logEvent('for_you_interaction', {
+    action:         params.action,
+    content_type:   params.contentType,
+    content_id:     params.contentId,
+    venue_category: params.venueCategory,
+  });
+}

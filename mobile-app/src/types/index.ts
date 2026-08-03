@@ -170,7 +170,7 @@ export type MenuItem = {
 // ── For You ───────────────────────────────────────────────────────────
 export type ForYouCard = {
   id: string;
-  type: 'event' | 'venue' | 'food' | 'deal' | 'gallery' | 'video';
+  type: 'event' | 'venue' | 'food' | 'deal' | 'gallery' | 'venuePhoto' | 'video';
   image: string;
   videoUri?: string;
   title: string;
