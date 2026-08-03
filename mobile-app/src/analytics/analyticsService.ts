@@ -78,3 +78,22 @@ export function logVenueViewed(params: {
     venue_name: params.venueName,
   });
 }
+
+// UAT-W2D: raw view/like/skip signal off the For You deck, tagged with
+// content type + venue category — the input Picks personalization (a
+// separate task) will train on. Firebase Analytics params must be
+// string | number | null, so a missing venue category is sent as null
+// rather than omitted.
+export function logForYouInteraction(params: {
+  action: 'view' | 'like' | 'skip';
+  contentType: string;
+  contentId: string;
+  venueCategory: string | null;
+}): void {
+  logEvent('for_you_interaction', {
+    action:         params.action,
+    content_type:   params.contentType,
+    content_id:     params.contentId,
+    venue_category: params.venueCategory,
+  });
+}

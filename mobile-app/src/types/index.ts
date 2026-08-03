@@ -194,6 +194,19 @@ export type ForYouCard = {
   tag: string;
   tagColor: string;
   data: EventData | VenueData | null;
+  // UAT-W2D — suggestion-source audit fields. `contentType` is the raw
+  // signal logged with view/like/skip interactions (finer-grained than
+  // `type`, which only drives card rendering — e.g. galleryPhoto vs
+  // venuePhoto both render as type:'gallery'). `venueCategory` is
+  // best-effort (only populated when the card's venue was in the fetched
+  // sample) and is analytics-only. Both optional so other ForYouCard
+  // construction sites are unaffected.
+  contentType?: 'event' | 'venue' | 'deal' | 'galleryPhoto' | 'venuePhoto' | 'foodItem';
+  venueCategory?: string | null;
+  // Present only for galleryPhoto/venuePhoto cards — the synthetic
+  // `${galleryId}-${index}` id (see utils/photoId.ts) a right-swipe save
+  // must reuse so it lines up with the existing liked-photo contract.
+  photoId?: string;
 };
 
 // ── Favorites ─────────────────────────────────────────────────────────
