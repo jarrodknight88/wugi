@@ -56,6 +56,8 @@ import type {
 import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon } from '../components/icons';
 import { DealCard } from '../components/DealCard';
+import { WeatherBadge } from '../components/WeatherBadge';
+import { RecentGalleries } from '../components/RecentGalleries';
 import { dealTypeLabel, orderDealsForDisplay } from '../utils/deals';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -225,19 +227,45 @@ function DiscoverHeader({
 }) {
   return (
     <View style={{ backgroundColor: theme.bg, paddingTop: 60, paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+      {/* Editorial state — Home-style wordmark + WeatherBadge, replacing the
+          old "Discover" title. Map + search icons sit top-right; tapping the
+          search icon expands/drops down the existing search box below. */}
       {!searchActive && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-          <Text style={{ color: theme.text, fontSize: 22, fontFamily: FONTS.display, letterSpacing: -0.7 }}>Discover</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+          <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
+          <View style={{ position: 'absolute', left: 0 }}>
+            <WeatherBadge theme={theme}/>
+          </View>
+          <View style={{ position: 'absolute', right: 0, flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity
+              onPress={onMapTap} activeOpacity={0.85}
+              style={{
+                width: 40, height: 40, borderRadius: 12,
+                backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <MapIcon color={theme.subtext}/>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onActivate} activeOpacity={0.85}
+              style={{
+                width: 40, height: 40, borderRadius: 12,
+                backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <SearchIcon color={theme.subtext}/>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        {searchActive && (
+      {/* Search-active state — back arrow + the existing real TextInput row. */}
+      {searchActive && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <TouchableOpacity onPress={onCancel} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ width: 28, alignItems: 'flex-start' }}>
             <BackArrow color={theme.text}/>
           </TouchableOpacity>
-        )}
-        {/* The input — pressable shell when inactive, real TextInput when active. */}
-        {searchActive ? (
           <View style={{
             flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
             backgroundColor: theme.card, borderRadius: 12,
@@ -262,34 +290,8 @@ function DiscoverHeader({
               </TouchableOpacity>
             )}
           </View>
-        ) : (
-          <TouchableOpacity
-            onPress={onActivate} activeOpacity={0.85}
-            style={{
-              flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
-              backgroundColor: theme.card, borderRadius: 12,
-              borderWidth: 1, borderColor: theme.border,
-              paddingHorizontal: 14, paddingVertical: 11,
-            }}
-          >
-            <SearchIcon color={theme.subtext}/>
-            <Text style={{ flex: 1, color: theme.subtext, fontSize: 14, fontFamily: FONTS.body }}>Search venues, events, vibes…</Text>
-          </TouchableOpacity>
-        )}
-        {/* Map button — editorial state only (search owns the row). */}
-        {!searchActive && (
-          <TouchableOpacity
-            onPress={onMapTap} activeOpacity={0.85}
-            style={{
-              width: 44, height: 44, borderRadius: 12,
-              backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border,
-              alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <MapIcon color={theme.subtext}/>
-          </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -433,23 +435,30 @@ function DealsSection({ deals, theme, onDealPress }: {
   );
 }
 
-function EditorialBody({ shelves, loading, theme, onCard, venueNameById, galleryFallback, deals, onDealPress }: {
+function EditorialBody({ shelves, loading, theme, onCard, venueNameById, galleryFallback, deals, onDealPress, onGalleryPress }: {
   shelves: EditorialShelf[]; loading: boolean; theme: Theme;
   onCard: (shelf: EditorialShelf, c: EditorialCard) => void;
   venueNameById: Record<string, string>;
   galleryFallback: Record<string, { venueName: string; date: string }>;
   deals: FSDeal[];
   onDealPress: (d: FSDeal) => void;
+  onGalleryPress: (gallery: GalleryData) => void;
 }) {
+  // UAT-W2A: the single-photographer "Photographer Feature" shelf is
+  // replaced by the shared RecentGalleries shelf (below) — filtered out here
+  // rather than at the fetch layer so getEditorialShelves stays a faithful
+  // mirror of the Dashboard-authored collections.
+  const guideShelves = shelves.filter(s => s.type !== 'photographerFeature');
   return (
     <ScrollView showsVerticalScrollIndicator={false}>
       {loading ? (
         <View style={{ paddingTop: 80, alignItems: 'center' }}>
           <ActivityIndicator color={theme.accent} size="large"/>
         </View>
-      ) : shelves.length === 0 ? (
+      ) : guideShelves.length === 0 ? (
         <>
           <DealsSection deals={deals} theme={theme} onDealPress={onDealPress}/>
+          <RecentGalleries theme={theme} onGalleryPress={onGalleryPress}/>
           <View style={{ paddingTop: 40, paddingHorizontal: 32, alignItems: 'center' }}>
             <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>
               No guides yet
@@ -462,7 +471,8 @@ function EditorialBody({ shelves, loading, theme, onCard, venueNameById, gallery
       ) : (
         <>
           <DealsSection deals={deals} theme={theme} onDealPress={onDealPress}/>
-          {shelves.map(shelf => (
+          <RecentGalleries theme={theme} onGalleryPress={onGalleryPress}/>
+          {guideShelves.map(shelf => (
             <Shelf
               key={`${shelf.type}-${shelf.doc.id}`}
               kicker={shelf.doc.kicker}
@@ -1146,6 +1156,7 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
           galleryFallback={galleryFallback}
           deals={browseDeals}
           onDealPress={handleDealPress}
+          onGalleryPress={onGalleryPress}
         />
       )}
       <FilterSheet

@@ -61,13 +61,23 @@ once measured its own baseline instead of trusting the docs because the docs
 disagreed with each other; that is exactly how a regression slips through
 review. **If a baseline legitimately changes, update it here immediately.**
 
-Measured directly on `main`, 2026-07-26/27:
+Measured directly on `main`, 2026-07-26/27 (`mobile-app/` re-measured 2026-08-03 — see note below):
 
 | Package        | Errors | Command (run from the package dir)          |
 |-----------------|--------|-----------------------------------------------|
 | `functions/`    | 0      | `node node_modules/typescript/bin/tsc --noEmit` |
-| `mobile-app/`   | 31     | `npx tsc --noEmit`                            |
+| `mobile-app/`   | 38     | `npx tsc --noEmit`                            |
 | `check-in-app/` | 5      | `npx tsc --noEmit` (PaymentScreen.tsx, ScannerScreen.tsx) |
+
+- `mobile-app/` drifted from 31 → 38 between 2026-07-26/27 and 2026-08-03 from
+  unrelated `main` changes (not this session's work — verified via `git
+  status` that none of the 38 errors fall in files this session touched).
+  New/changed error sites as of 2026-08-03: `firestoreService.ts` (13),
+  `scripts/seed-*.ts` missing `serviceAccount.json` (7, expected — see
+  gitignored-credentials note elsewhere in this file), `src/hooks/useNotifications.ts`
+  (3), `src/screens/SignupScreen.tsx` (6), `src/features/ticketing/PaymentScreen.tsx`
+  (2) and `TicketSelectionScreen.tsx` (2), `src/constants/mockData.ts` (3),
+  `src/navigation/RootNavigator.tsx` (1), `src/screens/ForYouScreen.tsx` (1).
 
 - `check-in-app/` had no recorded baseline before 2026-07-26 — `node_modules`
   was never installed there until that session, so it was never measured.
