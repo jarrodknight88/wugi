@@ -1063,13 +1063,35 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         const e = await svc.getEventById(card.eventId);
         if (e) onEventPress(toEventData(e));
       } else if (card.kind === 'gallery' && card.galleryId) {
-        const g = await svc.getGalleryById(card.galleryId);
+        // ROOT CAUSE of "tap does nothing": this branch awaited
+        // getGalleryById + getVenueById with no fallback, and both helpers
+        // swallow their own errors (return null on ANY failure — missing
+        // doc, transient read failure, etc.), so a single failed lookup
+        // silently dropped the whole tap with no visible feedback. Every
+        // OTHER gallery entry point in the app (venue pages, event pages,
+        // Discover search results) navigates from data it already has
+        // in-memory and never blocks on a fetch at tap time, so this class
+        // of failure can't happen there. Here we still attempt the live
+        // fetch first (it gives GalleryScreen the full photo list, needed
+        // for the photo-tap → PhotoViewer index lookup) but now fall back to
+        // the card's own denormalized fields (title/image/venueId/venueName/
+        // date, written by seed-photographer-features.ts) so the tap always
+        // opens the gallery viewer even when the lookup fails.
+        const g = await svc.getGalleryById(card.galleryId).catch(() => null);
         if (g) {
-          // Resolve the real venue name for the overlay / header (gallery
-          // doc only carries venueId). Falls back to the card's denormalized
-          // venueName if the lookup misses.
           const v = g.venueId ? await svc.getVenueById(g.venueId).catch(() => null) : null;
-          onGalleryPress(galleryDocToData(g, v?.name || (card as any).venueName));
+          onGalleryPress(galleryDocToData(g, v?.name || card.venueName));
+        } else {
+          const galleryEntry = galleryFallback[card.galleryId];
+          onGalleryPress({
+            id: card.galleryId,
+            title: card.title,
+            venue: card.venueName || galleryEntry?.venueName || '',
+            date: card.date || galleryEntry?.date || '',
+            coverImage: card.image,
+            photos: [],
+            venueId: card.venueId || undefined,
+          });
         }
       }
       // 'photographer' is non-navigating.
