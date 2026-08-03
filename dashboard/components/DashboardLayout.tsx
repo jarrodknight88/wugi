@@ -57,6 +57,11 @@ const Icon = {
       <circle cx="7.5" cy="7.5" r="1.5"/>
     </svg>
   ),
+  Itineraries: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"/>
+    </svg>
+  ),
   Audit: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -82,6 +87,7 @@ const NAV = [
   { href: "/dashboard/tickets",     label: "Tickets",      Icon: Icon.Tickets    },
   { href: "/dashboard/series",      label: "Series",       Icon: Icon.Series     },
   { href: "/dashboard/galleries",   label: "Galleries",    Icon: Icon.Galleries  },
+  { href: "/dashboard/itineraries", label: "Itineraries",  Icon: Icon.Itineraries },
   { href: "/dashboard/venue-intel", label: "Venue Intel",  Icon: Icon.VenueIntel },
   { href: "/dashboard/users",       label: "Users",        Icon: Icon.Users      },
   { href: "/dashboard/audit",       label: "Audit Log",    Icon: Icon.Audit      },
@@ -104,6 +110,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (item.href === "/dashboard/users")       return canManageUsers
     if (item.href === "/dashboard/audit")       return isSuperAdmin
     if (item.href === "/dashboard/venue-intel") return isVenueIntelStaff
+    // Itineraries aren't venue/event-owned (firestore.rules' isStaff()) —
+    // gated on isSuperAdmin (super_admin/moderator/support), not canWrite
+    // (which also covers venue_admin/event_admin, who have no business here).
+    if (item.href === "/dashboard/itineraries") return isSuperAdmin
     return true
   })
 
