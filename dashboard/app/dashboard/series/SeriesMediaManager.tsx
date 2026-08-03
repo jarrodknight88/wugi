@@ -53,6 +53,20 @@ function Thumb({ src, isVideo, selected, badge, onClick }: {
   )
 }
 
+// NOT migrated to components/MediaManager.tsx (issue #191): that contract is
+// deliberately lean (sections/value/onSave/upload/hint, no surface-specific
+// booleans) and this component has three real divergences from it — (1) new
+// media is added via a modal "browse this venue's staged assets, multi-pick,
+// then POST" flow with its own "add anyway?" risky-gate, not an always-
+// visible sections grid; (2) there's no unified Save action here at all
+// (browse-add and upload both POST immediately; reorder/remove are
+// local-only, committed by the PARENT series form's own Save); (3) `disabled`
+// is driven by that unrelated parent form's saving state, not anything this
+// component owns. Forcing this into MediaManager's contract would mean
+// adding flags only this caller needs — the prop-explosion guard says leave
+// it composing the primitives directly instead. It still reuses
+// SelectedMediaStrip/Lightbox/ConfirmDialog, just not through MediaManager.
+//
 // Series edit form's media manager (issue #171 Bug 2 + Feature 3, drag/drop
 // + shared strip added in #183). Bug 2: eventSeries.media is now a full
 // ordered array here (first = cover/hero), never collapsed to a single
