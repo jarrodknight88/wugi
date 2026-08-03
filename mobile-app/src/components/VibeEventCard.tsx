@@ -14,9 +14,11 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { Theme } from '../constants/colors';
 import type { EventData } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
+import { formatEventDateShort } from '../utils/eventDateTime';
 
 type Props = {
   event: EventData;
@@ -47,13 +49,25 @@ export function VibeEventCard({ event, theme, onPress, label, width = 170, heigh
       ) : (
         <View style={[StyleSheet.absoluteFillObject, { backgroundColor: theme.card }]}/>
       )}
-      <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlayMedium }}/>
+      {/* Bottom gradient overlay — keeps the date/title/venue legible over any
+          photo instead of the old flat overlayMedium tint. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['transparent', 'transparent', 'rgba(0,0,0,0.78)']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       {!!label && (
         <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(244,239,225,0.18)', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 }}>
           <Text style={{ color: theme.onImage, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.5 }} numberOfLines={1}>{label}</Text>
         </View>
       )}
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 14 }}>
+        {!!event.date && (
+          <Text style={{ color: theme.onImageMuted, fontSize: 10, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.4, marginBottom: 3 }} numberOfLines={1}>
+            {formatEventDateShort(event.date)}
+          </Text>
+        )}
         <Text style={{ color: theme.onImage, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, lineHeight: 18, marginBottom: 3 }} numberOfLines={2}>{event.title}</Text>
         <Text style={{ color: theme.onImageMuted, fontSize: 11, fontFamily: FONTS.body }} numberOfLines={1}>{event.venue}{event.time ? ` · ${event.time}` : ''}</Text>
       </View>

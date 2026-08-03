@@ -18,7 +18,7 @@ import type { EventData } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { computeSeriesFeed } from '../../firestoreService';
 import { VibeEventCard } from '../components/VibeEventCard';
-import { formatEventDateLabel } from '../utils/eventDateTime';
+import { formatEventDateShort } from '../utils/eventDateTime';
 
 const CARD_W = Dimensions.get('window').width - 32;
 
@@ -117,7 +117,7 @@ export function VenueEventsListScreen({ venueId, theme, onBack, onEventPress }: 
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 12 }}>
             {events.map(ev => (
-              <VibeEventCard key={ev.id} event={ev} label={formatEventDateLabel(ev.date)} theme={theme} onPress={() => onEventPress(ev)} width={CARD_W} height={220}/>
+              <VibeEventCard key={ev.id} event={ev} label={formatEventDateShort(ev.date)} theme={theme} onPress={() => onEventPress(ev)} width={CARD_W} height={220}/>
             ))}
           </View>
         )}

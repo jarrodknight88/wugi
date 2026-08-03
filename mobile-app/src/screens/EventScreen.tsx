@@ -45,7 +45,7 @@ import { useEventGalleriesByEventId } from '../hooks/useEventGalleriesByEventId'
 import { useEventGalleriesBySeriesId } from '../hooks/useEventGalleriesBySeriesId';
 import { useVenueById } from '../hooks/useVenueById';
 import { ErrorBoundary } from '../components/error/ErrorBoundary';
-import { formatEventDateLabel, formatEventTimeLabel } from '../utils/eventDateTime';
+import { formatEventDateShort, formatEventTimeLabel } from '../utils/eventDateTime';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Design hero: default aspectRatio 0.95 → height = width / 0.95. Used for
@@ -227,7 +227,7 @@ function EventScreenInner({
           id: event.id,
           type: 'event',
           title: event.title,
-          subtitle: venueName,
+          subtitle: event.date ? `${venueName} · ${formatEventDateShort(event.date)}` : venueName,
           image: (event.media || [])[0]?.uri || '',
           read: false,
           data: event,
@@ -503,7 +503,7 @@ function EventScreenInner({
         {/* ── Date / Time / Age chips ─────────────────────────────────── */}
         {(event.date || event.time || event.age) && (
           <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8, zIndex: 2 }}>
-            {[formatEventDateLabel(event.date) || '—', formatEventTimeLabel(event.time) || '—', event.age ?? '21+'].map((val, i) => (
+            {[formatEventDateShort(event.date) || '—', formatEventTimeLabel(event.time) || '—', event.age ?? '21+'].map((val, i) => (
               <View
                 key={i}
                 style={{
@@ -530,11 +530,8 @@ function EventScreenInner({
           </View>
         )}
 
-        {/* ── Venue strip (AT) ─────────────────────────────────────────── */}
+        {/* ── Venue strip ──────────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-          <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>
-            AT
-          </Text>
           {venue ? (
             <VenueIdentityBlock
               name={venue.name || venueName || 'Venue'}
@@ -727,7 +724,7 @@ function EventScreenInner({
                         }}
                         numberOfLines={1}
                       >
-                        {item.date}
+                        {formatEventDateShort(item.date)}
                       </Text>
                     )}
                     <Text

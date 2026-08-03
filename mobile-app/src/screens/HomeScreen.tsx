@@ -47,6 +47,7 @@ import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { formatEventDateShort } from '../utils/eventDateTime';
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
 // Buckets the current hour into morning / afternoon / evening / late-night.
@@ -689,9 +690,14 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
                   {(item.media || [])[0]?.uri
                     ? <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
                     : null}
-                  <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlaySoft }}/>
+                  <LinearGradient
+                    pointerEvents="none"
+                    colors={['transparent', 'transparent', 'rgba(0,0,0,0.78)']}
+                    locations={[0, 0.45, 1]}
+                    style={StyleSheet.absoluteFill}
+                  />
                   <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 12 }}>
-                    <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 }} numberOfLines={1}>{item.date}</Text>
+                    <Text style={{ color: theme.accent, fontSize: 9, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 }} numberOfLines={1}>{formatEventDateShort(item.date)}</Text>
                     <Text style={{ color: theme.onImage, fontSize: 12, fontFamily: FONTS.display, lineHeight: 15 }} numberOfLines={2}>{item.title}</Text>
                   </View>
                 </TouchableOpacity>

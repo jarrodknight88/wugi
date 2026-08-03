@@ -22,6 +22,7 @@ import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FavoriteItem, PassData } from '../types';
 import { ChevronRightIcon } from '../components/icons';
 import { HeartIconBordered } from '../components/HeartIconBordered';
+import { EmptyState } from '../components/StateViews';
 import { FONTS, MONO } from '../constants/fonts';
 import { PassGroupCard } from '../features/ticketing/PassGroupCard';
 import { groupPassesByOrder, classifyPassGroup, eventDateSortValue, mapPassDoc, isRenderablePassDoc } from '../utils/passGrouping';
@@ -56,6 +57,9 @@ type Props = {
   // at that exact photo. Receives the synthetic favorite id `${galleryId}-${i}`.
   // When omitted, tapping a saved photo just marks it read (legacy behavior).
   onPhotoPress?: (photoId: string) => void;
+  // UAT-A2 (additive): tap the "Go to For You" action in the all-empty state
+  // to switch tabs. When omitted the action button doesn't render.
+  onGoToForYou?: () => void;
 };
 
 // ── Section header (Passes still uses the no-link variant) ────────────
@@ -228,7 +232,7 @@ export function EmptySection({ label, theme }: { label: string; theme: Theme }) 
 
 // ── FavoritesScreen ───────────────────────────────────────────────────
 export function FavoritesScreen({
-  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onViewAllPasses, onViewAllSaved, onPhotoPress,
+  theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onViewAllPasses, onViewAllSaved, onPhotoPress, onGoToForYou,
 }: Props) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
   const [passesLoading, setPassesLoading] = useState(true);
@@ -352,6 +356,25 @@ export function FavoritesScreen({
   const savedVenues  = favorites.filter(f => f.type === 'venue');
   const savedPhotos  = favorites.filter(f => f.type === 'photo');
 
+  // Order by soonest-upcoming event date (the pass you'll use next), not
+  // purchase recency, before taking the top N for the preview.
+  const activeGroups = passesLoading
+    ? []
+    : groupPassesByOrder(passes)
+        .filter(g => !classifyPassGroup(g).archived)
+        .sort((a, b) => eventDateSortValue(a[0].date) - eventDateSortValue(b[0].date));
+  const previewGroups = activeGroups.slice(0, PASS_PREVIEW_LIMIT);
+
+  // UAT-A2: each section is omitted entirely when it has zero items. If
+  // NOTHING is saved at all (and passes have finished loading, so we're not
+  // flashing the all-empty state before they resolve), a single empty state
+  // takes over the whole screen instead of four empty placeholders.
+  const hasPasses = activeGroups.length > 0;
+  const hasEvents = savedEvents.length > 0;
+  const hasVenues = savedVenues.length > 0;
+  const hasPhotos = savedPhotos.length > 0;
+  const nothingSaved = !passesLoading && !hasPasses && !hasEvents && !hasVenues && !hasPhotos;
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {/* Header */}
@@ -363,147 +386,155 @@ export function FavoritesScreen({
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* ── Passes — preview of the top active groups, "View All Passes"
-            → My Passes. Grouped + color-resolved with the SAME canonical
-            card My Passes uses (shared PassGroupCard), so a multi-guest
-            table shows as one card instead of N flattened rows. ── */}
-        {(() => {
-          // Order by soonest-upcoming event date (the pass you'll use next),
-          // not purchase recency, before taking the top N for the preview.
-          const activeGroups = passesLoading
-            ? []
-            : groupPassesByOrder(passes)
-                .filter(g => !classifyPassGroup(g).archived)
-                .sort((a, b) => eventDateSortValue(a[0].date) - eventDateSortValue(b[0].date));
-          const previewGroups = activeGroups.slice(0, PASS_PREVIEW_LIMIT);
-          return (
-            <>
-              <SectionHeader
-                kicker="YOUR PASSES"
-                title="Tickets in your pocket"
-                count={activeGroups.length > 0 ? activeGroups.length : undefined}
-                theme={theme}
-                onViewAll={activeGroups.length > 0 && onViewAllPasses ? onViewAllPasses : undefined}
-              />
-              {passesLoading ? (
-                <View style={{ paddingHorizontal: 16 }}>
-                  <ActivityIndicator color={theme.accent} size="small" style={{ alignSelf: 'flex-start', marginLeft: 4 }}/>
-                </View>
-              ) : previewGroups.length === 0 ? (
-                <EmptySection label="No active passes. Purchase a ticket to an event and it'll appear here." theme={theme}/>
-              ) : (
-                <View style={{ paddingHorizontal: 16, gap: 12 }}>
-                  {previewGroups.map(g => {
-                    const first = g[0];
-                    return (
-                      <PassGroupCard
-                        key={first.orderId || first.passId}
-                        group={g}
-                        showExpansion={false}
-                        onPressCard={() => onViewAllPasses?.()}
-                        onSelectPass={() => onViewAllPasses?.()}
-                      />
-                    );
-                  })}
-                </View>
-              )}
-            </>
-          );
-        })()}
-
-        {/* ── Saved Events — preview carousel, "View All" → SavedListScreen ── */}
-        <SectionHeader
-          kicker="SAVED EVENTS"
-          title="Events you liked"
-          count={savedEvents.length > 0 ? savedEvents.length : undefined}
-          theme={theme}
-          onViewAll={savedEvents.length > 0 && onViewAllSaved ? () => onViewAllSaved('event') : undefined}
-        />
-        {savedEvents.length === 0 ? (
-          <EmptySection label="Swipe right on events in the For You tab to save them here." theme={theme}/>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40, flexGrow: 1 }}>
+        {/* ── UAT-A2: nothing saved anywhere — one empty state for the whole
+            screen instead of four separate empty placeholders. ── */}
+        {nothingSaved ? (
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <EmptyState
+              theme={theme}
+              title="Nothing saved yet"
+              message="Swipe right in the For You tab to start saving events, venues, and photos."
+              actionLabel={onGoToForYou ? 'Go to For You' : undefined}
+              onAction={onGoToForYou}
+            />
+          </View>
         ) : (
-          <FlatList
-            data={savedEvents.slice(0, PREVIEW_LIMIT)}
-            keyExtractor={f => f.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-            renderItem={({ item }) => (
-              <SavedCard
-                item={item}
-                theme={theme}
-                onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
-                onRequestRemove={() => requestRemoval(item.id)}
-                pending={pendingId === item.id}
-                onUndo={undoPending}
-              />
+          <>
+            {/* ── Passes — preview of the top active groups, "View All Passes"
+                → My Passes. Grouped + color-resolved with the SAME canonical
+                card My Passes uses (shared PassGroupCard), so a multi-guest
+                table shows as one card instead of N flattened rows. Section is
+                omitted once passes finish loading with none active. ── */}
+            {(passesLoading || hasPasses) && (
+              <>
+                <SectionHeader
+                  kicker="YOUR PASSES"
+                  title="Tickets in your pocket"
+                  count={hasPasses ? activeGroups.length : undefined}
+                  theme={theme}
+                  onViewAll={hasPasses && onViewAllPasses ? onViewAllPasses : undefined}
+                />
+                {passesLoading ? (
+                  <View style={{ paddingHorizontal: 16 }}>
+                    <ActivityIndicator color={theme.accent} size="small" style={{ alignSelf: 'flex-start', marginLeft: 4 }}/>
+                  </View>
+                ) : (
+                  <View style={{ paddingHorizontal: 16, gap: 12 }}>
+                    {previewGroups.map(g => {
+                      const first = g[0];
+                      return (
+                        <PassGroupCard
+                          key={first.orderId || first.passId}
+                          group={g}
+                          showExpansion={false}
+                          onPressCard={() => onViewAllPasses?.()}
+                          onSelectPass={() => onViewAllPasses?.()}
+                        />
+                      );
+                    })}
+                  </View>
+                )}
+              </>
             )}
-          />
-        )}
 
-        {/* ── Saved Venues — preview carousel, "View All" → SavedListScreen ── */}
-        <SectionHeader
-          kicker="SAVED VENUES"
-          title="Places you like"
-          count={savedVenues.length > 0 ? savedVenues.length : undefined}
-          theme={theme}
-          onViewAll={savedVenues.length > 0 && onViewAllSaved ? () => onViewAllSaved('venue') : undefined}
-        />
-        {savedVenues.length === 0 ? (
-          <EmptySection label="Swipe right on venues in the For You tab to save them here." theme={theme}/>
-        ) : (
-          <FlatList
-            data={savedVenues.slice(0, PREVIEW_LIMIT)}
-            keyExtractor={f => f.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-            renderItem={({ item }) => (
-              <SavedCard
-                item={item}
-                theme={theme}
-                onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
-                onRequestRemove={() => requestRemoval(item.id)}
-                pending={pendingId === item.id}
-                onUndo={undoPending}
-              />
+            {/* ── Saved Events — preview carousel, "View All" → SavedListScreen.
+                Omitted entirely when empty (UAT-A2). ── */}
+            {hasEvents && (
+              <>
+                <SectionHeader
+                  kicker="SAVED EVENTS"
+                  title="Events you liked"
+                  count={savedEvents.length}
+                  theme={theme}
+                  onViewAll={onViewAllSaved ? () => onViewAllSaved('event') : undefined}
+                />
+                <FlatList
+                  data={savedEvents.slice(0, PREVIEW_LIMIT)}
+                  keyExtractor={f => f.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                  renderItem={({ item }) => (
+                    <SavedCard
+                      item={item}
+                      theme={theme}
+                      onPress={() => { onMarkRead(item.id); onEventPress(item.data as EventData); }}
+                      onRequestRemove={() => requestRemoval(item.id)}
+                      pending={pendingId === item.id}
+                      onUndo={undoPending}
+                    />
+                  )}
+                />
+              </>
             )}
-          />
-        )}
 
-        {/* ── Saved Photos — liked photos from Wugi Lens galleries.
-            Build #74 §4: tapping deep-links into PhotoViewer at this exact
-            photo (parse galleryId+index from the synthetic id, open the
-            source gallery scrolled to it). Caption is event (gallery title) +
-            venue · date, packed into the SavedCard title/subtitle. No
-            photographer name (gated on the tier-system task). ── */}
-        <SectionHeader
-          kicker="SAVED PHOTOS"
-          title="Photos you liked"
-          count={savedPhotos.length > 0 ? savedPhotos.length : undefined}
-          theme={theme}
-        />
-        {savedPhotos.length === 0 ? (
-          <EmptySection label="Double-tap a photo in any gallery to like it and it'll appear here." theme={theme}/>
-        ) : (
-          <FlatList
-            data={savedPhotos.slice(0, PREVIEW_LIMIT)}
-            keyExtractor={f => f.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-            renderItem={({ item }) => (
-              <SavedCard
-                item={item}
-                theme={theme}
-                onPress={() => { onMarkRead(item.id); onPhotoPress?.(item.id); }}
-                onRequestRemove={() => requestRemoval(item.id)}
-                pending={pendingId === item.id}
-                onUndo={undoPending}
-              />
+            {/* ── Saved Venues — preview carousel, "View All" → SavedListScreen.
+                Omitted entirely when empty (UAT-A2). ── */}
+            {hasVenues && (
+              <>
+                <SectionHeader
+                  kicker="SAVED VENUES"
+                  title="Places you like"
+                  count={savedVenues.length}
+                  theme={theme}
+                  onViewAll={onViewAllSaved ? () => onViewAllSaved('venue') : undefined}
+                />
+                <FlatList
+                  data={savedVenues.slice(0, PREVIEW_LIMIT)}
+                  keyExtractor={f => f.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                  renderItem={({ item }) => (
+                    <SavedCard
+                      item={item}
+                      theme={theme}
+                      onPress={() => { onMarkRead(item.id); onVenuePress(item.data as VenueData); }}
+                      onRequestRemove={() => requestRemoval(item.id)}
+                      pending={pendingId === item.id}
+                      onUndo={undoPending}
+                    />
+                  )}
+                />
+              </>
             )}
-          />
+
+            {/* ── Saved Photos — liked photos from Wugi Lens galleries.
+                Build #74 §4: tapping deep-links into PhotoViewer at this exact
+                photo (parse galleryId+index from the synthetic id, open the
+                source gallery scrolled to it). Caption is event (gallery title) +
+                venue · date, packed into the SavedCard title/subtitle. No
+                photographer name (gated on the tier-system task). Omitted
+                entirely when empty (UAT-A2). ── */}
+            {hasPhotos && (
+              <>
+                <SectionHeader
+                  kicker="SAVED PHOTOS"
+                  title="Photos you liked"
+                  count={savedPhotos.length}
+                  theme={theme}
+                />
+                <FlatList
+                  data={savedPhotos.slice(0, PREVIEW_LIMIT)}
+                  keyExtractor={f => f.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                  renderItem={({ item }) => (
+                    <SavedCard
+                      item={item}
+                      theme={theme}
+                      onPress={() => { onMarkRead(item.id); onPhotoPress?.(item.id); }}
+                      onRequestRemove={() => requestRemoval(item.id)}
+                      pending={pendingId === item.id}
+                      onUndo={undoPending}
+                    />
+                  )}
+                />
+              </>
+            )}
+          </>
         )}
       </ScrollView>
 
