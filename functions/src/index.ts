@@ -35,6 +35,7 @@ export { asanaWebhook }       from './bridge/asanaWebhook';
 export { githubWebhook }      from './bridge/githubWebhook';
 export { twilioInbound }      from './bridge/twilioInbound';
 export { apifyWebhook }       from './bridge/apifyWebhook';
+export { runTargetedScrape }  from './bridge/runTargetedScrape';
 export { ingestLensUpload }   from './lens/ingestLensUpload';
 export { onVenueIntelApproved } from './intel/onVenueIntelApproved';
 export { spendFreeUnlock }        from './unlocks/spendFreeUnlock';
