@@ -1,0 +1,161 @@
+# Bridge v1.5 — automated PR review gate (hand-written by PM, flagged lane deviation:
+# workflow files cannot ship through the Action's token). VERDICT-ONLY until repo
+# variable AUTO_MERGE_ENABLED is set to 'true' (Jarrod gate after observed judgment).
+name: PR Review Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    if: startsWith(github.head_ref, 'claude/')
+    runs-on: ubuntu-latest
+    outputs:
+      touched: ${{ steps.diff.outputs.touched }}
+      denylist_hit: ${{ steps.denylist.outputs.hit }}
+      denylist_files: ${{ steps.denylist.outputs.files }}
+      merge_conflict: ${{ steps.testmerge.outputs.conflict }}
+      functions_gate: ${{ steps.fx.outputs.result }}
+      mobile_gate: ${{ steps.mob.outputs.result }}
+      dashboard_gate: ${{ steps.dash.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Test-merge latest main (semantic-conflict gate)
+        id: testmerge
+        run: |
+          git config user.email "bot@wugi.us" && git config user.name "pm-bot"
+          git fetch origin main
+          if git merge origin/main --no-edit; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            git merge --abort || true
+          fi
+
+      - name: Touched packages
+        id: diff
+        run: |
+          FILES=$(git diff --name-only origin/main...HEAD)
+          echo "$FILES"
+          T=""
+          echo "$FILES" | grep -q "^functions/"  && T="$T functions"
+          echo "$FILES" | grep -q "^mobile-app/" && T="$T mobile-app"
+          echo "$FILES" | grep -q "^dashboard/"  && T="$T dashboard"
+          echo "touched=$T" >> "$GITHUB_OUTPUT"
+
+      - name: Denylist scan (never-auto-merge paths)
+        id: denylist
+        run: |
+          FILES=$(git diff --name-only origin/main...HEAD)
+          HITS=$(echo "$FILES" | grep -E \
+            "(^|/)(firestore\.rules|storage\.rules)$|^\.github/workflows/|package(-lock)?\.json$|functions/src/.*(refund|stripe|payout|payment)|getPassStyle" \
+            || true)
+          if [ -n "$HITS" ]; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            echo "files<<EOF" >> "$GITHUB_OUTPUT"; echo "$HITS" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+            echo "files=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Functions gate (build + tests, baseline 0 errors)
+        id: fx
+        if: contains(steps.diff.outputs.touched, 'functions')
+        run: |
+          cd functions && npm ci
+          if npm run build && (npm test --if-present); then
+            echo "result=PASS" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=FAIL" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+
+      - name: Mobile gate (tsc error count vs baseline 31)
+        id: mob
+        if: contains(steps.diff.outputs.touched, 'mobile-app')
+        run: |
+          cd mobile-app && npm ci
+          COUNT=$(node node_modules/typescript/bin/tsc --noEmit 2>&1 | grep -c "error TS" || true)
+          echo "tsc errors: $COUNT (baseline 31)"
+          if [ "$COUNT" -le 31 ]; then
+            echo "result=PASS ($COUNT/31)" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=FAIL ($COUNT/31)" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+
+      - name: Dashboard gate (tsc only — full next build stays a pre-deploy step, env not in CI)
+        id: dash
+        if: contains(steps.diff.outputs.touched, 'dashboard')
+        run: |
+          cd dashboard && npm ci
+          if node node_modules/typescript/bin/tsc --noEmit; then
+            echo "result=PASS (tsc; full build at deploy)" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=FAIL" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+
+  review:
+    needs: gates
+    if: always() && startsWith(github.head_ref, 'claude/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude review verdict
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --allowedTools "Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh pr comment:*),Bash(gh pr review:*)"
+          prompt: |
+            You are the PM review bot for the Wugi launch pipeline. Review PR #${{ github.event.pull_request.number }}.
+
+            GATE RESULTS (already executed — treat as ground truth):
+            - test-merge conflict with main: ${{ needs.gates.outputs.merge_conflict }}
+            - functions: ${{ needs.gates.outputs.functions_gate || 'not touched' }}
+            - mobile-app: ${{ needs.gates.outputs.mobile_gate || 'not touched' }}
+            - dashboard: ${{ needs.gates.outputs.dashboard_gate || 'not touched' }}
+            - DENYLIST HIT: ${{ needs.gates.outputs.denylist_hit }} (${{ needs.gates.outputs.denylist_files }})
+
+            STEPS:
+            1. `gh pr view ${{ github.event.pull_request.number }} --json body,title` and `gh pr diff ${{ github.event.pull_request.number }}`. Find the originating issue (branch is claude/issue-N-...) and `gh issue view N` to read the spec.
+            2. Judge the diff STRICTLY against the spec: everything asked delivered? anything out of scope? scope fences respected?
+            3. Enforce conventions: NO new packages · NO react-native-safe-area-context (Constants.statusBarHeight only) · custom in-memory navigator, no React Navigation APIs · no version bumps · no expo prebuild · getPassStyle untouched · no secrets/credentials in code.
+            4. Verdict rules: any gate FAIL or merge conflict => REWORK. Convention violation => REWORK. Spec gap => REWORK. Denylist hit with everything else clean => HOLD-DENYLIST. Otherwise => APPROVE.
+            5. Post ONE comment via `gh pr comment` in EXACTLY this format:
+               PM-BOT VERDICT: APPROVE | REWORK | HOLD-DENYLIST
+               MODE: verdict-only (auto-merge ${{ vars.AUTO_MERGE_ENABLED == 'true' && 'ENABLED' || 'DISABLED' }})
+               Then: what it does vs asked · convention compliance · risks/deploy ordering · residuals. If REWORK: a numbered, actionable fix list.
+            Do NOT merge, close, or push anything. Verdict comment only.
+
+      - name: Auto-merge (disabled until AUTO_MERGE_ENABLED=true)
+        if: vars.AUTO_MERGE_ENABLED == 'true' && needs.gates.outputs.denylist_hit == 'false' && needs.gates.result == 'success'
+        run: |
+          VERDICT=$(gh pr view ${{ github.event.pull_request.number }} --json comments -q '.comments[].body' | grep -o "PM-BOT VERDICT: [A-Z-]*" | tail -1)
+          echo "Latest: $VERDICT"
+          if [ "$VERDICT" = "PM-BOT VERDICT: APPROVE" ]; then
+            gh pr merge ${{ github.event.pull_request.number }} --merge --auto=false || gh pr merge ${{ github.event.pull_request.number }} --merge
+          else
+            echo "No APPROVE verdict — not merging."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
