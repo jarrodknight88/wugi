@@ -28,17 +28,11 @@ export default function ClaimClient({ claim, windowHours }: { claim: ClaimData; 
         <p style={{ color: '#666', fontSize: 13, marginTop: 8 }}>
           Shot by Wugi Lens in the last {windowHours} hours. Tap a photo to view and save it.
         </p>
-        <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ marginTop: 14 }}>
           <a href="https://apps.apple.com/app/wugi/id829564750"
             style={{ backgroundColor: '#fff', color: '#000', fontSize: 13, fontWeight: 700, padding: '10px 18px', borderRadius: 10, textDecoration: 'none', display: 'inline-block' }}>
             📱 Get the Wugi App
           </a>
-          {claim.galleryId && (
-            <a href={`/gallery/${claim.galleryId}`}
-              style={{ backgroundColor: 'transparent', color: '#2a7a5a', fontSize: 13, fontWeight: 700, padding: '10px 18px', borderRadius: 10, textDecoration: 'none', display: 'inline-block', border: '1px solid #2a7a5a' }}>
-              View full event gallery →
-            </a>
-          )}
         </div>
       </div>
 
@@ -47,21 +41,10 @@ export default function ClaimClient({ claim, windowHours }: { claim: ClaimData; 
         {claim.photos.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 16px', color: '#555' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📷</div>
-            {claim.emptyReason === 'no-assignment' ? (
-              <>
-                <p style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Not assigned yet</p>
-                <p style={{ fontSize: 14, lineHeight: 1.5 }}>
-                  This device isn&apos;t shooting an event right now. Check back once it&apos;s assigned tonight.
-                </p>
-              </>
-            ) : (
-              <>
-                <p style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Photos land here during the event</p>
-                <p style={{ fontSize: 14, lineHeight: 1.5 }}>
-                  Photos from tonight will show up here as they&apos;re published. Check back in a few minutes.
-                </p>
-              </>
-            )}
+            <p style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>No photos yet</p>
+            <p style={{ fontSize: 14, lineHeight: 1.5 }}>
+              Photos from tonight will show up here as they&apos;re published. Check back in a few minutes.
+            </p>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
@@ -101,31 +84,15 @@ export default function ClaimClient({ claim, windowHours }: { claim: ClaimData; 
             onClick={e => e.stopPropagation()}
             style={{ maxWidth: '94vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: 12 }}
           />
-          <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <a
-              href={claim.photos[lightbox].url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={e => e.stopPropagation()}
-              style={{ backgroundColor: '#2a7a5a', color: '#fff', fontSize: 14, fontWeight: 700, padding: '12px 24px', borderRadius: 10, textDecoration: 'none' }}
-            >
-              ⬇️ Save this photo
-            </a>
-            {/* No web sign-in exists yet — "save to my account" stubs to the
-                App Store rather than writing a favorites doc from a
-                logged-out session. These are real eventGalleries photo
-                subcollection doc ids (not the mobile app's synthetic
-                galleryId-index convention, which only applies to the older
-                galleries.images[] model) — once web auth lands, favorite
-                writes here should use photo.id directly. */}
-            <a
-              href="https://apps.apple.com/app/wugi/id829564750"
-              onClick={e => e.stopPropagation()}
-              style={{ backgroundColor: 'transparent', color: '#fff', fontSize: 14, fontWeight: 700, padding: '12px 24px', borderRadius: 10, textDecoration: 'none', border: '1px solid #444' }}
-            >
-              💾 Save to my Wugi account
-            </a>
-          </div>
+          <a
+            href={claim.photos[lightbox].url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{ marginTop: 16, backgroundColor: '#2a7a5a', color: '#fff', fontSize: 14, fontWeight: 700, padding: '12px 24px', borderRadius: 10, textDecoration: 'none' }}
+          >
+            ⬇️ Save this photo
+          </a>
           <button onClick={e => { e.stopPropagation(); next() }}
             style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', fontSize: 28, width: 44, height: 44, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             ›

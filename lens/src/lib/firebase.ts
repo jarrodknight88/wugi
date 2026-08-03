@@ -137,8 +137,8 @@ export function subscribePendingPhotos(
           deviceId:   d.data().deviceId || undefined,
           capturedAt: d.data().capturedAt?.toDate?.() || null,
         }))
-        // Newest first — most recent captures surface at the top of the pool.
-        .sort((a, b) => (b.capturedAt?.getTime() || 0) - (a.capturedAt?.getTime() || 0))
+        // Oldest first — review in capture order.
+        .sort((a, b) => (a.capturedAt?.getTime() || 0) - (b.capturedAt?.getTime() || 0))
       onChange(photos)
     }, e => onError?.(e as Error))
 }
@@ -158,23 +158,11 @@ export function subscribeGalleryCounts(
     }, () => {})
 }
 
-// Approve or reject a set of pending photos (one or many — the single-photo
-// viewer and the batch action bar both call this with a 1-element array).
-// Batched (Firestore caps batched writes at 500 ops — we chunk at 400 photo
-// updates + 1 gallery counter update per batch). Approve publishes into the
-// existing consumer surfaces: approved:true is what useEventGallery (mobile)
-// and /gallery/[id] (web) filter on; photoCount keeps the existing
-// published-count convention.
-//
-// NOTE for reconciliation with the backend PR: this already increments
-// pendingCount/publishedCount/photoCount on the gallery doc from the client.
-// A stricter reading of "status writes only — backend maintains counters"
-// would have this function write only `status`/`approved`, with a Firestore
-// trigger on photo writes maintaining the counters instead. No such trigger
-// exists yet (functions/ is out of scope for lens/+web/ PRs), and removing
-// the client-side counter write here with nothing to replace it would leave
-// the pendingCount badge permanently stale. Left as-is; flagging so the two
-// PRs can decide whether a counter-maintaining trigger should replace this.
+// Approve or reject a set of pending photos. Batched (Firestore caps batched
+// writes at 500 ops — we chunk at 400 photo updates + 1 gallery counter
+// update per batch). Approve publishes into the existing consumer surfaces:
+// approved:true is what useEventGallery (mobile) and /gallery/[id] (web)
+// filter on; photoCount keeps the existing published-count convention.
 export async function moderatePhotos(
   galleryId: string,
   photoIds:  string[],

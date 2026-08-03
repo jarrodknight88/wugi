@@ -88,15 +88,11 @@ export default async function ClaimPage({
     }
   }
 
-  const galleryId = device.assignment?.galleryId || null
-
   const claim: ClaimData = {
     deviceId,
     eventTitle: device.assignment?.eventTitle || 'Tonight at Wugi',
     venueName:  device.assignment?.venueName  || '',
-    galleryId,
     photos,
-    emptyReason: photos.length > 0 ? null : (galleryId ? 'no-photos' : 'no-assignment'),
   }
 
   return <ClaimClient claim={claim} windowHours={WINDOW_HOURS} />
