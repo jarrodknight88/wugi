@@ -55,6 +55,7 @@ import { GetARideButton } from '../components/GetARideButton';
 import { orderDealsForDisplay } from '../utils/deals';
 import { formatEventDateShort } from '../utils/eventDateTime';
 import { hexToRgba } from '../utils/color';
+import { attachableImageUri, buildVenueShareMessage } from '../utils/share';
 import { makeGallery } from '../constants/mockData';
 import { logVenueViewed } from '../analytics/analyticsService';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
@@ -517,7 +518,21 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
       });
     };
     const doShare = () => {
-      Share.share({ message: `Check out ${venue.name} on Wugi!`, title: venue.name }).catch(() => {});
+      // Share — hero image (iOS only, see utils/share.ts) + blurb + link.
+      (async () => {
+        try {
+          const localImageUri = await attachableImageUri(venueImage, venue.id);
+          const message = buildVenueShareMessage(venue);
+          await Share.share(
+            localImageUri
+              ? { message, url: localImageUri, title: venue.name }
+              : { message, title: venue.name },
+          );
+        } catch (_) {
+          // User cancelled or the share sheet failed to open — no-op,
+          // matches this menu's other actions.
+        }
+      })();
     };
     const doReport = () => {
       Alert.alert('Report Venue', 'Thank you — we\'ll review this venue.', [{ text: 'OK' }]);
