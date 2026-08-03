@@ -101,6 +101,13 @@ export type EventData = {
   // resolveEventBannerImage() in HomeScreen.tsx. Dashboard-writable field,
   // not yet exposed in the dashboard UI (UAT-W3-1 follow-up).
   bannerImage?: string;
+  // Real occurrence date (YYYY-MM-DD, ET calendar day) mirrored off the
+  // Firestore doc's `dateISO` field — see occurrenceDateISO() in
+  // firestoreService.ts. `date` above is a pre-formatted display string
+  // ("TUE JUN 9"), not parseable, so date-range selectors (e.g. This
+  // weekend, see selectors/homeFeedSelectors.ts) need this instead.
+  // Optional/undefined for undated one-offs or hand-seeded mock data.
+  dateISO?: string;
   gallery: GalleryData;
   hasTickets?: boolean;
 };
