@@ -194,6 +194,11 @@ export type ForYouCard = {
   tag: string;
   tagColor: string;
   data: EventData | VenueData | null;
+  // UAT-W3-3: set by rankPicksPool() when a local behavior signal (viewed/
+  // saved category or vibe) drove this card's placement — rendered as a
+  // subtle "For your vibe" / "Because you viewed X" hint. Undefined for
+  // cold-start (no signals yet) or unranked card types (deal/food/etc).
+  rankReason?: string;
 };
 
 // ── Favorites ─────────────────────────────────────────────────────────

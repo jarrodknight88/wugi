@@ -11,6 +11,8 @@ import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, ForYouCard, FavoriteItem, FSDeal } from '../types';
 import { getForYouFeed, getDealsBrowse, type FSEvent, type FSVenue } from '../../firestoreService';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { usePicksSignalStore } from '../state/picksSignalStore';
+import { rankPicksPool, extractCardSignal } from '../utils/picksRanking';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
@@ -156,6 +158,13 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
         <Text style={{ color: '#fff', fontSize: 11, fontFamily: FONTS.medium, letterSpacing: 0.5 }}>{card.tag}</Text>
       </View>
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20 }}>
+        {/* GROWTH VISIBILITY (UAT-W3-3): only rendered when a signal actually
+            drove this card's placement — surfaces personalization working. */}
+        {card.rankReason && (
+          <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4, marginBottom: 6 }}>
+            <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 11, fontFamily: FONTS.medium, letterSpacing: 0.2 }}>✦ {card.rankReason}</Text>
+          </View>
+        )}
         <Text style={{ color: '#fff', fontSize: 24, fontFamily: FONTS.display, letterSpacing: -0.5, marginBottom: 4 }}>{card.title}</Text>
         <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14, fontFamily: FONTS.body }}>{card.subtitle}</Text>
         {(card.type === 'event' || card.type === 'venue') && card.data && (
@@ -202,12 +211,17 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
     Promise.all([getForYouFeed(), getDealsBrowse(40).catch(() => [] as FSDeal[])])
       .then(([{ events, venues }, rawDeals]) => {
         // Interleave events and venues for variety
-        const base: ForYouCard[] = [];
+        const interleaved: ForYouCard[] = [];
         const maxLen = Math.max(events.length, venues.length);
         for (let i = 0; i < maxLen; i++) {
-          if (events[i])  base.push(fsEventToCard(events[i]));
-          if (venues[i])  base.push(fsVenueToCard(venues[i]));
+          if (events[i])  interleaved.push(fsEventToCard(events[i]));
+          if (venues[i])  interleaved.push(fsVenueToCard(venues[i]));
         }
+
+        // UAT-W3-3: re-rank by local behavior signals (viewed/saved venue
+        // category + vibe). Cold start (no signals yet) leaves order as-is.
+        const { categoryScores, vibeScores, recent } = usePicksSignalStore.getState();
+        const base = rankPicksPool(interleaved, { categoryScores, vibeScores, recent });
 
         // Light deal preference: saved venues OR matching vibes; if nothing
         // matches, fall back to a few eligible deals so deals still appear.
@@ -286,6 +300,8 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
       if (card.type === 'event') onFavoriteToggle({ id: card.id, type: 'event', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as EventData });
       else if (card.type === 'venue') onFavoriteToggle({ id: card.id, type: 'venue', title: card.title, subtitle: card.subtitle, image: card.image, read: false, data: card.data as VenueData });
     }
+    const signal = extractCardSignal(card);
+    if (signal) usePicksSignalStore.getState().recordSignal('save', signal);
     advance();
   };
 
@@ -303,6 +319,8 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
 
   const handleTap = () => {
     const card = cards[currentIndex];
+    const signal = extractCardSignal(card);
+    if (signal) usePicksSignalStore.getState().recordSignal('view', signal);
     if (card.type === 'event' && card.data) onEventPress(card.data as EventData);
     else if (card.type === 'venue' && card.data) onVenuePress(card.data as VenueData);
   };
