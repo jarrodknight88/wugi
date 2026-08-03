@@ -46,6 +46,8 @@ import { useEventGalleriesBySeriesId } from '../hooks/useEventGalleriesBySeriesI
 import { useVenueById } from '../hooks/useVenueById';
 import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { formatEventDateShort, formatEventTimeLabel } from '../utils/eventDateTime';
+import { withAlpha } from '../utils/color';
+import { GetARideButton } from '../components/GetARideButton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Design hero: default aspectRatio 0.95 → height = width / 0.95. Used for
@@ -134,7 +136,15 @@ function EventScreenInner({
   const [heroAspectRatio, setHeroAspectRatio] = useState(DEFAULT_HERO_ASPECT_RATIO);
   useEffect(() => {
     const first = media[0];
-    if (!first || first.type === 'video' || !first.uri) {
+    if (!first || !first.uri) {
+      setHeroAspectRatio(DEFAULT_HERO_ASPECT_RATIO);
+      return;
+    }
+    // Video's real dimensions aren't known until playback metadata loads —
+    // start at the default and let handleFirstVideoLoad below correct it
+    // once expo-av reports naturalSize (was previously hardcoded to the
+    // default forever, cropping any non-default-ratio video).
+    if (first.type === 'video') {
       setHeroAspectRatio(DEFAULT_HERO_ASPECT_RATIO);
       return;
     }
@@ -146,6 +156,15 @@ function EventScreenInner({
     );
     return () => { cancelled = true; };
   }, [media[0]?.uri, media[0]?.type]);
+
+  // Mirrors the RNImage.getSize path above, but for the first media item
+  // when it's a video — expo-av only exposes real dimensions via onLoad.
+  const handleFirstVideoLoad = (status: any) => {
+    const size = status?.naturalSize;
+    if (size && size.width > 0 && size.height > 0) {
+      setHeroAspectRatio(size.width / size.height);
+    }
+  };
 
   // Portrait: size the hero to the image's real aspect ratio so it renders
   // fully (no crop) and the chips row below sits clear of the image bounds.
@@ -387,6 +406,7 @@ function EventScreenInner({
                       shouldPlay={index === activeIndex}
                       isLooping
                       isMuted={isMuted}
+                      onLoad={index === 0 ? handleFirstVideoLoad : undefined}
                     />
                   ) : (
                     <Image
@@ -411,41 +431,9 @@ function EventScreenInner({
             pointerEvents="none"
           />
 
-          {/* Status-bar wash moved OUT of the hero (it used to scroll/parallax
-              away). It's now a darker, pinned gradient rendered as a sibling of
-              the ScrollView below — fixed at the screen top, always legible. */}
-
-          {/* ── Top controls — back + kebab overflow ── */}
-          {/* Using absolute positioning with explicit left/right/top instead of
-              SafeAreaView+padding so we can hit the spec's left:20/right:20/top:64.
-              Each button is a real BlurView pill (intensity:20, tint:dark) with a
-              dark-tinted LinearGradient inside + the existing border. ── */}
-          <View
-            style={{
-              position: 'absolute', top: 64, left: 20, right: 20,
-              flexDirection: 'row', justifyContent: 'space-between',
-              zIndex: 2,
-            }}
-          >
-            <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
-              <BlurView intensity={20} tint="dark" style={styles.controlButton}>
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <BackIcon color="#f4efe1"/>
-              </BlurView>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
-              <BlurView intensity={20} tint="dark" style={styles.controlButton}>
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <KebabVerticalIcon color="#f4efe1"/>
-              </BlurView>
-            </TouchableOpacity>
-          </View>
+          {/* Top controls moved OUT of the hero — they used to scroll away with
+              it. Now rendered as a sticky sibling of the ScrollView below,
+              alongside the status-bar wash, so both stay fixed on screen. */}
 
           {/* Mute toggle for video */}
           {media[activeIndex]?.type === 'video' && (
@@ -482,23 +470,28 @@ function EventScreenInner({
             </View>
           )}
 
-          {/* Event title — overlaid at bottom of hero, above the bg-colored seam */}
-          <View style={{ position: 'absolute', bottom: 48, left: 0, right: 0, paddingHorizontal: 20, zIndex: 2 }}>
-            <Text
-              numberOfLines={3}
-              style={{
-                color: theme.onImage,
-                fontSize: 38,
-                fontFamily: FONTS.display,
-                letterSpacing: -1.4,
-                lineHeight: 40,
-              }}
-            >
-              {event.title ?? ''}
-            </Text>
-          </View>
         </View>
-        {/* End hero — the -24 margin means the next block overlaps here */}
+        {/* End hero — the -24 margin means the next block overlaps here, so
+            the title below sits on the tail of the bottom scrim rather than
+            a hard cut to theme.bg. */}
+
+        {/* ── Event title — moved below the media (was overlaid on top of
+             it); the hero's bottom scrim still carries the eye from image
+             into this block instead of a hard cut. ── */}
+        <View style={{ paddingHorizontal: 20, paddingTop: isPortraitHero ? 16 : 4 }}>
+          <Text
+            numberOfLines={3}
+            style={{
+              color: theme.text,
+              fontSize: 32,
+              fontFamily: FONTS.display,
+              letterSpacing: -1.2,
+              lineHeight: 34,
+            }}
+          >
+            {event.title ?? ''}
+          </Text>
+        </View>
 
         {/* ── Date / Time / Age chips ─────────────────────────────────── */}
         {(event.date || event.time || event.age) && (
@@ -570,6 +563,19 @@ function EventScreenInner({
               <ChevronRightIcon color={theme.subtext}/>
             </TouchableOpacity>
           ) : null}
+
+          {/* "Get a ride" — Uber universal link to this venue. Hidden when
+              the venue has no geocoded coordinates. */}
+          {!!venue?.location && (
+            <View style={{ marginTop: 12 }}>
+              <GetARideButton
+                latitude={venue.location.latitude}
+                longitude={venue.location.longitude}
+                nickname={venue.name || venueName}
+                theme={theme}
+              />
+            </View>
+          )}
 
           {/* Menu is no longer a button here — it's an engrained "MENU" section
               below About (see Menu section), matching About's eyeline. */}
@@ -749,16 +755,49 @@ function EventScreenInner({
         <View style={{ height: hasCTA ? 140 : 40 }}/>
       </ScrollView>
 
-      {/* ── Status-bar wash — STATIC + DARK ──────────────────────────────
+      {/* ── Status-bar wash — theme-matched, STATIC ───────────────────────
            Pinned to the screen top (sibling of the ScrollView, so it never
-           scrolls or parallaxes) and a darker solid gradient (no blur) so the
-           time/battery stay readable over any hero photo or scrolled content. */}
+           scrolls or parallaxes). Derived from theme.bg (black wash in dark
+           mode, beige wash in light mode — was hardcoded black for both) so
+           the time/battery/notch stay readable over whatever scrolls under
+           it, matching the page background instead of fighting it. */}
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(0,0,0,0.78)', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']}
+        colors={[withAlpha(theme.bg, 0.92), withAlpha(theme.bg, 0.55), withAlpha(theme.bg, 0)]}
         locations={[0, 0.6, 1]}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 60, zIndex: 50 }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 60, zIndex: 2 }}
       />
+
+      {/* ── Top controls — back + kebab overflow, STICKY ──────────────────
+           Moved out of the scrolling hero (Wave 2 had these scroll away with
+           the media) to a sibling of the ScrollView so they stay fixed on
+           screen at all times, matching the wash above. ── */}
+      <View
+        style={{
+          position: 'absolute', top: 64, left: 20, right: 20,
+          flexDirection: 'row', justifyContent: 'space-between',
+          zIndex: 3,
+        }}
+      >
+        <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
+          <BlurView intensity={20} tint="dark" style={styles.controlButton}>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+              style={StyleSheet.absoluteFill}
+            />
+            <BackIcon color="#f4efe1"/>
+          </BlurView>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={openOverflowMenu} activeOpacity={0.8}>
+          <BlurView intensity={20} tint="dark" style={styles.controlButton}>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+              style={StyleSheet.absoluteFill}
+            />
+            <KebabVerticalIcon color="#f4efe1"/>
+          </BlurView>
+        </TouchableOpacity>
+      </View>
 
       {/* ── Sticky CTA — conditional on available actions ─────────────── */}
       {hasCTA && (

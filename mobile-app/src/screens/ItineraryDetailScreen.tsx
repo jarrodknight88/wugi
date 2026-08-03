@@ -34,6 +34,8 @@ import type { Theme } from '../constants/colors';
 import type { VenueData, ItineraryDoc, EditorialCard } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, ChevronRightIcon, KebabVerticalIcon } from '../components/icons';
+import { withAlpha } from '../utils/color';
+import { GetARideButton } from '../components/GetARideButton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.1);   // aspect 1.1 per spec
@@ -62,6 +64,7 @@ function toVenueData(v: any): VenueData {
     reservationProvider: v.reservationProvider, reservationUrl: v.reservationUrl,
     reservationUrlWithDefaults: v.reservationUrlWithDefaults,
     ctaPrimary: v.ctaPrimary, ctaSecondary: v.ctaSecondary,
+    location: v.location,
   } as VenueData;
 }
 
@@ -130,6 +133,11 @@ function StopRow({ n, card, theme, isLast, onVenuePress }: {
 export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress }: Props) {
   const [itinerary, setItinerary] = useState<ItineraryDoc | null>(null);
   const [loading,   setLoading]   = useState(true);
+  // Page-level "Get a ride" target — the route's first stop. Itinerary
+  // cards only carry venueId (no lat/lng), so this needs its own venue doc
+  // read; resolved once alongside the itinerary rather than per-stop since
+  // the ride action lives at the page level (see header note below).
+  const [firstStopRide, setFirstStopRide] = useState<{ latitude: number; longitude: number; nickname: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +145,15 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
       try {
         const svc = await import('../../firestoreService');
         const doc = await svc.getItineraryById(itineraryId);
-        if (!cancelled) setItinerary(doc);
+        if (cancelled) return;
+        setItinerary(doc);
+        const firstStop = (doc?.cards || []).find(c => c.kind === 'stop' && c.venueId);
+        if (firstStop?.venueId) {
+          const v = await svc.getVenueById(firstStop.venueId);
+          if (!cancelled && v?.location) {
+            setFirstStopRide({ latitude: v.location.latitude, longitude: v.location.longitude, nickname: v.name || firstStop.title });
+          }
+        }
       } catch (e) {
         console.log('ItineraryDetailScreen: load failed', e);
       } finally {
@@ -219,49 +235,31 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
           {!!itinerary.coverImage && (
             <Image source={{ uri: itinerary.coverImage }} style={StyleSheet.absoluteFillObject} contentFit="cover" cachePolicy="memory-disk"/>
           )}
-          {/* Bottom scrim — transparent → mild → theme.bg so the marginBottom:-24 seam vanishes. */}
+          {/* Bottom scrim — transparent → mild → theme.bg so the marginBottom:-24
+              seam vanishes and the eye carries into the title block below. */}
           <LinearGradient
             pointerEvents="none"
             colors={['rgba(0,0,0,0.5)', 'transparent', 'transparent', theme.bg]}
             locations={[0, 0.22, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />
+          {/* Top controls moved OUT of the hero (they used to scroll away with
+              it) — now a sticky sibling of the ScrollView below, alongside the
+              status-bar wash. */}
+        </View>
 
-          {/* Top controls — back left, kebab right, glass-pill style matching
-              Event/Venue Wave 1. */}
-          <View style={{ position: 'absolute', top: 64, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 }}>
-            <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
-              <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                />
-                <BackIcon color="#f4efe1"/>
-              </BlurView>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={openOverflow} activeOpacity={0.8}>
-              <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                <LinearGradient
-                  colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                />
-                <KebabVerticalIcon color="#f4efe1"/>
-              </BlurView>
-            </TouchableOpacity>
-          </View>
-
-          {/* Title block — eyebrow + parchment-gradient title. Parchment gradient
-              isn't natively supported on Text without MaskedView, so we render
-              the title in a clean parchment off-white instead — visually close
-              and avoids a new native dep. */}
-          <View style={{ position: 'absolute', bottom: 44, left: 0, right: 0, paddingHorizontal: 20, zIndex: 2 }}>
-            <Text style={{ color: theme.accent, fontSize: 11, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8 }}>
-              ITINERARY{neighborhood ? ` · ${neighborhood}` : ''}
-            </Text>
-            <Text style={{ color: '#f0ebdc', fontSize: 38, fontFamily: FONTS.display, letterSpacing: -1.3, lineHeight: 40 }} numberOfLines={3}>
-              {itinerary.title}
-            </Text>
-          </View>
+        {/* Title block — moved below the media (was overlaid on top of it).
+            Parchment gradient isn't natively supported on Text without
+            MaskedView, so the title renders in theme.text directly now that
+            it's off the photo (previously needed the off-white parchment
+            tone for legibility over the image). */}
+        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
+          <Text style={{ color: theme.accent, fontSize: 11, fontFamily: MONO, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8 }}>
+            ITINERARY{neighborhood ? ` · ${neighborhood}` : ''}
+          </Text>
+          <Text style={{ color: theme.text, fontSize: 32, fontFamily: FONTS.display, letterSpacing: -1.2, lineHeight: 34 }} numberOfLines={3}>
+            {itinerary.title}
+          </Text>
         </View>
 
         {/* Meta strip — N STOPS + NEIGHBORHOOD chips (duration + walkable dropped
@@ -280,6 +278,22 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
             </View>
           )}
         </View>
+
+        {/* "Get a ride" — page-level, to the FIRST stop (not per-stop: the
+            route is meant to be walked/hopped as a unit, and stops already
+            deep-link individually to their own venue profile where a
+            per-stop ride action would live if ever needed). Hidden when the
+            first stop has no geocoded coordinates. */}
+        {!!firstStopRide && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+            <GetARideButton
+              latitude={firstStopRide.latitude}
+              longitude={firstStopRide.longitude}
+              nickname={firstStopRide.nickname}
+              theme={theme}
+            />
+          </View>
+        )}
 
         {/* Blurb — render only when seeded subtitle exists (real data only). */}
         {!!itinerary.subtitle && (
@@ -326,6 +340,41 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
           </Text>
         </View>
       </ScrollView>
+
+      {/* ── Status-bar wash — theme-matched, STATIC ───────────────────────
+           Pinned to the screen top (sibling of the ScrollView, so it never
+           scrolls or parallaxes). Derived from theme.bg (black wash in dark
+           mode, beige wash in light mode) — previously had no dedicated
+           wash, only the hero's own top-to-bottom scrim. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={[withAlpha(theme.bg, 0.92), withAlpha(theme.bg, 0.55), withAlpha(theme.bg, 0)]}
+        locations={[0, 0.6, 1]}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 60, zIndex: 2 }}
+      />
+
+      {/* Top controls — back left, kebab right, STICKY (previously scrolled
+          away with the hero). Glass-pill style matching Event/Venue. */}
+      <View style={{ position: 'absolute', top: 64, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', zIndex: 3 }}>
+        <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
+          <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            />
+            <BackIcon color="#f4efe1"/>
+          </BlurView>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={openOverflow} activeOpacity={0.8}>
+          <BlurView intensity={20} tint="dark" style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(244,239,225,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0.25)']}
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            />
+            <KebabVerticalIcon color="#f4efe1"/>
+          </BlurView>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }

@@ -143,6 +143,10 @@ export type VenueData = {
   reservationUrlWithDefaults?: string;
   ctaPrimary?: string;         // e.g. "Reserve a table" or "Get a Section"
   ctaSecondary?: string;       // e.g. "Directions"
+  // Geocoded coordinates (mirrors FSVenue.location in firestoreService.ts).
+  // Optional — drives the "Get a ride" Uber deep link; the action hides
+  // itself when a venue has no coordinates.
+  location?: { latitude: number; longitude: number };
 };
 
 // ── Menu ──────────────────────────────────────────────────────────────
