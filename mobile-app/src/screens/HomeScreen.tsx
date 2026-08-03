@@ -48,6 +48,7 @@ import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
 import { ErrorState, EmptyState } from '../components/StateViews';
 import { formatEventDateShort } from '../utils/eventDateTime';
+import { selectPicksForYou, selectThisWeekend } from '../utils/homeFeedSelectors';
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
 // Buckets the current hour into morning / afternoon / evening / late-night.
@@ -110,6 +111,7 @@ function toEventData(e: FSEvent): EventData {
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
     bannerImage: e.bannerImage || undefined,
+    dateISO: (e as any).dateISO || undefined,
     hasTickets: (e as any).hasTickets === true,
     gallery: makeGallery(e.id, e.title, e.venue, e.date,
       ['gp1','gp2','gp3','gp4','gp5','gp6','gp7','gp8']),
@@ -521,8 +523,13 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onItineraryPress
     : legacyFeaturedVenues.length > 0 ? legacyFeaturedVenues
     : venues;
 
-  const picks   = eventList.slice(0, 8);
-  const weekend = eventList.slice(0, 6);
+  // "This weekend" hard-excludes anything already shown in "Picks for you"
+  // this session (selectPicksForYou records ids into a shared seen-set —
+  // see homeFeedSelectors.ts) and is windowed to Thu–Sun ET of the current
+  // week. Picks must be computed first so the seen-set is populated before
+  // the weekend selector reads it.
+  const picks   = selectPicksForYou(eventList, 8);
+  const weekend = selectThisWeekend(eventList, new Date(), 6);
   const starters = starterSource.map(toVenueData).slice(0, 5);
 
   // Time-aware hero copy — computed once per render (cheap).
