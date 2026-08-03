@@ -47,6 +47,8 @@ import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { WeatherBadge } from '../components/WeatherBadge';
+import { RecentGalleries } from '../components/RecentGalleries';
 import { formatEventDateShort } from '../utils/eventDateTime';
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
@@ -393,7 +395,7 @@ type Props = {
   onCameraPress:  () => void;
 };
 
-export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCameraPress }: Props) {
+export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, userVibes, onCameraPress }: Props) {
   const [events,     setEvents]     = useState<FSEvent[]>([]);
   const [venues,     setVenues]     = useState<FSVenue[]>([]);
   const [deals,      setDeals]      = useState<FSDeal[]>([]);
@@ -620,8 +622,14 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
       {/* Minimal header — wordmark + vibe summary. Camera icon removed (no
           stories at launch). onCameraPress prop kept for type compat. */}
       <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ width: 60 }}/>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
+          </View>
+          <View style={{ width: 60, alignItems: 'flex-end' }}>
+            <WeatherBadge theme={theme}/>
+          </View>
         </View>
         {userVibes.length > 0 && (
           <Text style={{ color: theme.subtext, fontSize: 11, textAlign: 'center', marginTop: 6, fontFamily: MONO, letterSpacing: 0.4 }}>
@@ -674,6 +682,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
             />
           </>
         )}
+
+        {/* Recent galleries — most recent approved galleries, horizontal shelf */}
+        <RecentGalleries theme={theme} onGalleryPress={onGalleryPress}/>
 
         {/* Where to start — StartHereShelf: horizontal venue cards */}
         <StartHereShelf starters={starters} theme={theme} onVenuePress={onVenuePress}/>
