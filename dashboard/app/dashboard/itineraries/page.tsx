@@ -14,10 +14,14 @@ import type { SelectedMedia } from "@/lib/mediaSelection"
 // ItineraryDoc exactly (verified against firestoreService.ts's
 // getItineraryById/getEditorialShelves and ItineraryDetailScreen.tsx, which
 // render this collection) — a hero 'itinerary' card plus ordered 'stop'
-// cards. `note` on a stop card is dashboard-only (inert to the consumer,
-// which only reads `sub`): re-editing needs the curator's own note kept
-// separate from the auto-generated `sub` ("Venue" / venue category)
-// fallback, or every edit would clobber it.
+// cards. `note` on a stop card is dashboard-only for listType 'itinerary'
+// (inert to the consumer, which only reads `sub`): re-editing needs the
+// curator's own note kept separate from the auto-generated `sub` ("Venue" /
+// venue category) fallback, or every edit would clobber it. For listType
+// 'spot-list' the note IS the guest-visible blurb, so it's written into
+// `sub` at save time (see save()). listType/authorName/authorPhoto/
+// authorHandle power the Discover influencer components (consumer-side
+// rendering of them is a separate task — this page is authoring only).
 type EditorialCard = {
   kind: "itinerary" | "stop"
   title: string
@@ -30,6 +34,8 @@ type EditorialCard = {
   note?: string
 }
 
+type ListType = "itinerary" | "spot-list"
+
 type Itinerary = {
   id: string
   kicker: string
@@ -41,6 +47,10 @@ type Itinerary = {
   order: number
   status: string
   source: string
+  listType?: ListType
+  authorName?: string
+  authorPhoto?: string
+  authorHandle?: string
 }
 
 type Stop = { venueId: string; venueName: string; note: string }
@@ -50,12 +60,22 @@ type IF = {
   order: string; status: string
   media: SelectedMedia[]
   stops: Stop[]
+  listType: ListType
+  authorName: string
+  authorHandle: string
+  authorPhotoMedia: SelectedMedia[]
 }
 
 const EMPTY: IF = {
   kicker: "WEEKEND ITINERARY", title: "", subtitle: "", neighborhood: "",
   order: "0", status: "draft", media: [], stops: [],
+  listType: "itinerary", authorName: "", authorHandle: "", authorPhotoMedia: [],
 }
+
+const LIST_TYPES: { value: ListType; label: string; hint: string }[] = [
+  { value: "itinerary", label: "Itinerary", hint: "An ordered, multi-stop route a guest follows in sequence." },
+  { value: "spot-list", label: "Spot list", hint: "A curated roundup of venues, e.g. “5 spots in Buckhead” — order doesn't imply a route." },
+]
 
 // Matches scripts/seed-itineraries.ts's palette exactly so dashboard-authored
 // itineraries render identically to the seeded placeholders.
@@ -155,6 +175,10 @@ export default function ItinerariesPage() {
       status: it.status || "draft",
       media: it.coverImage ? [{ uri: it.coverImage, type: "image" }] : [],
       stops: stopCards.map(c => ({ venueId: c.venueId || "", venueName: c.title, note: c.note || "" })),
+      listType: it.listType || "itinerary",
+      authorName: it.authorName || "",
+      authorHandle: it.authorHandle || "",
+      authorPhotoMedia: it.authorPhoto ? [{ uri: it.authorPhoto, type: "image" }] : [],
     })
     setEditId(it.id); setModal(true); setError("")
   }
@@ -188,15 +212,21 @@ export default function ItinerariesPage() {
     setSaving(true); setError("")
     try {
       const coverImage = form.media[0]?.uri || ""
+      const authorPhoto = form.authorPhotoMedia[0]?.uri || ""
+      const isSpotList = form.listType === "spot-list"
       const stopCards: EditorialCard[] = form.stops.map((s, i) => {
         const v = venuesById[s.venueId] || {}
+        const note = s.note.trim()
         return {
           kind: "stop", venueId: s.venueId,
           title: v.name || s.venueName || "Venue",
-          sub: v.category || "Venue",
+          // A spot-list's blurb is guest-visible, so it's written into `sub`
+          // (the only stop-card field the consumer reads); an itinerary's
+          // note stays curator-only and `sub` keeps the venue category.
+          sub: isSpotList ? (note || v.category || "Venue") : (v.category || "Venue"),
           image: firstImage(v),
           tag: `STOP ${i + 1}`, tagColor: STOP_COLORS[i % STOP_COLORS.length],
-          note: s.note.trim(),
+          note,
         }
       })
       const heroCard: EditorialCard = {
@@ -215,6 +245,10 @@ export default function ItinerariesPage() {
         order: Number(form.order) || 0,
         status: form.status,
         source: "dashboard",
+        listType: form.listType,
+        authorName: form.authorName.trim(),
+        authorHandle: form.authorHandle.trim(),
+        authorPhoto,
         updatedAt: serverTimestamp(),
       }
       if (editId) {
@@ -274,10 +308,13 @@ export default function ItinerariesPage() {
                 <div key={it.id} style={CARD}>
                   <div style={{ height: 120, background: it.coverImage ? `center/cover url(${it.coverImage})` : "#111827", position: "relative" }}>
                     <span style={{ position: "absolute", top: 10, right: 10, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: sc.bg, color: sc.color }}>{it.status}</span>
+                    {it.listType === "spot-list" && (
+                      <span style={{ position: "absolute", top: 10, left: 10, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: "rgba(17,24,39,0.75)", color: "#fff" }}>Spot list</span>
+                    )}
                   </div>
                   <div style={{ padding: "14px 18px" }}>
                     <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#111827" }}>{it.title}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#6b7280" }}>{it.neighborhood} · {stopCount} stop{stopCount === 1 ? "" : "s"}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#6b7280" }}>{it.neighborhood} · {stopCount} stop{stopCount === 1 ? "" : "s"}{it.authorName ? ` · curated by ${it.authorName}` : ""}</p>
                   </div>
                   <div style={{ padding: "0 18px 14px", display: "flex", gap: 8 }}>
                     <button onClick={() => openEdit(it)} style={{ flex: 1, padding: "7px 0", borderRadius: 7, background: "#f3f4f6", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, color: "#374151" }}>Edit</button>
@@ -320,8 +357,29 @@ export default function ItinerariesPage() {
 
               <Section title="Basics">
                 <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
+                  <label style={LABEL}>List type</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {LIST_TYPES.map(lt => (
+                      <button
+                        key={lt.value}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, listType: lt.value }))}
+                        style={{
+                          flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+                          border: form.listType === lt.value ? "1px solid #111827" : "1px solid #e5e7eb",
+                          background: form.listType === lt.value ? "#111827" : "#fff",
+                          color: form.listType === lt.value ? "#fff" : "#374151",
+                        }}
+                      >
+                        {lt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={HINT}>{LIST_TYPES.find(lt => lt.value === form.listType)?.hint}</p>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
                   <label style={LABEL}>Title <span style={{ color: "#b91c1c" }}>*</span></label>
-                  <input style={INPUT} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. A Midtown night out"/>
+                  <input style={INPUT} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder={form.listType === "spot-list" ? "e.g. 5 spots in Buckhead" : "e.g. A Midtown night out"}/>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
                   <label style={LABEL}>Neighborhood <span style={{ color: "#b91c1c" }}>*</span></label>
@@ -346,7 +404,31 @@ export default function ItinerariesPage() {
 
               <div style={{ height: 1, background: "#f3f4f6" }}/>
 
-              <Section title="Route stops" hint="Ordered venue stops a guest visits in sequence. First is the route's starting point.">
+              <Section title="Curation" hint="Attributes this list to the influencer/curator who made it. Optional — leave blank for a house-curated list.">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
+                    <label style={LABEL}>Curator name</label>
+                    <input style={INPUT} value={form.authorName} onChange={e => setForm(f => ({ ...f, authorName: e.target.value }))} placeholder="e.g. Jarrod Knight"/>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
+                    <label style={LABEL}>Handle</label>
+                    <input style={INPUT} value={form.authorHandle} onChange={e => setForm(f => ({ ...f, authorHandle: e.target.value }))} placeholder="@handle"/>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
+                  <label style={LABEL}>Curator photo</label>
+                  <MediaManager
+                    sections={[]}
+                    value={form.authorPhotoMedia}
+                    onChange={(media) => setForm(f => ({ ...f, authorPhotoMedia: media.length > 1 ? media.slice(-1) : media }))}
+                    upload={{ endpoint: `/api/itineraries/${editId || pendingId}/upload`, accept: "image/*" }}
+                  />
+                </div>
+              </Section>
+
+              <div style={{ height: 1, background: "#f3f4f6" }}/>
+
+              <Section title="Route stops" hint={form.listType === "spot-list" ? "Venues in this roundup. Each blurb is shown to guests." : "Ordered venue stops a guest visits in sequence. First is the route's starting point."}>
                 <VenuePicker
                   venueId=""
                   placeholder="Search venues to add a stop..."
@@ -361,7 +443,7 @@ export default function ItinerariesPage() {
                         <div style={{ width: 26, height: 26, borderRadius: 13, background: STOP_COLORS[i % STOP_COLORS.length], color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>{i + 1}</div>
                         <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, gap: 6 }}>
                           <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#111827" }}>{s.venueName}</p>
-                          <input style={{ ...INPUT, fontSize: 13 }} value={s.note} onChange={e => setStopNote(i, e.target.value)} placeholder="Curator note (optional, not shown to guests)"/>
+                          <input style={{ ...INPUT, fontSize: 13 }} value={s.note} onChange={e => setStopNote(i, e.target.value)} placeholder={form.listType === "spot-list" ? "Blurb (shown to guests)" : "Curator note (optional, not shown to guests)"}/>
                         </div>
                         <div style={{ display: "flex", flexDirection: "column" as const, gap: 4, flexShrink: 0 }}>
                           <button type="button" disabled={i === 0} onClick={() => moveStop(i, -1)} title="Move up" aria-label="Move up" style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, fontSize: 12 }}>↑</button>
@@ -398,7 +480,7 @@ export default function ItinerariesPage() {
             </div>
 
             <div style={{ padding: "14px 28px", borderTop: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: 10 }}>
-              <p style={{ ...HINT, flex: 1 }}>{stopSummary(form.stops.length)}</p>
+              <p style={{ ...HINT, flex: 1 }}>{stopSummary(form.stops.length, form.listType)}</p>
               <button onClick={() => setModal(false)} style={{ padding: "10px 20px", borderRadius: 8, background: "#fff", border: "1px solid #e5e7eb", cursor: "pointer", fontSize: 14, color: "#374151" }}>Cancel</button>
               <button onClick={save} disabled={saving} style={{ padding: "10px 24px", borderRadius: 8, background: "#111827", color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
                 {saving ? "Saving…" : editId ? "Save Changes" : "Create Itinerary"}
@@ -420,7 +502,8 @@ export default function ItinerariesPage() {
   )
 }
 
-function stopSummary(n: number): string {
+function stopSummary(n: number, listType: ListType): string {
   if (n === 0) return "Add at least one stop to save."
+  if (listType === "spot-list") return `${n} venue${n === 1 ? "" : "s"} in this roundup.`
   return `${n} stop${n === 1 ? "" : "s"} in order, start to finish.`
 }

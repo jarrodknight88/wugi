@@ -306,8 +306,20 @@ export type NeighborhoodGuideDoc = EditorialShelfBase & {
   venueIds:     string[];
 };
 
+// `listType` distinguishes an ordered multi-stop route ('itinerary', the
+// original shape) from a curated, unordered venue roundup ('spot-list', e.g.
+// "5 spots in Buckhead") — both reuse the same stop-card schema, but a
+// spot-list's per-stop blurb is guest-visible (written into the card's
+// `sub`) instead of curator-only. Absent `listType` on existing docs means
+// 'itinerary' (the pre-W3-8 default). The author* fields attribute the shelf
+// to an influencer/curator for the Discover UI; consumer rendering of them
+// is tracked separately.
 export type ItineraryDoc = EditorialShelfBase & {
   neighborhood?: string;
+  listType?: 'itinerary' | 'spot-list';
+  authorName?: string;
+  authorPhoto?: string;
+  authorHandle?: string;
 };
 
 export type PhotographerFeatureDoc = EditorialShelfBase & {
