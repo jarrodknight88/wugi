@@ -40,7 +40,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
-import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal } from '../types';
+import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal, ItineraryDoc } from '../types';
 import { makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { ChevronRightIcon } from '../components/icons';
@@ -61,6 +61,36 @@ function getDayBucket(d: Date = new Date()): DayBucket {
   return 'lateNight';
 }
 
+// ── Hero banner time-slot ruleset (UAT-W3-1) ────────────────────────────
+// Drives the content TYPE + CTA of the first hero carousel banner, evaluated
+// in America/New_York regardless of device timezone (Jarrod-confirmed):
+//   1. Sat/Sun before 2pm ET → brunch-focused content
+//   2. Thu/Fri (any time)   → weekend itinerary content
+//   3. ANY day after 5pm ET → tonight's events
+//   4. fallback             → featured event
+// Rules are checked in that order (first match wins) — Thu/Fri evenings
+// surface the weekend itinerary rather than "tonight", since rule 2 is
+// checked before rule 3.
+// Uses Intl.DateTimeFormat with timeZone: 'America/New_York', the same
+// no-new-deps pattern as minEligibleDateISOEastern() in firestoreService.ts
+// and formatInEastern() in utils/eventDateTime.ts.
+type HomeBannerSlot = 'brunch' | 'weekendItinerary' | 'tonight' | 'featured';
+function getHomeBannerSlot(now: Date = new Date()): HomeBannerSlot {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', hourCycle: 'h23',
+    hour: '2-digit', minute: '2-digit',
+  });
+  const p = Object.fromEntries(fmt.formatToParts(now).map(x => [x.type, x.value]));
+  const minutesSinceMidnightET = Number(p.hour) * 60 + Number(p.minute);
+  const isWeekend = p.weekday === 'Sat' || p.weekday === 'Sun';
+  const isThuFri = p.weekday === 'Thu' || p.weekday === 'Fri';
+
+  if (isWeekend && minutesSinceMidnightET < 14 * 60) return 'brunch';
+  if (isThuFri) return 'weekendItinerary';
+  if (minutesSinceMidnightET >= 17 * 60) return 'tonight';
+  return 'featured';
+}
+
 // ── Banner data shape ─────────────────────────────────────────────────
 type BannerItem = {
   id: string;
@@ -79,6 +109,7 @@ function toEventData(e: FSEvent): EventData {
     seriesId: e.seriesId ?? null,
     date: e.date, time: e.time, age: e.age, about: e.about || '',
     media: e.media || [],
+    bannerImage: e.bannerImage || undefined,
     hasTickets: (e as any).hasTickets === true,
     gallery: makeGallery(e.id, e.title, e.venue, e.date,
       ['gp1','gp2','gp3','gp4','gp5','gp6','gp7','gp8']),
@@ -386,43 +417,57 @@ function StartHereShelf({
 // ── Props ─────────────────────────────────────────────────────────────
 type Props = {
   theme: Theme;
-  onEventPress:   (event: EventData)    => void;
-  onVenuePress:   (venue: VenueData)    => void;
-  onGalleryPress: (gallery: GalleryData) => void;
-  userVibes:      string[];
-  onCameraPress:  () => void;
+  onEventPress:     (event: EventData)      => void;
+  onVenuePress:     (venue: VenueData)      => void;
+  onGalleryPress:   (gallery: GalleryData)  => void;
+  // Weekend-itinerary hero banner slot (Thu/Fri, see getHomeBannerSlot)
+  // deep-links into ItineraryDetailScreen — same wiring RootNavigator
+  // already uses for DiscoverEditorialScreen's itinerary card.
+  onItineraryPress: (itineraryId: string)   => void;
+  userVibes:        string[];
+  onCameraPress:    () => void;
 };
 
-export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCameraPress }: Props) {
-  const [events,     setEvents]     = useState<FSEvent[]>([]);
-  const [venues,     setVenues]     = useState<FSVenue[]>([]);
-  const [deals,      setDeals]      = useState<FSDeal[]>([]);
-  const [status,     setStatus]     = useState<'loading' | 'ready' | 'error'>('loading');
-  const [refreshing, setRefreshing] = useState(false);
+export function HomeScreen({ theme, onEventPress, onVenuePress, onItineraryPress, userVibes, onCameraPress }: Props) {
+  const [events,       setEvents]       = useState<FSEvent[]>([]);
+  const [venues,       setVenues]       = useState<FSVenue[]>([]);
+  const [deals,        setDeals]        = useState<FSDeal[]>([]);
+  const [itineraries,  setItineraries]  = useState<ItineraryDoc[]>([]);
+  const [status,       setStatus]       = useState<'loading' | 'ready' | 'error'>('loading');
+  const [refreshing,   setRefreshing]   = useState(false);
 
   // Real data only — a failed or hung fetch surfaces the error state (with
   // retry) instead of silently substituting stale mock content.
   const loadData = async (): Promise<'ready' | 'error'> => {
     try {
-      const { getApprovedEvents, getApprovedVenues, getActiveDeals } =
+      const { getApprovedEvents, getApprovedVenues, getActiveDeals, getEditorialShelves } =
         await import('../../firestoreService');
 
       // Larger pool (100) so the picks / weekend / where-to-start shelves
       // have room to slice from after vibe filtering. Deals stay capped at 5.
+      // getEditorialShelves backs the weekend-itinerary hero banner slot
+      // (Thu/Fri, see getHomeBannerSlot) — it already fails soft (returns
+      // []) so no extra try/catch is needed here.
       const fetchAll = Promise.all([
         getApprovedEvents(userVibes, 100),
         getApprovedVenues(userVibes, 100),
         getActiveDeals(userVibes, 5),
+        getEditorialShelves(),
       ]);
       // 8000ms guard — a stalled fetch becomes an error, not an endless spinner.
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 8000)
       );
-      const [liveEvents, liveVenues, liveDeals] = await Promise.race([fetchAll, timeout]);
+      const [liveEvents, liveVenues, liveDeals, liveShelves] = await Promise.race([fetchAll, timeout]);
 
       setEvents(liveEvents);
       setVenues(liveVenues);
       setDeals(liveDeals);
+      setItineraries(
+        liveShelves
+          .filter((s): s is { type: 'itinerary'; doc: ItineraryDoc } => s.type === 'itinerary')
+          .map(s => s.doc)
+      );
       return 'ready';
     } catch (e) {
       console.log('HomeScreen: Firestore fetch failed', e);
@@ -483,6 +528,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   // Time-aware hero copy — computed once per render (cheap).
   // getDayBucket() is called here (not hardcoded) so the bucket switches
   // automatically when the user opens the screen in a different time of day.
+  // NOTE: this is a separate, local-device-time concept from the ET-based
+  // getHomeBannerSlot() ruleset below — it only feeds the "picks for you"
+  // shelf's fallback kicker, not the hero banner.
   const bucket = getDayBucket();
 
   // "BECAUSE · [vibe]" reason for picks cards. Falls back to the bucket
@@ -490,14 +538,24 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   const picksReason = userVibes[0] ? `BECAUSE · ${userVibes[0].toUpperCase()}` : bucket.toUpperCase();
 
   // ── Build the carousel data (real events only) ────────────────────────
-  // Banner 1: time-aware (morning = BRUNCH HOUR, else TONIGHT).
+  // Banner 1: driven by getHomeBannerSlot() (brunch / weekendItinerary /
+  //   tonight / featured — see the ruleset doc above the function).
   // Banner 2: JUST OPENED — new venues/events this month.
-  // Banner 3: WEEKEND HORIZON — itinerary teaser.
+  // Banner 3: WEEKEND HORIZON — static itinerary teaser (independent of the
+  //   time-slot ruleset; may duplicate Banner 1's content on Thu/Fri).
   //
-  // A banner only exists when a real event with real media backs it — no
-  // stock-photo placeholders, no non-navigating CTAs. With zero backing
-  // events the carousel section is hidden entirely.
-  const bannerImage = (e?: EventData): string | undefined => (e?.media || [])[0]?.uri;
+  // A banner only exists when a real event/itinerary with real media backs
+  // it — no stock-photo placeholders, no non-navigating CTAs. With zero
+  // backing content the carousel section is hidden entirely.
+  //
+  // Image resolution order for every banner: the doc's optional `bannerImage`
+  // field (editorial override, Dashboard-writable — see PR for field/path)
+  // first, falling back to the doc's existing hero image (event media[0].uri,
+  // or an itinerary's coverImage) when bannerImage is absent.
+  const resolveEventBannerImage = (e?: EventData): string | undefined =>
+    e?.bannerImage || (e?.media || [])[0]?.uri;
+  const resolveItineraryBannerImage = (it?: ItineraryDoc): string | undefined =>
+    it?.bannerImage || it?.coverImage;
 
   // Brunch banner always uses the brunch copy regardless of heroEvent.
   // CTA routes to first event with a brunch/morning vibe or the first event.
@@ -506,41 +564,91 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
     e.venue?.toLowerCase().includes('brunch')
   ) || eventList[0];
 
+  // "JUST OPENED" content — backed by the 2nd featured event (or 2nd event).
+  const justOpenedEvent = heroSource[1] ? toEventData(heroSource[1]) : eventList[1];
+
+  // "WEEKEND HORIZON" content — backed by the 3rd featured event (or 3rd).
+  // Also the fallback content for the weekendItinerary hero slot below when
+  // no live itinerary doc exists yet.
+  const weekendEvent = heroSource[2] ? toEventData(heroSource[2]) : eventList[2];
+
+  // Lead live itinerary (getEditorialShelves already Dashboard-order-sorted).
+  const weekendItinerary = itineraries[0];
+
   const banners: BannerItem[] = [];
 
-  // Time-aware first banner:
-  const isMorning = bucket === 'morning';
-  const firstBannerEvent = isMorning ? brunchEvent : heroEvent;
-  const firstBannerImage = bannerImage(firstBannerEvent);
-  if (firstBannerEvent && firstBannerImage) {
-    banners.push(isMorning
-      ? {
-          id: 'b-morning',
-          image: firstBannerImage,
-          kicker: 'BRUNCH HOUR',
-          hero: 'Brunch Nearby',
-          sub: 'Where to start your day in Atlanta',
-          cta: 'See brunch spots',
-          onCtaPress: () => onEventPress(firstBannerEvent),
-        }
-      : {
-          id: 'b-tonight',
-          image: firstBannerImage,
-          kicker: bucket === 'lateNight' ? 'STILL OPEN' : 'TONIGHT',
-          hero: bucket === 'lateNight' ? 'Still open near you' : "Tonight's scene",
-          sub: bucket === 'afternoon'
-            ? 'Picked for your vibes'
-            : bucket === 'lateNight'
-              ? 'Late-night spots from your vibes'
-              : 'Venues, events, and dishes from your vibes',
-          cta: bucket === 'lateNight' ? 'See late-night' : 'Start exploring',
-          onCtaPress: () => onEventPress(firstBannerEvent),
+  // ── Hero banner (Banner 1) — content type + CTA driven by the ET time slot.
+  const slot = getHomeBannerSlot();
+  if (slot === 'brunch') {
+    const image = resolveEventBannerImage(brunchEvent);
+    if (brunchEvent && image) {
+      banners.push({
+        id: 'b-brunch',
+        image,
+        kicker: 'BRUNCH HOUR',
+        hero: 'Brunch Nearby',
+        sub: 'Where to start your day in Atlanta',
+        cta: 'See brunch spots',
+        onCtaPress: () => onEventPress(brunchEvent),
+      });
+    }
+  } else if (slot === 'weekendItinerary') {
+    const itineraryImage = resolveItineraryBannerImage(weekendItinerary);
+    if (weekendItinerary && itineraryImage) {
+      banners.push({
+        id: 'b-weekend-itinerary',
+        image: itineraryImage,
+        kicker: weekendItinerary.kicker || 'WEEKEND HORIZON',
+        hero: weekendItinerary.title || 'Plan your Saturday',
+        sub: weekendItinerary.subtitle || 'Brunch → bar → late-night routes',
+        cta: 'See itineraries',
+        onCtaPress: () => onItineraryPress(weekendItinerary.id),
+      });
+    } else {
+      // No live itinerary doc yet — fall back to the event-backed teaser.
+      const image = resolveEventBannerImage(weekendEvent);
+      if (weekendEvent && image) {
+        banners.push({
+          id: 'b-weekend-itinerary-fallback',
+          image,
+          kicker: 'WEEKEND HORIZON',
+          hero: 'Plan your Saturday',
+          sub: 'Brunch → bar → late-night routes',
+          cta: 'See itineraries',
+          onCtaPress: () => onEventPress(weekendEvent),
         });
+      }
+    }
+  } else if (slot === 'tonight') {
+    const image = resolveEventBannerImage(heroEvent);
+    if (heroEvent && image) {
+      banners.push({
+        id: 'b-tonight',
+        image,
+        kicker: 'TONIGHT',
+        hero: "Tonight's scene",
+        sub: 'Venues, events, and dishes from your vibes',
+        cta: 'Tonight',
+        onCtaPress: () => onEventPress(heroEvent),
+      });
+    }
+  } else {
+    const image = resolveEventBannerImage(heroEvent);
+    if (heroEvent && image) {
+      banners.push({
+        id: 'b-featured',
+        image,
+        kicker: 'FEATURED',
+        hero: 'Featured pick',
+        sub: 'Handpicked for you',
+        cta: 'Explore',
+        onCtaPress: () => onEventPress(heroEvent),
+      });
+    }
   }
 
   // "JUST OPENED" banner — backed by the 2nd featured event (or 2nd event).
-  const justOpenedEvent = heroSource[1] ? toEventData(heroSource[1]) : eventList[1];
-  const justOpenedImage = bannerImage(justOpenedEvent);
+  const justOpenedImage = resolveEventBannerImage(justOpenedEvent);
   if (justOpenedEvent && justOpenedImage) {
     banners.push({
       id: 'b-just-opened',
@@ -554,8 +662,7 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, userVibes, onCam
   }
 
   // "WEEKEND HORIZON" banner — backed by the 3rd featured event (or 3rd).
-  const weekendEvent = heroSource[2] ? toEventData(heroSource[2]) : eventList[2];
-  const weekendImage = bannerImage(weekendEvent);
+  const weekendImage = resolveEventBannerImage(weekendEvent);
   if (weekendEvent && weekendImage) {
     banners.push({
       id: 'b-weekend',
