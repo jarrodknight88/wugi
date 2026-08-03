@@ -26,6 +26,8 @@ export const PR_LINKS_DOC = 'system/bridgePrLinks';
 export const SMS_RATE_LIMIT_DOC = 'system/bridgeSmsRateLimit';
 /** Firestore doc holding a pending "MERGE ALL" confirmation, if any. */
 export const MERGE_ALL_PENDING_DOC = 'system/bridgeMergeAllPending';
+/** Firestore doc holding the v1.4 auto-dispatch queue: { paused, entries: [...] }. */
+export const DISPATCH_QUEUE_DOC = 'system/dispatchQueue';
 
 const ASANA_API = 'https://app.asana.com/api/1.0';
 const GITHUB_API = 'https://api.github.com';
@@ -34,6 +36,13 @@ const GITHUB_API = 'https://api.github.com';
 const ASANA_GID_MARKER = /^Asana-GID:\s*(\d+)\s*$/m;
 
 // ── Types ────────────────────────────────────────────────────────────
+
+/** A codebase lane a dispatched task works in — the v1.4 auto-chain's unit of concurrency safety. */
+export type Lane = 'mobile-app' | 'dashboard' | 'functions' | 'lens';
+/** Lane recorded on a dispatch record. 'unknown' is the conservative fallback for
+ * dispatches with no known lane (e.g. a human manually flipping the Asana
+ * assignee) — it collides with every other lane in the in-flight cap check. */
+export type DispatchLane = Lane | 'unknown';
 
 export interface AsanaTask {
   gid: string;
@@ -54,6 +63,13 @@ export interface DispatchRecord {
   firstReplySmsSent?: boolean;
   /** Issue number whose Claude final-report comment has already been relayed to Asana. */
   finalReportRelayedIssue?: number;
+  /** Lane this dispatch runs in, for the v1.4 auto-chain's in-flight concurrency
+   * check. Absent (treated as 'unknown') for records predating v1.4 or
+   * dispatched outside the queue. */
+  lane?: DispatchLane;
+  /** Set once this dispatch's Claude final-report has been relayed to Asana —
+   * the v1.4 auto-chain's signal that this dispatch no longer counts as in-flight. */
+  keyboardDone?: boolean;
 }
 
 export interface AsanaStory {
@@ -117,6 +133,17 @@ export async function postAsanaComment(
   await asanaRequest(`/tasks/${taskGid}/stories`, token, {
     method: 'POST',
     body: { data: { text } },
+  });
+}
+
+/** Flip an Asana task's assignee — used by the v1.4 auto-chain to hand the
+ * next queued task to the dev agent the same way a human toggling the
+ * assignee in the Asana UI would, so it rides the existing
+ * asanaWebhook → GitHub issue dispatch path untouched. */
+export async function setAsanaAssignee(taskGid: string, assigneeGid: string, token: string): Promise<void> {
+  await asanaRequest(`/tasks/${taskGid}`, token, {
+    method: 'PUT',
+    body: { data: { assignee: assigneeGid } },
   });
 }
 

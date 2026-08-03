@@ -30,6 +30,7 @@ import {
   postAsanaComment,
   getGithubComment,
   getDispatchRecord,
+  setDispatchRecord,
   sendSms,
   extractAsanaGid,
   resolveTaskGidForPr,
@@ -37,6 +38,7 @@ import {
   truncate,
   delay,
 } from './shared';
+import { runDispatchChainStep } from './dispatchQueue';
 
 const githubWebhookSecret = defineSecret('GITHUB_WEBHOOK_SECRET');
 const githubToken = defineSecret('GITHUB_TOKEN');
@@ -170,6 +172,16 @@ async function handleIssueCommentEdited(payload: any): Promise<void> {
     `Claude's final report on issue #${issue.number}:\n\n${excerpt}\n\n${finalUrl}`,
     asanaPat.value()
   );
+
+  // v1.4: this dispatch's "slot" is now free — mark it and let the queue
+  // chain step consider dispatching whatever's next. claimFinalReport()
+  // above already deduped this per-issue, so this runs at most once per
+  // issue no matter how many trailing edits fire.
+  await setDispatchRecord(gid, {
+    keyboardDone: true,
+    keyboardDoneAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  await runDispatchChainStep(issue.number, githubToken.value(), asanaPat.value());
 }
 
 // ── Event handlers ───────────────────────────────────────────────────
