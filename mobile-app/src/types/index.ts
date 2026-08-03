@@ -148,6 +148,10 @@ export type VenueData = {
   reservationUrlWithDefaults?: string;
   ctaPrimary?: string;         // e.g. "Reserve a table" or "Get a Section"
   ctaSecondary?: string;       // e.g. "Directions"
+  // UAT-W2B (additive): geocoded coordinates, when resolved for this venue —
+  // drives the "Get a ride" Uber deep link. Absent → the ride action hides
+  // (no fabricated coordinates).
+  location?: { latitude: number; longitude: number };
 };
 
 // ── Menu ──────────────────────────────────────────────────────────────

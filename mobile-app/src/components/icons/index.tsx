@@ -147,6 +147,17 @@ export function LocationIcon({ color }: { color: string }) {
   );
 }
 
+export function CarIcon({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
+      <Path d="M4 11h16a1 1 0 011 1v3a1 1 0 01-1 1h-1M4 11a1 1 0 00-1 1v3a1 1 0 001 1h1" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
+      <Circle cx={7.5} cy={16} r={1.5} stroke={color} strokeWidth={1.5}/>
+      <Circle cx={16.5} cy={16} r={1.5} stroke={color} strokeWidth={1.5}/>
+    </Svg>
+  );
+}
+
 export function GlobeIcon({ color }: { color: string }) {
   return (
     <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">

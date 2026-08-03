@@ -163,6 +163,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
         media: (v.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
         menuDescription: '', menuAttributes: [], bestSellers: [],
         upcomingEvents: [], galleries: [],
+        location: (v as any).location ?? undefined,
       } as unknown as VenueData;
       navigateToVenue(data);
     } catch (e) {
@@ -387,6 +388,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
               media: (v.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
               menuDescription: '', menuAttributes: [], bestSellers: [],
               upcomingEvents: [], galleries: [],
+              location: (v as any).location ?? undefined,
             } as unknown as VenueData;
             return {
               id: v.id, type: 'venue', title: v.name,
