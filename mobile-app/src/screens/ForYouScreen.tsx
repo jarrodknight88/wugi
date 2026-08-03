@@ -21,6 +21,8 @@ import { formatEventDateShort } from '../utils/eventDateTime';
 import { buildPhotoId } from '../utils/photoId';
 import { DAILY_SUGGESTION_CAP, getSuggestionCountToday, incrementSuggestionCount, hasReachedDailyCap } from '../utils/forYouSuggestionCap';
 import { logForYouInteraction } from '../analytics/analyticsService';
+import { usePicksSignalStore } from '../state/picksSignalStore';
+import { rankPicksPool, cardVibes } from '../utils/picksRanking';
 
 const GALLERY_PHOTO_COLOR = '#0ea5b8';
 const VENUE_PHOTO_COLOR   = '#2563eb';
@@ -230,6 +232,13 @@ function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap
       <View style={{ position: 'absolute', top: 16, right: 16, backgroundColor: card.tagColor, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 }}>
         <Text style={{ color: '#fff', fontSize: 11, fontFamily: FONTS.medium, letterSpacing: 0.5 }}>{card.tag}</Text>
       </View>
+      {/* UAT-W3-3 growth-visibility hint — only present when rankPicksPool
+          attributes this card's placement to a behavior signal. */}
+      {card.personalizationHint && (
+        <View style={{ position: 'absolute', top: 16, left: 16, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
+          <Text style={{ color: '#fff', fontSize: 11, fontFamily: FONTS.medium }}>{card.personalizationHint}</Text>
+        </View>
+      )}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20 }}>
         <Text style={{ color: '#fff', fontSize: 24, fontFamily: FONTS.display, letterSpacing: -0.5, marginBottom: 4 }}>{card.title}</Text>
         <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14, fontFamily: FONTS.body }}>{card.subtitle}</Text>
@@ -373,7 +382,14 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
         const remainingAllowance = Math.max(0, DAILY_SUGGESTION_CAP - alreadyShown);
         const built = pool.slice(0, remainingAllowance);
 
-        setCards(built);
+        // UAT-W3-3: reorder the already-capped set by local behavior
+        // signal — applied AFTER the cap slice so the daily cap and the
+        // #217 content-type mix are untouched; this only changes
+        // presentation order within that fixed set.
+        const { vibeScore, categoryScore, totalSignals } = usePicksSignalStore.getState();
+        const ranked = rankPicksPool(built, { vibeScore, categoryScore, totalSignals });
+
+        setCards(ranked);
         setCurrentIndex(0);
         setIsDone(false);
         setEndReason(null);
@@ -399,6 +415,7 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
     if (!card || loggedCardIdRef.current === card.id) return;
     loggedCardIdRef.current = card.id;
     logForYouInteraction({ action: 'view', contentType: card.contentType || card.type, contentId: card.id, venueCategory: card.venueCategory ?? null });
+    usePicksSignalStore.getState().recordSignal('view', { vibes: cardVibes(card), venueCategory: card.venueCategory ?? null });
     incrementSuggestionCount(userIdRef.current).then(count => {
       if (count >= DAILY_SUGGESTION_CAP) capReachedRef.current = true;
     });
@@ -481,12 +498,16 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
       onFavoriteToggle({ id: card.photoId, type: 'photo', title: card.title, subtitle: card.subtitle, image: card.image, read: false });
     }
     logForYouInteraction({ action: 'like', contentType: card.contentType || card.type, contentId: card.id, venueCategory: card.venueCategory ?? null });
+    usePicksSignalStore.getState().recordSignal('like', { vibes: cardVibes(card), venueCategory: card.venueCategory ?? null });
     advance();
   };
 
   const handleSwipeLeft = () => {
     const card = cards[currentIndex];
-    if (card) logForYouInteraction({ action: 'skip', contentType: card.contentType || card.type, contentId: card.id, venueCategory: card.venueCategory ?? null });
+    if (card) {
+      logForYouInteraction({ action: 'skip', contentType: card.contentType || card.type, contentId: card.id, venueCategory: card.venueCategory ?? null });
+      usePicksSignalStore.getState().recordSignal('skip', { vibes: cardVibes(card), venueCategory: card.venueCategory ?? null });
+    }
     advance();
   };
 

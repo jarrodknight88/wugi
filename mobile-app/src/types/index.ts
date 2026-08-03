@@ -110,6 +110,10 @@ export type EventData = {
   dateISO?: string;
   gallery: GalleryData;
   hasTickets?: boolean;
+  // Mirrors FSEvent.vibes — already populated by fsEventToCard (ForYouScreen)
+  // for the card's tag; declared here so ForYouCard.data can be read
+  // generically for vibe-driven ranking (see utils/picksRanking.ts).
+  vibes?: string[];
 };
 
 // ── Venue ─────────────────────────────────────────────────────────────
@@ -207,6 +211,11 @@ export type ForYouCard = {
   // `${galleryId}-${index}` id (see utils/photoId.ts) a right-swipe save
   // must reuse so it lines up with the existing liked-photo contract.
   photoId?: string;
+  // UAT-W3-3 — set by rankPicksPool() (utils/picksRanking.ts) only when a
+  // local behavior signal actually drove this card's placement. Renders
+  // as a subtle "For your vibe" / "Because you like X" badge; absent on
+  // cold start or zero-score cards.
+  personalizationHint?: string;
 };
 
 // ── Favorites ─────────────────────────────────────────────────────────
