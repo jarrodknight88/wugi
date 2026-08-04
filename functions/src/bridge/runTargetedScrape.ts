@@ -221,6 +221,10 @@ export const runTargetedScrape = onRequest(
   {
     secrets: [apifyToken],
     region: 'us-central1',
+    // Browser calls come directly from the dashboard (no API-route proxy —
+    // see ScrapeProfileControl.tsx). cors handles the OPTIONS preflight;
+    // auth is still enforced by the Bearer-token check in the handler.
+    cors: ['https://dashboard.wugi.us', 'http://localhost:3000'],
   },
   async (req, res) => {
     const authResult = await verifySuperAdmin(req.headers.authorization);
