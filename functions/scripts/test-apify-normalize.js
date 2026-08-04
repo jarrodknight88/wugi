@@ -196,6 +196,46 @@ check('unparseable inputUrl yields an empty seedAccount', () => {
   assert.equal(result.doc.seedAccount, '');
 });
 
+// ── mentionedHandles (issue #236) ───────────────────────────────────
+
+check('mentionedHandles unions taggedUsers[].username with mentions, dedupes', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/MENT/',
+      caption: 'shoutout @thetestroom',
+      taggedUsers: [{ username: 'thetestroom', full_name: 'The Test Room' }, { username: 'djfriend' }],
+      mentions: ['thetestroom', 'promotedloungeatl'],
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.doc.mentionedHandles, ['thetestroom', 'djfriend', 'promotedloungeatl']);
+});
+
+check('mentionedHandles tolerates a taggedUsers entry that is a plain string', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    { url: 'https://www.instagram.com/p/MENTSTR/', taggedUsers: ['thetestroom'] },
+    'run_1'
+  );
+  assert.deepEqual(result.doc.mentionedHandles, ['thetestroom']);
+});
+
+check('mentionedHandles defaults to an empty array when neither field is present', () => {
+  const result = mapApifyItemToVenueIntelDoc({ url: 'https://www.instagram.com/p/NOMENT/' }, 'run_1');
+  assert.deepEqual(result.doc.mentionedHandles, []);
+});
+
+check('mentionedHandles ignores malformed entries (missing username, non-string mentions)', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/BADMENT/',
+      taggedUsers: [{ full_name: 'No Username' }, null, {}],
+      mentions: [null, 42, '', 'thetestroom'],
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.doc.mentionedHandles, ['thetestroom']);
+});
+
 console.log(`\n${passed} check(s) passed`);
 if (process.exitCode) {
   console.error('\nSome checks FAILED — see above.');

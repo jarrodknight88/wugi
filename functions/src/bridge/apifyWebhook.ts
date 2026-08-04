@@ -66,6 +66,15 @@ export interface VenueIntelDoc {
   // video post never loses its poster even when videoUrl download fails.
   videoUrl: string | null;
   runId: string;
+  // Structured tag/mention data straight from the Apify item — issue #236
+  // (venue-intel: match venues via caption @mentions + tagged users).
+  // Additive only: union of item.taggedUsers[].username (people/accounts IG
+  // -tagged on the post) and item.mentions (usernames the actor already
+  // parsed out of the caption), raw/un-normalized, deduped. Consumed by
+  // eventTransformRouting.ts's resolveVenue as the structured half of its
+  // mention-match fallback — caption text is re-scanned separately there via
+  // extractMentionsFromCaption, so this never needs to duplicate that work.
+  mentionedHandles: string[];
 }
 
 export interface MappedVenueIntelItem {
@@ -101,6 +110,33 @@ function parseSeedAccountFromInputUrl(inputUrl: unknown): string {
   }
   const [username] = parsed.pathname.split('/').filter(Boolean);
   return username ?? '';
+}
+
+/**
+ * Structured tag/mention data from one Apify Instagram-scraper item (issue
+ * #236). taggedUsers is the actor's IG-tag data — an array of objects, each
+ * carrying a `username` — while mentions is a flat array of caption
+ * @-mention strings the actor already extracts itself. Both are optional
+ * (older items / non-Instagram sources may lack either); union + dedupe by
+ * exact string, leaving handle normalization to the matcher
+ * (matchVenueByMentions) rather than duplicating it here.
+ */
+function extractStructuredMentions(item: any): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (v: unknown) => {
+    if (typeof v === 'string' && v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  };
+  if (Array.isArray(item?.taggedUsers)) {
+    for (const t of item.taggedUsers) push(typeof t === 'string' ? t : t?.username);
+  }
+  if (Array.isArray(item?.mentions)) {
+    for (const m of item.mentions) push(m);
+  }
+  return out;
 }
 
 function extractMediaUrls(item: any): string[] {
@@ -149,6 +185,7 @@ export function mapApifyItemToVenueIntelDoc(item: any, runId: string): MappedVen
       mediaUrls: extractMediaUrls(item),
       videoUrl: firstNonEmptyString(item?.videoUrl),
       runId,
+      mentionedHandles: extractStructuredMentions(item),
     },
   };
 }

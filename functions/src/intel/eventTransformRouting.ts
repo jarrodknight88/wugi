@@ -30,6 +30,8 @@ import {
   deriveEventTitle,
   matchVenueByHandle,
   matchVenueInCaption,
+  matchVenueByMentions,
+  resolveMentionCandidates,
 } from './eventTransformCore';
 
 export type AccountType = 'venue' | 'promoter' | 'photographer' | 'dj_artist' | 'staff' | 'influencer';
@@ -50,6 +52,13 @@ export interface IntelRoutingInput {
    * than failing closed.
    */
   manualVenueId?: string | null;
+  /**
+   * The Apify item's structured tag/mention fields (taggedUsers/mentions —
+   * see apifyWebhook.ts mapApifyItemToVenueIntelDoc's mentionedHandles),
+   * unioned with caption @-mentions inside resolveVenue's mention-match
+   * fallback (issue #236). Raw, un-normalized handle strings.
+   */
+  structuredMentions?: string[] | null;
 }
 
 export type RoutingResult =
@@ -64,6 +73,13 @@ export type RoutingResult =
  * resolve — a venue account's own caption still names other venues
  * sometimes (co-hosted nights), but the account identity is the stronger
  * signal and must win when it's unambiguous.
+ *
+ * Mention-match (issue #236) is the last fallback, tried only when
+ * caption-name matching comes back unmatched — same "only fall through on
+ * unmatched, never override ambiguous/matched" discipline as the
+ * handle->caption fallback above, so existing handle/caption resolutions
+ * are byte-for-byte unchanged. It catches promoter/DJ posts that
+ * @-mention or IG-tag the venue instead of (or in addition to) naming it.
  */
 function resolveVenue(input: IntelRoutingInput, index: VenueIndex): VenueMatchResult {
   if (input.manualVenueId) {
@@ -74,7 +90,11 @@ function resolveVenue(input: IntelRoutingInput, index: VenueIndex): VenueMatchRe
     const byHandle = matchVenueByHandle(input.sourceAccount, index);
     if (byHandle.status !== 'unmatched') return byHandle;
   }
-  return matchVenueInCaption(input.caption, index);
+  const byCaption = matchVenueInCaption(input.caption, index);
+  if (byCaption.status !== 'unmatched') return byCaption;
+
+  const mentions = resolveMentionCandidates(input.caption, input.structuredMentions, input.sourceAccount);
+  return matchVenueByMentions(mentions, index);
 }
 
 export function classifyIntelPost(

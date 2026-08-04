@@ -202,6 +202,136 @@ check('influencer account: resolves venue from caption, not handle (non-venue ty
   assert.equal(result.venue.id, 'v2');
 });
 
+// ── mention-match fallback (issue #236) ─────────────────────────────
+// Neither the sourceAccount handle nor the caption text names a venue in
+// these cases — only a caption @-mention or structured tag resolves it.
+
+check('caption @-mention resolves the venue when handle and name-in-caption both miss', () => {
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'chuckyfoto',
+      caption: 'Huge set last night at @thetestroom, Aug 1 next time',
+      postedAt: ANCHOR,
+      accountType: 'photographer',
+    },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'draft_event');
+  assert.equal(result.venue.id, 'v1');
+});
+
+check('structured taggedUsers/mentions resolve the venue when the caption names nothing', () => {
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'chuckyfoto',
+      caption: 'Huge set last night, Aug 1 next time',
+      postedAt: ANCHOR,
+      accountType: 'photographer',
+      structuredMentions: ['thetestroom'],
+    },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'draft_event');
+  assert.equal(result.venue.id, 'v1');
+});
+
+check('mentioning two distinct known venues -> needs_classification (venue-ambiguous), never auto-picked', () => {
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'chuckyfoto',
+      caption: 'Aug 1: @thetestroom or @promotedloungeatl, come thru',
+      postedAt: ANCHOR,
+      accountType: 'photographer',
+    },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'needs_classification');
+  assert.equal(result.reason, 'venue-ambiguous');
+});
+
+check('a post mentioning only its own sourceAccount does not self-match', () => {
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'thetestroom',
+      caption: 'Aug 1 @thetestroom is going off tonight',
+      postedAt: ANCHOR,
+      accountType: 'promoter',
+    },
+    INDEX,
+    TODAY
+  );
+  // Handle-match is skipped (accountType isn't 'venue'/undefined), caption
+  // has no venue NAME, and the only mention is the post's own account —
+  // excluded, so this must still fall through to needs_classification.
+  assert.equal(result.outcome, 'needs_classification');
+  assert.equal(result.reason, 'no-venue-match');
+});
+
+check('mentioning an unknown account only -> needs_classification (no-venue-match)', () => {
+  const result = classifyIntelPost(
+    { sourceAccount: 'chuckyfoto', caption: 'Aug 1 @randomfriend is coming out', postedAt: ANCHOR, accountType: 'photographer' },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'needs_classification');
+  assert.equal(result.reason, 'no-venue-match');
+});
+
+// ── regression guard: mention-match must never override an existing
+// handle-match or name-in-caption resolution (precedence unchanged) ────
+
+check('regression: handle-match still wins outright even when the caption mentions a different venue', () => {
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'thetestroom',
+      caption: 'Aug 1, co-hosted with @promotedloungeatl tonight',
+      postedAt: ANCHOR,
+      accountType: 'venue',
+    },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'draft_event');
+  assert.equal(result.venue.id, 'v1'); // the account's own venue, not the mentioned one
+});
+
+check('regression: name-in-caption match still wins outright even when a different venue is also @-mentioned', () => {
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'some_promoter',
+      caption: 'Pulling up to Promoted Lounge Aug 1, shoutout @thetestroom',
+      postedAt: ANCHOR,
+      accountType: 'promoter',
+    },
+    INDEX,
+    TODAY
+  );
+  assert.equal(result.outcome, 'draft_event');
+  assert.equal(result.venue.id, 'v2'); // matched by name in caption, not the mention
+});
+
+check('regression: ambiguous name-in-caption match is not "rescued" into a single mention match', () => {
+  const ambiguousIndex = core.buildVenueIndex([
+    { id: 'a', name: 'The Yard House', instagram: 'yardhousea' },
+    { id: 'b', name: 'The Yard House', instagram: 'yardhouseb' },
+  ]);
+  const result = classifyIntelPost(
+    {
+      sourceAccount: 'promoacct',
+      caption: 'The Yard House this Aug 1, tag @yardhousea',
+      postedAt: ANCHOR,
+      accountType: 'promoter',
+    },
+    ambiguousIndex,
+    TODAY
+  );
+  assert.equal(result.outcome, 'needs_classification');
+  assert.equal(result.reason, 'venue-ambiguous');
+});
+
 console.log(`\n${passed} check(s) passed`);
 if (process.exitCode) {
   console.error('\nSome checks FAILED — see above.');
