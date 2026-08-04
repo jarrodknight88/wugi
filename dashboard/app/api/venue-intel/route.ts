@@ -7,6 +7,12 @@ export const dynamic = "force-dynamic"
 export type VenueIntelPost = {
   id: string
   sourceAccount: string
+  // The IG profile a targeted scrape was actually pointed at (see
+  // functions/src/bridge/apifyWebhook.ts's parseSeedAccountFromInputUrl) —
+  // empty for the scheduled seed-list scrape, where it's redundant with
+  // sourceAccount. Handle filter (venue-intel page) falls back to
+  // sourceAccount when this is empty.
+  seedAccount: string
   postUrl: string
   caption: string
   postedAt: string | null
@@ -39,6 +45,7 @@ function toPost(doc: FirebaseFirestore.QueryDocumentSnapshot, moderationById: Ma
   return {
     id: doc.id,
     sourceAccount: data.sourceAccount || "",
+    seedAccount: data.seedAccount || "",
     postUrl: data.postUrl || "",
     caption: data.caption || "",
     postedAt: data.postedAt?.toDate?.().toISOString() ?? null,

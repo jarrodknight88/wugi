@@ -11,6 +11,7 @@ import VenuePicker from "@/components/VenuePicker"
 import Lightbox, { type LightboxOption, type LightboxResolved } from "@/components/Lightbox"
 import DraftEventsPanel from "./DraftEventsPanel"
 import NewVenueModal from "./NewVenueModal"
+import ScrapeProfileControl from "./ScrapeProfileControl"
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   venue: "Venue",
@@ -659,11 +660,33 @@ export default function VenueIntelPage() {
   const [fetching, setFetching] = useState(true)
   const [error, setError] = useState("")
   const [tab, setTab] = useState<"intel" | "drafts">("intel")
+  const [needsAttentionFilter, setNeedsAttentionFilter] = useState("")
   const [lightbox, setLightbox] = useState<{ mediaUrls: string[]; index: number } | null>(null)
   const lightboxOptions: LightboxOption[] = useMemo(
     () => (lightbox ? lightbox.mediaUrls.map((url) => ({ url })) : []),
     [lightbox?.mediaUrls]
   )
+
+  // Handle filter — matches seedAccount (the profile a targeted scrape was
+  // actually pointed at), falling back to sourceAccount when seedAccount is
+  // empty (the scheduled seed-list scrape doesn't set it). Reason/account
+  // groups that lose all their posts to the filter are dropped, same
+  // collapsing removeNeedsAttentionPostLocally already does.
+  const filteredNeedsAttention: VenueIntelReasonGroup[] = useMemo(() => {
+    const q = needsAttentionFilter.trim().toLowerCase().replace(/^@/, "")
+    if (!q) return needsAttention
+    return needsAttention
+      .map((g) => {
+        const accountGroups = g.accountGroups
+          .map((ag) => ({
+            ...ag,
+            posts: ag.posts.filter((p) => (p.seedAccount || p.sourceAccount).toLowerCase().includes(q)),
+          }))
+          .filter((ag) => ag.posts.length > 0)
+        return { ...g, accountGroups, count: accountGroups.reduce((sum, ag) => sum + ag.posts.length, 0) }
+      })
+      .filter((g) => g.accountGroups.length > 0)
+  }, [needsAttention, needsAttentionFilter])
 
   useEffect(() => {
     if (loading) return
@@ -808,6 +831,8 @@ export default function VenueIntelPage() {
           </div>
         </div>
 
+        <ScrapeProfileControl />
+
         <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid #e5e7eb" }}>
           {([["intel", "Venue Intel"], ["drafts", "Draft Events"]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
@@ -869,13 +894,23 @@ export default function VenueIntelPage() {
             <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 12px" }}>
               Posts the transform couldn&apos;t auto-route — approve venue docs or fix source data, then Retry to re-run the trigger.
             </p>
+            <input
+              value={needsAttentionFilter}
+              onChange={(e) => setNeedsAttentionFilter(e.target.value)}
+              placeholder="Filter by handle…"
+              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 13, outline: "none", width: 240, marginBottom: 16 }}
+            />
             {needsAttention.length === 0 ? (
               <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
                 Nothing needs attention. All caught up.
               </div>
+            ) : filteredNeedsAttention.length === 0 ? (
+              <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
+                No posts match &quot;{needsAttentionFilter}&quot;.
+              </div>
             ) : (
               <div>
-                {needsAttention.map((g) => (
+                {filteredNeedsAttention.map((g) => (
                   <ReasonGroupCard
                     key={g.reason}
                     group={g}
