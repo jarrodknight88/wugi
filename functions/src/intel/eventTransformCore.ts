@@ -273,7 +273,7 @@ export interface VenueIndex {
 }
 
 export type VenueMatchResult =
-  | { status: 'matched'; venue: Venue; via: 'exact' | 'contains' | 'handle' | 'manual' }
+  | { status: 'matched'; venue: Venue; via: 'exact' | 'contains' | 'handle' | 'manual' | 'mention' }
   | { status: 'ambiguous'; candidates: Venue[] }
   | { status: 'unmatched' };
 
@@ -377,6 +377,83 @@ export function matchVenueInCaption(caption: unknown, index: VenueIndex): VenueM
 
   const uniq = dedupeById(found);
   if (uniq.length === 1) return { status: 'matched', venue: uniq[0], via: 'contains' };
+  if (uniq.length > 1) return { status: 'ambiguous', candidates: uniq };
+  return { status: 'unmatched' };
+}
+
+// ── Mention matching (issue #236) ────────────────────────────────────
+// venue-intel: a promoter/DJ/photographer caption that @-mentions or
+// IG-tags the venue is a strong signal matchVenueInCaption never sees
+// (it only scans for the venue's NAME in free text). These fill that
+// gap using the same byInstagramHandle index matchVenueByHandle already
+// relies on — a mention IS a handle, just sourced from the caption/tags
+// instead of the post's own account.
+
+// IG handles: [A-Za-z0-9._]{1,30}, never end with '.' (that's sentence
+// punctuation, not part of the handle) and are never embedded inside a
+// word — a leading '@' preceded by a word char or '.' means this is an
+// email address (e.g. "booking@thevenue.com"), not an IG mention.
+const MENTION_RE = /(?<![\w.])@([A-Za-z0-9._]{1,30})/g;
+
+/** Pure @handle extractor for free caption text. Never guesses at emails/URLs — see MENTION_RE. */
+export function extractMentionsFromCaption(caption: unknown): string[] {
+  if (!caption || typeof caption !== 'string') return [];
+  const out: string[] = [];
+  MENTION_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_RE.exec(caption)) !== null) {
+    const handle = m[1].replace(/\.+$/, ''); // strip a sentence-ending '.' IG itself would never allow trailing
+    if (handle) out.push(handle);
+  }
+  return out;
+}
+
+/**
+ * Unions caption @-mentions with the Apify item's structured tag/mention
+ * fields (see apifyWebhook.ts mapApifyItemToVenueIntelDoc), dedupes by
+ * normalized handle, and drops the post's own sourceAccount — an account
+ * mentioning itself is not a venue signal.
+ */
+export function resolveMentionCandidates(
+  caption: unknown,
+  structuredMentions: unknown,
+  sourceAccount: unknown
+): string[] {
+  const fromCaption = extractMentionsFromCaption(caption);
+  const fromStructured = Array.isArray(structuredMentions)
+    ? structuredMentions.filter((m): m is string => typeof m === 'string')
+    : [];
+
+  const selfKey = normalizeInstagramHandle(sourceAccount);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...fromCaption, ...fromStructured]) {
+    const key = normalizeInstagramHandle(raw);
+    if (!key || key === selfKey || seen.has(key)) continue;
+    seen.add(key);
+    out.push(raw);
+  }
+  return out;
+}
+
+/**
+ * venueIntel-only: matches a list of raw @mention/tag strings (caption
+ * @-mentions unioned with structured taggedUsers/mentions data) against
+ * venues.instagram, same machinery as matchVenueByHandle. A single unique
+ * venue across all mentions is matched; more than one distinct venue is
+ * ambiguous (never auto-picked) — same never-guess discipline as matchVenue.
+ */
+export function matchVenueByMentions(mentions: string[], index: VenueIndex): VenueMatchResult {
+  const found = new Map<string, Venue>();
+  for (const raw of mentions) {
+    const key = normalizeInstagramHandle(raw);
+    if (!key) continue;
+    const matches = index.byInstagramHandle.get(key);
+    if (!matches) continue;
+    for (const v of dedupeById(matches)) found.set(v.id, v);
+  }
+  const uniq = Array.from(found.values());
+  if (uniq.length === 1) return { status: 'matched', venue: uniq[0], via: 'mention' };
   if (uniq.length > 1) return { status: 'ambiguous', candidates: uniq };
   return { status: 'unmatched' };
 }

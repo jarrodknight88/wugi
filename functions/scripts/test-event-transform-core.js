@@ -253,6 +253,94 @@ check('matchVenueInCaption: unmatched with no venue mention', () => {
   assert.equal(core.matchVenueInCaption('', index).status, 'unmatched');
 });
 
+// ── Mention matching (issue #236) ────────────────────────────────────
+
+check('extractMentionsFromCaption: extracts one or more @handles', () => {
+  assert.deepEqual(core.extractMentionsFromCaption('Big night at @thetestroom this Friday'), ['thetestroom']);
+  assert.deepEqual(
+    core.extractMentionsFromCaption('co-hosted by @thetestroom and @test.room_atl!'),
+    ['thetestroom', 'test.room_atl']
+  );
+  assert.deepEqual(core.extractMentionsFromCaption('no mentions here'), []);
+  assert.deepEqual(core.extractMentionsFromCaption(''), []);
+  assert.deepEqual(core.extractMentionsFromCaption(null), []);
+});
+
+check('extractMentionsFromCaption: does not swallow trailing punctuation', () => {
+  assert.deepEqual(core.extractMentionsFromCaption('pull up @thetestroom!'), ['thetestroom']);
+  assert.deepEqual(core.extractMentionsFromCaption('link in bio (@thetestroom)'), ['thetestroom']);
+  // A sentence-ending '.' is punctuation, not part of the handle — IG
+  // handles themselves can never end with '.'.
+  assert.deepEqual(core.extractMentionsFromCaption('see you at @thetestroom.'), ['thetestroom']);
+  assert.deepEqual(core.extractMentionsFromCaption('@thetestroom, doors at 10'), ['thetestroom']);
+});
+
+check('extractMentionsFromCaption: an email-shaped "@" (preceded by a word char) is not a mention', () => {
+  assert.deepEqual(core.extractMentionsFromCaption('DM booking@thevenue.com for info'), []);
+  // But a genuine mention right after one still extracts correctly.
+  assert.deepEqual(
+    core.extractMentionsFromCaption('DM booking@thevenue.com or tag @thetestroom'),
+    ['thetestroom']
+  );
+});
+
+check('extractMentionsFromCaption: a URL containing an @ does not false-positive on the domain', () => {
+  assert.deepEqual(core.extractMentionsFromCaption('link: https://x.com/@thetestroom'), ['thetestroom']);
+  assert.deepEqual(core.extractMentionsFromCaption('visit http://booking@thevenue.com/rsvp'), []);
+});
+
+check('resolveMentionCandidates: unions caption mentions with structured mentions, dedupes', () => {
+  const result = core.resolveMentionCandidates(
+    'great night at @thetestroom',
+    ['ThETestRoom', 'testroomrooftop'],
+    'some_promoter'
+  );
+  assert.deepEqual(result, ['thetestroom', 'testroomrooftop']);
+});
+
+check('resolveMentionCandidates: excludes the post\'s own sourceAccount', () => {
+  const result = core.resolveMentionCandidates(
+    'thanks for pulling up, @thetestroom crew!',
+    ['thetestroom', 'testroomrooftop'],
+    'TheTestRoom'
+  );
+  assert.deepEqual(result, ['testroomrooftop']);
+});
+
+check('resolveMentionCandidates: tolerates missing/non-array structuredMentions', () => {
+  assert.deepEqual(core.resolveMentionCandidates('@thetestroom', undefined, ''), ['thetestroom']);
+  assert.deepEqual(core.resolveMentionCandidates('@thetestroom', null, ''), ['thetestroom']);
+  assert.deepEqual(core.resolveMentionCandidates('', [], ''), []);
+});
+
+check('matchVenueByMentions: single unique venue across mentions -> matched via mention', () => {
+  const index = core.buildVenueIndex(VENUES);
+  const result = core.matchVenueByMentions(['thetestroom'], index);
+  assert.equal(result.status, 'matched');
+  assert.equal(result.venue.id, 'v1');
+  assert.equal(result.via, 'mention');
+});
+
+check('matchVenueByMentions: multiple distinct venues mentioned -> ambiguous with candidates', () => {
+  const index = core.buildVenueIndex(VENUES);
+  const result = core.matchVenueByMentions(['thetestroom', 'testroomrooftop'], index);
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.candidates.length, 2);
+});
+
+check('matchVenueByMentions: same venue mentioned twice (e.g. handle + alias-adjacent tag) is not ambiguous', () => {
+  const index = core.buildVenueIndex(VENUES);
+  const result = core.matchVenueByMentions(['thetestroom', '@TheTestRoom/'], index);
+  assert.equal(result.status, 'matched');
+  assert.equal(result.venue.id, 'v1');
+});
+
+check('matchVenueByMentions: no known-venue mentions -> unmatched', () => {
+  const index = core.buildVenueIndex(VENUES);
+  assert.equal(core.matchVenueByMentions(['randomaccount'], index).status, 'unmatched');
+  assert.equal(core.matchVenueByMentions([], index).status, 'unmatched');
+});
+
 // ── deriveEventTitle ──────────────────────────────────────────────────
 
 check('deriveEventTitle takes the first non-empty caption line', () => {

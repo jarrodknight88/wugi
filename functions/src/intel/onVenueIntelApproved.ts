@@ -102,6 +102,9 @@ export const onVenueIntelApproved = onDocumentUpdated('venueIntel/{id}', async (
   const sourceAccount: string = after.sourceAccount || '';
   const caption: string = after.caption || '';
   const postedAt: Date | null = after.postedAt?.toDate?.() ?? null;
+  // Structured taggedUsers/mentions from the Apify item (issue #236) —
+  // see apifyWebhook.ts mapApifyItemToVenueIntelDoc's mentionedHandles.
+  const structuredMentions: string[] = Array.isArray(after.mentionedHandles) ? after.mentionedHandles : [];
 
   const [accountType, venues] = await Promise.all([resolveAccountType(db, sourceAccount), fetchAllVenues(db)]);
   const venueIndex = buildVenueIndex(venues);
@@ -111,7 +114,14 @@ export const onVenueIntelApproved = onDocumentUpdated('venueIntel/{id}', async (
   // resolveVenue in eventTransformRouting.ts.
   const manualVenueId: string | null = typeof after.venueId === 'string' && after.venueId ? after.venueId : null;
 
-  const input: IntelRoutingInput = { sourceAccount, caption, postedAt, accountType, manualVenueId };
+  const input: IntelRoutingInput = {
+    sourceAccount,
+    caption,
+    postedAt,
+    accountType,
+    manualVenueId,
+    structuredMentions,
+  };
   const result = classifyIntelPost(input, venueIndex, todayISOInTimeZone(TIMEZONE));
 
   const now = admin.firestore.FieldValue.serverTimestamp();
