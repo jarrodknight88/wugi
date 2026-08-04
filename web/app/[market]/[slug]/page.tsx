@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { adminDb } from "@/lib/firebase-admin"
+import { normalizeVenueMediaUris } from "@/lib/venueMedia"
 import Link from "next/link"
 
 interface Venue {
@@ -32,7 +33,8 @@ async function getVenue(market: string, slug: string): Promise<Venue | null> {
     .get()
   if (snap.empty) return null
   const doc = snap.docs[0]
-  return { id: doc.id, ...doc.data() } as Venue
+  const data = doc.data()
+  return { id: doc.id, ...data, media: normalizeVenueMediaUris(data.media) } as Venue
 }
 
 const VIBE_COLORS: Record<string, string> = {
