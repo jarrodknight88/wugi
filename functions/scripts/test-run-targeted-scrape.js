@@ -168,12 +168,22 @@ check('webhooks query param base64-decodes to a well-formed ad-hoc webhook spec'
   assert.equal(decoded[0].requestUrl, 'https://us-central1-wugi-prod.cloudfunctions.net/apifyWebhook');
 
   // The payload template itself must render into exactly the shape
-  // apifyWebhook expects — eventType + resource.id/actId/defaultDatasetId —
-  // so ingestion needs zero changes.
+  // apifyWebhook expects — eventType + resource.id/actId/defaultDatasetId.
+  // Simulates Apify's REAL interpolation: variables are UNQUOTED in the
+  // template and replaced with JSON-serialized values (quotes included).
+  // The first version quoted "{{resource.id}}" etc., which Apify does NOT
+  // interpolate — live webhooks arrived with the literal template text.
   const renderedPayload = decoded[0].payloadTemplate
-    .replace('{{resource.id}}', 'run_123')
-    .replace('{{resource.actId}}', 'apify~instagram-scraper')
-    .replace('{{resource.defaultDatasetId}}', 'dataset_456');
+    .replace('{{eventType}}', JSON.stringify('ACTOR.RUN.SUCCEEDED'))
+    .replace(
+      '{{resource}}',
+      JSON.stringify({
+        id: 'run_123',
+        actId: 'apify~instagram-scraper',
+        defaultDatasetId: 'dataset_456',
+        status: 'SUCCEEDED',
+      })
+    );
   const parsedPayload = JSON.parse(renderedPayload);
   assert.equal(parsedPayload.eventType, 'ACTOR.RUN.SUCCEEDED');
   assert.equal(parsedPayload.resource.id, 'run_123');

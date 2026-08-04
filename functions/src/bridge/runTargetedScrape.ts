@@ -131,8 +131,14 @@ export function buildTargetedScrapeRunRequest(params: BuildRunRequestParams): Ap
     {
       eventTypes: ['ACTOR.RUN.SUCCEEDED'],
       requestUrl: params.webhookTargetUrl,
-      payloadTemplate:
-        '{"eventType":"ACTOR.RUN.SUCCEEDED","resource":{"id":"{{resource.id}}","actId":"{{resource.actId}}","defaultDatasetId":"{{resource.defaultDatasetId}}"}}',
+      // Apify only interpolates {{variables}} when they are UNQUOTED in the
+      // template (interpolated values arrive JSON-serialized, quotes
+      // included). Quoting them ships the literal template text — which is
+      // exactly the bug that broke the first live runs (webhook received
+      // runId "{{resource.id}}"). {{resource}} injects the whole run object,
+      // a superset of the {id, actId, defaultDatasetId} shape apifyWebhook
+      // reads.
+      payloadTemplate: '{"eventType":{{eventType}},"resource":{{resource}}}',
     },
   ];
   const webhooksParam = Buffer.from(JSON.stringify(webhookSpec)).toString('base64');
