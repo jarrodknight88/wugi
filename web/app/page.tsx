@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/firebase-admin"
+import { normalizeVenueMediaUris } from "@/lib/venueMedia"
 import Link from "next/link"
 import HomeClient from "./components/HomeClient"
 
@@ -20,7 +21,7 @@ async function getFeaturedVenues() {
       category: data.category ?? "",
       vibes: data.vibes ?? [],
       neighborhood: data.neighborhood ?? null,
-      media: data.media ?? [],
+      media: normalizeVenueMediaUris(data.media),
       logoUrl: data.logoUrl ?? null,
       rating: data.rating ?? null,
     }

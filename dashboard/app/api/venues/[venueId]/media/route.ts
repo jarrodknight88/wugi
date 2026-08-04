@@ -83,19 +83,32 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ venu
     }
   }
 
-  // venues.media is a flat string[] (web/app/[market]/[slug]/page.tsx reads
-  // `venue.media?.[0]` and `.slice(1,5)` directly) — NOT the {uri,type}[]
-  // shape events use. A legacy {uri} object entry is tolerated on read (see
-  // scripts/rerank-venue-heroes.js) but PATCH below always writes strings.
+  // venues.media is being migrated from a flat string[] (web/app/[market]/
+  // [slug]/page.tsx historically read `venue.media?.[0]` directly) to the
+  // {uri,type,rightsStatus}[] shape events use (issue #238 — venue videos
+  // rendered blank because PATCH stripped {type} down to a bare uri string).
+  // PATCH below now always writes typed objects, but existing docs still
+  // hold legacy strings until scripts/backfill-venue-media-types.js runs, so
+  // every entry here is normalized to the typed shape at the read boundary.
   const rawMedia: unknown[] = Array.isArray(venue.media) ? venue.media : []
   const knownRights = new Map<string, VenueMediaOption["rightsStatus"]>()
   for (const opt of galleryPhotos) knownRights.set(opt.url, opt.rightsStatus)
   for (const opt of stagedAssets) knownRights.set(opt.url, opt.rightsStatus)
 
   const currentMedia: VenueCurrentMediaItem[] = rawMedia
-    .map((m) => (typeof m === "string" ? m : (m as { uri?: unknown })?.uri))
-    .filter((uri): uri is string => typeof uri === "string" && !!uri)
-    .map((uri) => ({ uri, type: "image", rightsStatus: normalizeRightsStatus(knownRights.get(uri) ?? "wugi_partner") }))
+    .map((m): VenueCurrentMediaItem | null => {
+      if (typeof m === "string") {
+        return m ? { uri: m, type: "image", rightsStatus: normalizeRightsStatus(knownRights.get(m) ?? "wugi_partner") } : null
+      }
+      const obj = m as { uri?: unknown; type?: unknown; rightsStatus?: unknown }
+      if (typeof obj?.uri !== "string" || !obj.uri) return null
+      return {
+        uri: obj.uri,
+        type: obj.type === "video" ? "video" : "image",
+        rightsStatus: normalizeRightsStatus(obj.rightsStatus ?? knownRights.get(obj.uri) ?? "wugi_partner"),
+      }
+    })
+    .filter((m): m is VenueCurrentMediaItem => m !== null)
 
   const ctx: VenueMediaContext = {
     venue: { id: venueId, name: venue.name || "" },
@@ -109,21 +122,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ venu
 
 // `path` mirrors the shared picker's SelectedMedia shape (dashboard/lib/
 // mediaSelection.ts) so the client can send its selection straight through
-// unmodified. Unlike draft-events' media routes — where events.media is an
-// {uri,type,path?}[] and path is re-attached post-materialization so it
-// survives for the next reload (issue #171) — venues.media stays a flat
-// string[] (see below), so path is accepted here but intentionally does not
-// survive into Firestore; it only matters client-side, during the current
+// unmodified. Same as draft-events'/events' media routes, `path` is accepted
+// here but intentionally does not survive into Firestore (venues.media has
+// never persisted it) — it only matters client-side, during the current
 // editing session, for stable re-selection of a staged asset.
 type MediaInput = { type?: string; uri?: string; rightsStatus?: string; moderationStatus?: string; path?: string }
 
 // PATCH /api/venues/[venueId]/media — persist the picker's selection/order.
-// venues.media stays a flat string[] (client-compat — see GET above); only
-// the STAGED mediaAssets selections are backed by 60-minute intel-media
-// signed URLs, so every uri is routed through materializePublishedMedia
-// first — the exact copy-on-publish fix PR #160 shipped for draft-events'
-// publish/media routes (dashboard/lib/publishMedia.ts). Stable venue-hero/
-// gallery URLs don't match its signed-URL shape and pass through untouched.
+// venues.media now stores typed {uri,type,rightsStatus} objects, mirroring
+// events/[eventId]/media/route.ts (issue #238 — the prior `.map((m) =>
+// m.uri)` stripped {type}, so venue videos normalized to {type:'image'} on
+// read and rendered blank in the app). Only the STAGED mediaAssets
+// selections are backed by 60-minute intel-media signed URLs, so every uri
+// is routed through materializePublishedMedia first — the exact
+// copy-on-publish fix PR #160 shipped for draft-events' publish/media routes
+// (dashboard/lib/publishMedia.ts). Stable venue-hero/gallery URLs don't
+// match its signed-URL shape and pass through untouched. heroImage stays a
+// plain uri string (media[0].uri) — unchanged semantics for legacy readers
+// that only tolerate a string (web/app/[market]/[slug]/page.tsx and
+// web/app/page.tsx were updated in the same change to prefer heroImage and
+// normalize media[] entries — see those files).
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ venueId: string }> }) {
   const { venueId } = await params
   const auth = await requireVenueWrite(req, venueId)
@@ -145,16 +163,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ ve
     return NextResponse.json({ error: "Selected media includes unverified rights or flagged content — confirm before saving" }, { status: 400 })
   }
 
+  const filteredMedia = rawMedia.filter((m) => typeof m.uri === "string" && m.uri)
   const materialized = await materializePublishedMedia(
-    rawMedia
-      .filter((m) => typeof m.uri === "string" && m.uri)
-      .map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
+    filteredMedia.map((m) => ({ type: m.type === "video" ? ("video" as const) : ("image" as const), uri: m.uri as string, rightsStatus: m.rightsStatus }))
   )
-  const media = materialized.map((m) => m.uri)
+  // MediaManager's upload flow (see the new upload/route.ts) tags a freshly
+  // uploaded file 'owner_upload' — outside normalizeRightsStatus's known
+  // values, so it'd otherwise collapse to 'unverified' and wrongly re-trip
+  // the risky-save confirm on the next edit. Direct staff uploads are
+  // trusted the same as a venue-partner-supplied asset.
+  const media = materialized.map((m, i) => {
+    const inputRights = filteredMedia[i]?.rightsStatus
+    return {
+      type: m.type,
+      uri: m.uri,
+      rightsStatus: normalizeRightsStatus(inputRights === "owner_upload" ? "wugi_partner" : inputRights),
+    }
+  })
 
   await venueRef.update({
     media,
-    heroImage: media[0] || null,
+    heroImage: media[0]?.uri || null,
     heroSelectedBy: auth.email || auth.uid,
     heroSelectedAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),

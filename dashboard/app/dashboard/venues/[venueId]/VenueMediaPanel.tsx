@@ -56,6 +56,7 @@ export default function VenueMediaPanel({ venueId, canWrite }: { venueId: string
         value={selected}
         onChange={setSelected}
         onSave={canWrite ? save : undefined}
+        upload={{ endpoint: `/api/venues/${venueId}/upload`, accept: "image/*,video/mp4" }}
       />
       {!canWrite && <p style={{ fontSize: 13, color: "#9ca3af", marginTop: 12 }}>You don&apos;t have permission to edit venue media.</p>}
     </div>
