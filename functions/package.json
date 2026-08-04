@@ -16,7 +16,8 @@
     "test:media-moderation": "npm run build && node scripts/test-media-moderation.js",
     "test:dispatch-queue": "npm run build && node scripts/test-dispatch-queue.js",
     "test:run-targeted-scrape": "npm run build && node scripts/test-run-targeted-scrape.js",
-    "test": "npm run build && node scripts/test-apify-normalize.js && node scripts/test-inbound-grammar.js && node scripts/test-event-transform-core.js && node scripts/test-event-transform-routing.js && node scripts/test-intel-media.js && node scripts/test-media-moderation.js && node scripts/test-dispatch-queue.js && node scripts/test-run-targeted-scrape.js"
+    "test:sync-apify-seed-list": "npm run build && node scripts/test-sync-apify-seed-list.js",
+    "test": "npm run build && node scripts/test-apify-normalize.js && node scripts/test-inbound-grammar.js && node scripts/test-event-transform-core.js && node scripts/test-event-transform-routing.js && node scripts/test-intel-media.js && node scripts/test-media-moderation.js && node scripts/test-dispatch-queue.js && node scripts/test-run-targeted-scrape.js && node scripts/test-sync-apify-seed-list.js"
   },
   "engines": {
     "node": "20"
