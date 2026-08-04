@@ -15,6 +15,12 @@ export type DraftEventListItem = {
   venueName: string
   caption: string
   sourceAccount: string
+  // Populated from sourceAttribution.seedAccount (see
+  // functions/src/intel/onVenueIntelApproved.ts) — the profile a targeted
+  // scrape was actually pointed at. Empty for drafts sourced from the
+  // scheduled seed-list scrape. Handle filter falls back to sourceAccount
+  // when this is empty.
+  seedAccount: string
   postUrl: string
   likesCount: number
   commentsCount: number
@@ -116,6 +122,7 @@ export async function GET(req: NextRequest) {
       venueName: data.venueName || "",
       caption,
       sourceAccount: data.sourceAttribution?.account || "",
+      seedAccount: data.sourceAttribution?.seedAccount || "",
       postUrl: data.sourceAttribution?.postUrl || "",
       likesCount: typeof data.likesCount === "number" ? data.likesCount : 0,
       commentsCount: typeof data.commentsCount === "number" ? data.commentsCount : 0,

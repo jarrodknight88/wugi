@@ -26,10 +26,11 @@ function loadVenues(): Promise<VenueOption[]> {
   return cachedVenuesPromise
 }
 
-// Shared by the Needs Attention picker (venue-intel page) and the draft
-// editor's venue field (DraftEventsPanel) — searchable dropdown over the
-// venues collection, built on the existing SearchSelect. Emits
-// {venueId, venueName} on pick.
+// Shared by the Needs Attention picker (venue-intel page), the draft
+// editor's venue field (DraftEventsPanel), and ScrapeProfileControl's
+// prefill — searchable dropdown over the venues collection, built on the
+// existing SearchSelect. Emits {venueId, venueName, instagram} on pick —
+// instagram is optional-to-consume, so existing two-arg callers are unaffected.
 export default function VenuePicker({
   venueId,
   onChange,
@@ -38,7 +39,7 @@ export default function VenuePicker({
   disabled,
 }: {
   venueId: string
-  onChange: (venueId: string, venueName: string) => void
+  onChange: (venueId: string, venueName: string, instagram?: string) => void
   placeholder?: string
   label?: string
   disabled?: boolean
@@ -73,7 +74,7 @@ export default function VenuePicker({
         disabled={disabled || loading}
         onChange={(id, selectedLabel) => {
           const match = venues.find((v) => v.id === id)
-          onChange(id, match?.name || selectedLabel)
+          onChange(id, match?.name || selectedLabel, match?.instagram)
         }}
       />
       {error && <p style={{ fontSize: 12, color: "#b91c1c", margin: "4px 0 0" }}>{error}</p>}

@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import DatePicker from "@/components/DatePicker"
@@ -760,12 +760,22 @@ export default function DraftEventsPanel() {
   const [dismissing, setDismissing] = useState<string | null>(null)
   const [publishCtx, setPublishCtx] = useState<PublishContext | null>(null)
   const [publishAction, setPublishAction] = useState<"edit-media" | "attach-series">("edit-media")
+  const [handleFilter, setHandleFilter] = useState("")
   const isMobile = useIsMobile()
 
   const load = useCallback(async (status: "draft" | "published") => {
     const data = await authedFetch(`/api/draft-events?status=${status}`)
     setDrafts(data.drafts)
   }, [])
+
+  // Matches seedAccount (the profile a targeted scrape was actually pointed
+  // at), falling back to sourceAccount when seedAccount is empty — same
+  // convention as the venue-intel page's Needs Attention filter.
+  const filteredDrafts = useMemo(() => {
+    const q = handleFilter.trim().toLowerCase().replace(/^@/, "")
+    if (!q) return drafts
+    return drafts.filter((d) => (d.seedAccount || d.sourceAccount).toLowerCase().includes(q))
+  }, [drafts, handleFilter])
 
   useEffect(() => {
     setLoading(true)
@@ -814,6 +824,13 @@ export default function DraftEventsPanel() {
         ))}
       </div>
 
+      <input
+        value={handleFilter}
+        onChange={(e) => setHandleFilter(e.target.value)}
+        placeholder="Filter by handle…"
+        style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 13, outline: "none", width: 240, marginBottom: 16, display: "block" }}
+      />
+
       {error && (
         <div style={{ padding: "10px 14px", background: "#fee2e2", borderRadius: 8, color: "#b91c1c", fontSize: 13, marginBottom: 16 }}>{error}</div>
       )}
@@ -824,9 +841,13 @@ export default function DraftEventsPanel() {
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
           {tab === "draft" ? "No draft events. All caught up." : "No published events yet."}
         </div>
+      ) : filteredDrafts.length === 0 ? (
+        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>
+          No events match &quot;{handleFilter}&quot;.
+        </div>
       ) : isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {drafts.map((d) => (
+          {filteredDrafts.map((d) => (
             <DraftCard key={d.id} tab={tab} item={d} opening={opening} dismissing={dismissing} onOpen={openItem} onDismiss={dismiss} />
           ))}
         </div>
@@ -841,7 +862,7 @@ export default function DraftEventsPanel() {
               </tr>
             </thead>
             <tbody>
-              {drafts.map((d) => (
+              {filteredDrafts.map((d) => (
                 <tr key={d.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
                   {tab === "published" && (
                     <td style={{ padding: "12px 16px", width: 64 }}>
