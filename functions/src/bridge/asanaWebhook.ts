@@ -58,7 +58,7 @@ let bridgeAsanaUserGidCache: string | null = null;
 
 interface AsanaEvent {
   action: string;
-  resource?: { gid: string; resource_type: string };
+  resource?: { gid: string; resource_type: string; resource_subtype?: string };
   parent?: { gid: string; resource_type: string };
   change?: { field: string; action: string };
 }
@@ -358,6 +358,25 @@ export const asanaWebhook = onRequest(
           event.change?.field === 'assignee'
         ) {
           await handleAssigneeChange(event.resource.gid, asanaPat.value(), githubToken.value());
+        } else if (
+          event.resource?.resource_type === 'story' &&
+          event.action === 'added' &&
+          event.resource?.resource_subtype === 'assigned' &&
+          event.parent?.resource_type === 'task'
+        ) {
+          // 8/5 outage ROOT CAUSE + FIX: Asana began delivering assignee
+          // changes as story-added events (resource_subtype 'assigned')
+          // instead of task-changed(field=assignee). Captured payload:
+          // {action:'added', resource:{resource_type:'story',
+          // resource_subtype:'assigned'}, parent:{resource_type:'task'}}.
+          // Without this branch those events fell into the comment relay
+          // below and silently no-op'd. Route them to the dispatch path;
+          // handleAssigneeChange re-fetches the task and verifies the
+          // CURRENT assignee is the dev agent (so unassign/reassign noise
+          // is safe), and claimDispatch dedupes if Asana ever resumes the
+          // legacy task-changed shape alongside. Must stay ABOVE the
+          // generic story branch, which also matches these events.
+          await handleAssigneeChange(event.parent.gid, asanaPat.value(), githubToken.value());
         } else if (
           event.resource?.resource_type === 'story' &&
           event.action === 'added' &&
