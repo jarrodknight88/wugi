@@ -24,6 +24,7 @@ import * as crypto from 'crypto';
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import {
   selectCandidateMediaUrls,
+  selectCandidateSlideVideos,
   downloadAndStoreIntelMedia,
   downloadAndStoreIntelVideo,
   buildMediaAssetDoc,
@@ -60,10 +61,15 @@ export interface VenueIntelDoc {
   commentsCount: number;
   mediaUrls: string[];
   // Top-level item.videoUrl only (scope item 1: "the Apify item carries a
-  // video (videoUrl / type video)") — a per-slide video nested in a
-  // childPosts carousel entry is not captured in v1. mediaUrls already
-  // carries the post's cover-frame image regardless of this field, so a
-  // video post never loses its poster even when videoUrl download fails.
+  // video (videoUrl / type video)") for a non-carousel post. mediaUrls
+  // already carries the post's cover-frame image regardless of this field,
+  // so a video post never loses its poster even when videoUrl download
+  // fails. Per-slide carousel videos (issue #240) are a different case —
+  // see MappedVenueIntelItem.childVideoUrls below; they're deliberately not
+  // stored on this field or persisted to Firestore, since by the time a
+  // human reviews the venueIntel doc the mediaAssets/{docId} doc (built
+  // from childVideoUrls during ingest) already holds the downloaded video,
+  // and the raw IG CDN URL would just be another expiring link.
   videoUrl: string | null;
   runId: string;
   // Structured tag/mention data straight from the Apify item — issue #236
@@ -80,6 +86,14 @@ export interface VenueIntelDoc {
 export interface MappedVenueIntelItem {
   docId: string;
   doc: VenueIntelDoc;
+  // Per-slide video URLs (issue #240), index-aligned to doc.mediaUrls —
+  // null for a slide with no video of its own. Empty when the item isn't a
+  // childPosts carousel at all (images-array or single-media items never
+  // set this). Deliberately kept off VenueIntelDoc: it's only needed for
+  // the in-memory media persistence pass that runs right after this same
+  // webhook invocation writes the venueIntel doc (see persistNewIntelMedia
+  // below), not for the doc itself.
+  childVideoUrls: (string | null)[];
 }
 
 function firstNonEmptyString(...values: unknown[]): string | null {
@@ -139,17 +153,45 @@ function extractStructuredMentions(item: any): string[] {
   return out;
 }
 
-function extractMediaUrls(item: any): string[] {
+interface ExtractedMedia {
+  mediaUrls: string[];
+  // Index-aligned to mediaUrls (see MappedVenueIntelItem.childVideoUrls);
+  // only ever populated by the childPosts branch below.
+  childVideoUrls: (string | null)[];
+}
+
+/**
+ * item.images (a pre-flattened list some scrapes carry) takes priority when
+ * present — unchanged from pre-#240 behavior. childPosts is Apify's raw
+ * Instagram-scraper carousel shape: each entry carries its own displayUrl
+ * (the slide's cover/poster) and, for a video slide, its own videoUrl (issue
+ * #240 scope item 2) and optionally a `type` ('Video'/'Image'/'Sidecar') —
+ * `type` is read for parity with the top-level item.videoUrl/item.type pair
+ * but isn't required to gate extraction, same as the top-level case never
+ * checks item.type either; a present videoUrl is the sole, sufficient
+ * signal. mediaUrls and childVideoUrls are built together in one pass so a
+ * childPosts entry missing displayUrl is skipped from BOTH arrays at once —
+ * two separate .map()/.filter() passes could silently drift out of index
+ * alignment whenever an entry got filtered.
+ */
+function extractMedia(item: any): ExtractedMedia {
   if (Array.isArray(item?.images) && item.images.length > 0) {
-    return item.images.filter((u: unknown) => typeof u === 'string');
+    return { mediaUrls: item.images.filter((u: unknown) => typeof u === 'string'), childVideoUrls: [] };
   }
   if (Array.isArray(item?.childPosts) && item.childPosts.length > 0) {
-    const urls = item.childPosts
-      .map((c: any) => c?.displayUrl)
-      .filter((u: unknown) => typeof u === 'string');
-    if (urls.length > 0) return urls;
+    const mediaUrls: string[] = [];
+    const childVideoUrls: (string | null)[] = [];
+    for (const c of item.childPosts) {
+      if (typeof c?.displayUrl !== 'string') continue;
+      mediaUrls.push(c.displayUrl);
+      childVideoUrls.push(typeof c?.videoUrl === 'string' && c.videoUrl.trim().length > 0 ? c.videoUrl : null);
+    }
+    if (mediaUrls.length > 0) return { mediaUrls, childVideoUrls };
   }
-  return [item?.displayUrl, item?.videoUrl].filter((u: unknown) => typeof u === 'string');
+  return {
+    mediaUrls: [item?.displayUrl, item?.videoUrl].filter((u: unknown) => typeof u === 'string'),
+    childVideoUrls: [],
+  };
 }
 
 /**
@@ -172,6 +214,8 @@ export function mapApifyItemToVenueIntelDoc(item: any, runId: string): MappedVen
       ? admin.firestore.Timestamp.fromDate(postedAtDate)
       : null;
 
+  const { mediaUrls, childVideoUrls } = extractMedia(item);
+
   return {
     docId,
     doc: {
@@ -182,11 +226,12 @@ export function mapApifyItemToVenueIntelDoc(item: any, runId: string): MappedVen
       postedAt,
       likesCount: toNonNegativeInt(item?.likesCount),
       commentsCount: toNonNegativeInt(item?.commentsCount),
-      mediaUrls: extractMediaUrls(item),
+      mediaUrls,
       videoUrl: firstNonEmptyString(item?.videoUrl),
       runId,
       mentionedHandles: extractStructuredMentions(item),
     },
+    childVideoUrls,
   };
 }
 
@@ -296,17 +341,29 @@ function withModeration(asset: MediaAsset, moderationByPath: Map<string, Moderat
 
 /**
  * Media persistence for newly-ingested posts (scope item 1-2): downloads
- * each post's first few image mediaUrls, plus its video if the item carries
- * one, to Storage and writes the mediaAssets/{docId} tracking doc (typed
- * `assets`, see intelMedia.ts). Runs after the venueIntel batch write
- * commits, entirely best-effort — every failure (a single post's media, or
- * the whole pass) is caught and logged here so it can never affect the
- * webhook's response to Apify. The poster/image path is unaffected by
- * whether the video download succeeds — a skipped/oversized video still
- * leaves the poster stored, per scope item 1.
+ * every carousel slide's image (up to the MAX_MEDIA_PER_POST safety
+ * ceiling, issue #240), plus any video the item carries — a single
+ * top-level videoUrl for a non-carousel post, or a per-slide videoUrl for
+ * each carousel slide that has one — to Storage, and writes the
+ * mediaAssets/{docId} tracking doc (typed `assets`, see intelMedia.ts).
+ * Runs after the venueIntel batch write commits, entirely best-effort —
+ * every failure (a single post's media, or the whole pass) is caught and
+ * logged here so it can never affect the webhook's response to Apify.
+ *
+ * Non-carousel posts keep the pre-#240 asset shape exactly: the poster is
+ * always its own image asset, and a successfully-downloaded video is
+ * appended alongside it (so a video post yields 2 assets referencing the
+ * same cover frame). Carousels instead yield exactly one asset per
+ * successfully-downloaded slide — a video slide's asset takes over that
+ * slide's position (posterPath pointing at the slide's own downloaded
+ * image) rather than adding a second entry, which is what keeps an N-slide
+ * carousel at N assets in slide order regardless of how many slides are
+ * video. Either way, a failed/oversized video degrades that slide to a
+ * plain image asset (the poster survives) — per-slide isolation, so one bad
+ * slide never drops or fails the rest of the post.
  *
  * SafeSearch moderation (issue #170) runs here too, batched per post (one
- * Vision request covers every image in the post, including the video
+ * Vision request covers every image in the post, including every video
  * poster) — see mediaModeration.ts. It's on the same best-effort footing as
  * the rest of this function: moderateImagesForPost never throws (fails open
  * to 'unscanned' internally), so a Vision outage degrades the flag, never
@@ -319,31 +376,69 @@ async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<v
   const bucket = admin.storage().bucket();
 
   for (const item of newItems) {
+    const isCarousel = item.childVideoUrls.length > 0;
     const candidateUrls = selectCandidateMediaUrls(item.doc.mediaUrls);
+    const slideVideoUrls = isCarousel
+      ? selectCandidateSlideVideos(item.doc.mediaUrls, item.childVideoUrls)
+      : [];
     if (candidateUrls.length === 0 && !item.doc.videoUrl) continue;
 
     try {
-      const { storagePaths } =
+      const { storagePaths, storagePathsByIndex } =
         candidateUrls.length > 0
           ? await downloadAndStoreIntelMedia(bucket, item.docId, candidateUrls)
-          : { storagePaths: [] as string[] };
+          : { storagePaths: [] as string[], storagePathsByIndex: [] as (string | null)[] };
 
-      let videoAsset: MediaAsset | null = null;
-      if (item.doc.videoUrl) {
-        const videoResult = await downloadAndStoreIntelVideo(bucket, item.docId, item.doc.videoUrl, 0);
-        if (videoResult.path) {
-          videoAsset = { path: videoResult.path, type: 'video', posterPath: storagePaths[0] };
+      let assets: MediaAsset[] = [];
+      let slidesStored = 0;
+      let slidesSkipped = 0;
+
+      if (isCarousel) {
+        for (let i = 0; i < storagePathsByIndex.length; i++) {
+          const posterPath = storagePathsByIndex[i];
+          if (posterPath === null) {
+            // This slide's own image failed to download — nothing to
+            // attach a video or image asset to, skip the whole slide.
+            slidesSkipped++;
+            continue;
+          }
+          const videoUrl = slideVideoUrls[i];
+          if (videoUrl) {
+            const videoResult = await downloadAndStoreIntelVideo(bucket, item.docId, videoUrl, i);
+            if (videoResult.path) {
+              assets.push({ path: videoResult.path, type: 'video', posterPath });
+              slidesStored++;
+              continue;
+            }
+            slidesSkipped++;
+          }
+          assets.push({ path: posterPath, type: 'image' });
+          slidesStored++;
+        }
+      } else {
+        assets = storagePaths.map((path): MediaAsset => ({ path, type: 'image' }));
+        slidesStored = assets.length;
+        if (item.doc.videoUrl) {
+          const videoResult = await downloadAndStoreIntelVideo(bucket, item.docId, item.doc.videoUrl, 0);
+          if (videoResult.path) {
+            assets.push({ path: videoResult.path, type: 'video', posterPath: storagePaths[0] });
+          }
         }
       }
 
-      if (storagePaths.length === 0 && !videoAsset) continue;
+      if (assets.length === 0) continue;
 
       const moderationByPath = await moderateImagesForPost(getVisionClient(), bucket.name, storagePaths);
+      const moderatedAssets = assets.map((asset) => withModeration(asset, moderationByPath));
 
-      const assets: MediaAsset[] = [
-        ...storagePaths.map((path): MediaAsset => withModeration({ path, type: 'image' }, moderationByPath)),
-        ...(videoAsset ? [withModeration(videoAsset, moderationByPath)] : []),
-      ];
+      // Vision/Storage cost scales with slide count — logged per post so
+      // the nightly report can track spend as carousels get fully ingested.
+      logger.info('apifyWebhook: media persistence summary', {
+        docId: item.docId,
+        slidesSeen: candidateUrls.length,
+        slidesStored,
+        slidesSkipped,
+      });
 
       await db
         .collection('mediaAssets')
@@ -356,7 +451,7 @@ async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<v
               seedAccount: item.doc.seedAccount,
               postUrl: item.doc.postUrl,
               storagePaths,
-              assets,
+              assets: moderatedAssets,
             },
             admin.firestore.FieldValue.serverTimestamp()
           )
@@ -374,11 +469,14 @@ export const apifyWebhook = onRequest(
     secrets: [apifyToken],
     region: 'us-central1',
     // Dataset pagination + batched Firestore writes, plus (since media
-    // persistence landed) downloading/uploading up to 3 images and one video
-    // (up to MAX_VIDEO_BYTES, ~60MB) per new post, can take a while for a
-    // large scrape run. Memory bumped from 512MiB alongside the video path —
-    // media is downloaded sequentially (one buffer in flight at a time), but
-    // a 60MB video buffer plus the full dataset items array needs headroom.
+    // persistence landed, and since issue #240 raised the per-post image
+    // cap to a full carousel) downloading/uploading up to MAX_MEDIA_PER_POST
+    // (20) slide images and any number of per-slide videos (each up to
+    // MAX_VIDEO_BYTES, ~60MB) per new post, can take a while for a large
+    // scrape run of carousel-heavy accounts. Memory bumped from 512MiB
+    // alongside the video path — media is downloaded sequentially (one
+    // buffer in flight at a time), but a 60MB video buffer plus the full
+    // dataset items array needs headroom.
     timeoutSeconds: 540,
     memory: '1GiB',
   },
