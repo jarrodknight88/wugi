@@ -51,6 +51,7 @@ import { WeatherBadge } from '../components/WeatherBadge';
 import { RecentGalleries } from '../components/RecentGalleries';
 import { formatEventDateShort } from '../utils/eventDateTime';
 import { selectPicksForYou, selectThisWeekend } from '../utils/homeFeedSelectors';
+import { getEventCardHero } from '../utils/eventMedia';
 
 // ── Time-aware hero copy ─────────────────────────────────────────────
 // Buckets the current hour into morning / afternoon / evening / late-night.
@@ -560,10 +561,10 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
   //
   // Image resolution order for every banner: the doc's optional `bannerImage`
   // field (editorial override, Dashboard-writable — see PR for field/path)
-  // first, falling back to the doc's existing hero image (event media[0].uri,
+  // first, falling back to the doc's existing hero image (getEventCardHero,
   // or an itinerary's coverImage) when bannerImage is absent.
   const resolveEventBannerImage = (e?: EventData): string | undefined =>
-    e?.bannerImage || (e?.media || [])[0]?.uri;
+    e?.bannerImage || getEventCardHero(e?.media);
   const resolveItineraryBannerImage = (it?: ItineraryDoc): string | undefined =>
     it?.bannerImage || it?.coverImage;
 
@@ -789,10 +790,12 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
             <FlatList
               data={weekend} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-              renderItem={({ item }) => (
+              renderItem={({ item }) => {
+                const heroUri = getEventCardHero(item.media);
+                return (
                 <TouchableOpacity style={{ width: 140, height: 190, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card }} activeOpacity={0.9} onPress={() => onEventPress(item)}>
-                  {(item.media || [])[0]?.uri
-                    ? <Image cachePolicy="memory-disk" source={{ uri: (item.media || [])[0]?.uri }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
+                  {heroUri
+                    ? <Image cachePolicy="memory-disk" source={{ uri: heroUri }} style={StyleSheet.absoluteFillObject} contentFit="cover"/>
                     : null}
                   <LinearGradient
                     pointerEvents="none"
@@ -805,7 +808,8 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
                     <Text style={{ color: theme.onImage, fontSize: 12, fontFamily: FONTS.display, lineHeight: 15 }} numberOfLines={2}>{item.title}</Text>
                   </View>
                 </TouchableOpacity>
-              )}
+                );
+              }}
             />
           </>
         )}

@@ -59,6 +59,7 @@ import { DealCard } from '../components/DealCard';
 import { WeatherBadge } from '../components/WeatherBadge';
 import { RecentGalleries } from '../components/RecentGalleries';
 import { dealTypeLabel, orderDealsForDisplay } from '../utils/deals';
+import { getEventCardHero } from '../utils/eventMedia';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -675,7 +676,7 @@ function SearchBody({
         // Events have no amenities — if amenities are required, exclude them.
         if (wantAmen.length > 0) return;
         if (!matchSearch(e.title, `${e.venue} · ${e.date}`)) return;
-        out.push({ kind: 'event', data: e, image: (e.media || [])[0]?.uri || '' });
+        out.push({ kind: 'event', data: e, image: getEventCardHero(e.media) || '' });
       });
     }
     if (includeKind('Venues')) {

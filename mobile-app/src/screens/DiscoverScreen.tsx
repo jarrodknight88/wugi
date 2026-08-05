@@ -54,6 +54,7 @@ import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon, ChevronRightIcon } from '../components/icons';
 import { ErrorState, EmptyState } from '../components/StateViews';
 import { dealTypeLabel } from '../utils/deals';
+import { getEventCardHero } from '../utils/eventMedia';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -324,7 +325,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
       liveEvents.forEach(e => results.push({
         kind: 'event',
         data: toEventData(e),
-        image: (e.media || [])[0]?.uri || '',
+        image: getEventCardHero(e.media) || '',
       }));
 
       liveVenues.forEach(v => results.push({

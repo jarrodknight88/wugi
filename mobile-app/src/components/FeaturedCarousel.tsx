@@ -6,6 +6,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions,  } from
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import type { EventData } from '../types';
+import { getEventCardHero } from '../utils/eventMedia';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 32;
@@ -81,7 +82,7 @@ export function FeaturedCarousel({ theme, onEventPress, events }: Props) {
             activeOpacity={0.92}
           >
             <Image cachePolicy="memory-disk"
-              source={{ uri: item.media[0]?.uri || 'https://picsum.photos/seed/fallback/800/600' }}
+              source={{ uri: getEventCardHero(item.media) || 'https://picsum.photos/seed/fallback/800/600' }}
               style={StyleSheet.absoluteFillObject}
               contentFit="cover"
             />
