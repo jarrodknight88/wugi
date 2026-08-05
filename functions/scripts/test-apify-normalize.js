@@ -142,6 +142,125 @@ check('extracts mediaUrls from childPosts (carousel) when present', () => {
     'run_1'
   );
   assert.deepEqual(result.doc.mediaUrls, ['https://cdn.example.com/c1.jpg', 'https://cdn.example.com/c2.jpg']);
+  // Image-only carousel: childVideoUrls is index-aligned to mediaUrls but
+  // every slide is null (no per-slide video).
+  assert.deepEqual(result.childVideoUrls, [null, null]);
+});
+
+// ── childVideoUrls / carousel per-slide videos (issue #240) ──────────
+
+check('a mixed image/video carousel pairs each childPosts[].videoUrl to its slide, index-aligned to mediaUrls', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/MIXEDCAROUSEL/',
+      childPosts: [
+        { displayUrl: 'https://cdn.example.com/c0.jpg', type: 'Image' },
+        { displayUrl: 'https://cdn.example.com/c1poster.jpg', videoUrl: 'https://cdn.example.com/c1.mp4', type: 'Video' },
+        { displayUrl: 'https://cdn.example.com/c2.jpg', type: 'Image' },
+        { displayUrl: 'https://cdn.example.com/c3poster.jpg', videoUrl: 'https://cdn.example.com/c3.mp4', type: 'Video' },
+      ],
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.doc.mediaUrls, [
+    'https://cdn.example.com/c0.jpg',
+    'https://cdn.example.com/c1poster.jpg',
+    'https://cdn.example.com/c2.jpg',
+    'https://cdn.example.com/c3poster.jpg',
+  ]);
+  assert.deepEqual(result.childVideoUrls, [
+    null,
+    'https://cdn.example.com/c1.mp4',
+    null,
+    'https://cdn.example.com/c3.mp4',
+  ]);
+});
+
+check('a single-video carousel slide (all others plain images) isolates its video to just that index', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/ONEVIDEOSLIDE/',
+      childPosts: [
+        { displayUrl: 'https://cdn.example.com/a.jpg' },
+        { displayUrl: 'https://cdn.example.com/b.jpg' },
+        { displayUrl: 'https://cdn.example.com/vposter.jpg', videoUrl: 'https://cdn.example.com/v.mp4' },
+      ],
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.childVideoUrls, [null, null, 'https://cdn.example.com/v.mp4']);
+});
+
+check('a childPosts entry missing displayUrl is skipped from both mediaUrls and childVideoUrls together (stays index-aligned)', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/GAPSLIDE/',
+      childPosts: [
+        { displayUrl: 'https://cdn.example.com/a.jpg' },
+        { videoUrl: 'https://cdn.example.com/orphan.mp4' }, // no displayUrl — dropped entirely
+        { displayUrl: 'https://cdn.example.com/b.jpg', videoUrl: 'https://cdn.example.com/b.mp4' },
+      ],
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.doc.mediaUrls, ['https://cdn.example.com/a.jpg', 'https://cdn.example.com/b.jpg']);
+  assert.deepEqual(result.childVideoUrls, [null, 'https://cdn.example.com/b.mp4']);
+});
+
+check('a >20-slide carousel is captured in full at the mapper level — the 20-slide ceiling is enforced later at media-persistence time', () => {
+  const childPosts = Array.from({ length: 24 }, (_, i) => ({ displayUrl: `https://cdn.example.com/s${i}.jpg` }));
+  const result = mapApifyItemToVenueIntelDoc({ url: 'https://www.instagram.com/p/HUGE/', childPosts }, 'run_1');
+  assert.equal(result.doc.mediaUrls.length, 24);
+  assert.equal(result.childVideoUrls.length, 24);
+});
+
+check('non-carousel items (images array) yield an empty childVideoUrls, not a null-filled array', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    { url: 'https://www.instagram.com/p/IMAGESONLY/', images: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'] },
+    'run_1'
+  );
+  assert.deepEqual(result.childVideoUrls, []);
+});
+
+check('non-carousel single-video post yields an empty childVideoUrls (unchanged top-level videoUrl behavior)', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/SOLOVIDEO/',
+      displayUrl: 'https://cdn.example.com/poster.jpg',
+      videoUrl: 'https://cdn.example.com/clip.mp4',
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.childVideoUrls, []);
+});
+
+// ── Regression: non-carousel posts are byte-identical to pre-#240 ────
+
+check('regression: a plain non-carousel doc is unaffected by the carousel/video changes (full doc shape)', () => {
+  const result = mapApifyItemToVenueIntelDoc(
+    {
+      url: 'https://www.instagram.com/p/REGRESSION/',
+      ownerUsername: 'atl_nightlife',
+      caption: 'Friday flyer',
+      likesCount: 10,
+      commentsCount: 1,
+      images: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'],
+    },
+    'run_1'
+  );
+  assert.deepEqual(result.doc, {
+    sourceAccount: 'atl_nightlife',
+    seedAccount: '',
+    postUrl: 'https://www.instagram.com/p/REGRESSION/',
+    caption: 'Friday flyer',
+    postedAt: null,
+    likesCount: 10,
+    commentsCount: 1,
+    mediaUrls: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'],
+    videoUrl: null,
+    runId: 'run_1',
+    mentionedHandles: [],
+  });
 });
 
 check('unparseable/missing timestamp yields a null postedAt instead of throwing', () => {

@@ -138,6 +138,21 @@ async function main() {
     ]);
   });
 
+  await check('a full 20-slide carousel (issue #240 ceiling) is still sent as one batched request, no per-image assumption', async () => {
+    const paths = Array.from({ length: 20 }, (_, i) => `intel-media/carousel/${i}.jpg`);
+    let capturedCount = null;
+    const client = {
+      batchAnnotateImages: async (request) => {
+        capturedCount = request.requests.length;
+        return [{ responses: request.requests.map(() => ({ safeSearchAnnotation: CLEAR })) }];
+      },
+    };
+    const result = await moderateImagesForPost(client, 'bucket', paths);
+    assert.equal(capturedCount, 20);
+    assert.equal(result.size, 20);
+    paths.forEach((p) => assert.equal(result.get(p).moderationStatus, 'clear'));
+  });
+
   await check('an unrecognized likelihood value from the API degrades to UNKNOWN (clear) rather than throwing', async () => {
     const client = {
       batchAnnotateImages: async () => [{ responses: [{ safeSearchAnnotation: { adult: 'SOME_FUTURE_ENUM_VALUE', racy: 'UNLIKELY', violence: 'UNLIKELY' } }] }],

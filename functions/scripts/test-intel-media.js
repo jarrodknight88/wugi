@@ -24,6 +24,7 @@ const {
   buildIntelMediaPath,
   buildIntelMediaVideoPath,
   selectCandidateMediaUrls,
+  selectCandidateSlideVideos,
   buildMediaAssetDoc,
   MAX_MEDIA_PER_POST,
   MAX_VIDEO_BYTES,
@@ -62,10 +63,20 @@ check('MAX_VIDEO_BYTES is the documented ~60MB cap', () => {
 
 // ── selectCandidateMediaUrls ────────────────────────────────────────
 
-check('caps to the first 3 (MAX_MEDIA_PER_POST) URLs', () => {
-  assert.equal(MAX_MEDIA_PER_POST, 3);
-  const urls = ['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg'];
-  assert.deepEqual(selectCandidateMediaUrls(urls), ['a.jpg', 'b.jpg', 'c.jpg']);
+check('MAX_MEDIA_PER_POST is the issue #240 20-slide safety ceiling (Instagram\'s own carousel max)', () => {
+  assert.equal(MAX_MEDIA_PER_POST, 20);
+});
+
+check('caps to the first 20 (MAX_MEDIA_PER_POST) URLs — full-carousel support, not just the first 3', () => {
+  const urls = Array.from({ length: 25 }, (_, i) => `slide${i}.jpg`);
+  const result = selectCandidateMediaUrls(urls);
+  assert.equal(result.length, 20);
+  assert.deepEqual(result, urls.slice(0, 20));
+});
+
+check('an 8-slide carousel (well under the ceiling) passes through in full', () => {
+  const urls = Array.from({ length: 8 }, (_, i) => `slide${i}.jpg`);
+  assert.deepEqual(selectCandidateMediaUrls(urls), urls);
 });
 
 check('respects a custom cap', () => {
@@ -97,6 +108,61 @@ check('non-array input yields an empty list', () => {
 check('preserves order (storagePaths index must match fetch order)', () => {
   const urls = ['third.jpg', 'first.jpg', 'second.jpg'];
   assert.deepEqual(selectCandidateMediaUrls(urls), urls);
+});
+
+// ── selectCandidateSlideVideos (issue #240 scope item 2) ─────────────
+
+check('pairs per-slide video URLs by index with selectCandidateMediaUrls output (mixed image/video carousel)', () => {
+  const mediaUrls = ['s0.jpg', 's1.jpg', 's2.jpg', 's3.jpg'];
+  const slideVideoUrls = [null, 's1.mp4', null, 's3.mp4'];
+  const images = selectCandidateMediaUrls(mediaUrls);
+  const videos = selectCandidateSlideVideos(mediaUrls, slideVideoUrls);
+  assert.equal(images.length, videos.length);
+  assert.deepEqual(images, mediaUrls);
+  assert.deepEqual(videos, [null, 's1.mp4', null, 's3.mp4']);
+});
+
+check('an images-only carousel yields all-null slide videos', () => {
+  const mediaUrls = ['s0.jpg', 's1.jpg', 's2.jpg'];
+  const slideVideoUrls = [null, null, null];
+  assert.deepEqual(selectCandidateSlideVideos(mediaUrls, slideVideoUrls), [null, null, null]);
+});
+
+check('a single-video slide (only one child has a video) yields nulls elsewhere', () => {
+  const mediaUrls = ['s0.jpg', 's1.jpg'];
+  const slideVideoUrls = [null, 's1.mp4'];
+  assert.deepEqual(selectCandidateSlideVideos(mediaUrls, slideVideoUrls), [null, 's1.mp4']);
+});
+
+check('respects the same 20-slide (MAX_MEDIA_PER_POST) ceiling as selectCandidateMediaUrls', () => {
+  const mediaUrls = Array.from({ length: 25 }, (_, i) => `slide${i}.jpg`);
+  const slideVideoUrls = Array.from({ length: 25 }, (_, i) => (i % 5 === 0 ? `slide${i}.mp4` : null));
+  const images = selectCandidateMediaUrls(mediaUrls);
+  const videos = selectCandidateSlideVideos(mediaUrls, slideVideoUrls);
+  assert.equal(videos.length, 20);
+  assert.equal(images.length, videos.length);
+  // Slide 20 (i % 5 === 0) is beyond the ceiling and must not appear.
+  assert.ok(!videos.includes('slide20.mp4'));
+  assert.equal(videos[0], 'slide0.mp4');
+  assert.equal(videos[5], 'slide5.mp4');
+});
+
+check('non-array slideVideoUrls degrades to all nulls rather than throwing', () => {
+  const mediaUrls = ['s0.jpg', 's1.jpg'];
+  assert.deepEqual(selectCandidateSlideVideos(mediaUrls, undefined), [null, null]);
+  assert.deepEqual(selectCandidateSlideVideos(mediaUrls, null), [null, null]);
+});
+
+check('a dropped image slide (obvious video-extension URL) keeps its paired video array aligned, not shifted', () => {
+  // mediaUrls[1] gets filtered out by selectCandidateMediaUrls (video
+  // extension) — the resulting videos array must still correspond
+  // position-for-position with the filtered images array, not the raw input.
+  const mediaUrls = ['s0.jpg', 'clip.mp4', 's2.jpg'];
+  const slideVideoUrls = [null, 'unused.mp4', 's2companion.mp4'];
+  const images = selectCandidateMediaUrls(mediaUrls);
+  const videos = selectCandidateSlideVideos(mediaUrls, slideVideoUrls);
+  assert.deepEqual(images, ['s0.jpg', 's2.jpg']);
+  assert.deepEqual(videos, [null, 's2companion.mp4']);
 });
 
 // ── buildMediaAssetDoc ───────────────────────────────────────────────

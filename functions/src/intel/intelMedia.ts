@@ -19,7 +19,12 @@ import * as logger from 'firebase-functions/logger';
 import type { ModerationStatus, SafeSearchLikelihoods } from './mediaModeration';
 
 export const INTEL_MEDIA_PREFIX = 'intel-media';
-export const MAX_MEDIA_PER_POST = 3;
+// Issue #240: raised from the original 3-image cap to a hard safety ceiling
+// matching Instagram's own carousel max (20 slides) — in practice this means
+// every slide of a real post gets downloaded; the ceiling only exists to
+// bound a malformed/future-expanded payload rather than to reflect a
+// realistic slide count.
+export const MAX_MEDIA_PER_POST = 20;
 // Video posts' CDN URLs expire within hours (vs. images, which last much
 // longer) — capturing the video at ingest is the only chance to keep it.
 // Anything over this cap is skipped (poster still stored) rather than risk a
@@ -46,6 +51,14 @@ export interface IntelMediaBucket {
 
 export interface DownloadedIntelMedia {
   storagePaths: string[];
+  // Same length as the input candidateUrls, aligned by index — null where
+  // that candidate's download failed. storagePaths above is compacted
+  // (success order only), which is fine for plain image display but is the
+  // wrong thing to pair against a parallel per-slide array (e.g. carousel
+  // video URLs): an earlier failure would silently shift every later
+  // slide's pairing by one. Carousel video handling in apifyWebhook.ts
+  // pairs against this field instead.
+  storagePathsByIndex: (string | null)[];
   attempted: number;
   failed: number;
 }
@@ -60,16 +73,62 @@ export function buildIntelMediaVideoPath(venueIntelDocId: string, index: number)
   return `${INTEL_MEDIA_PREFIX}/${venueIntelDocId}/video${index}.mp4`;
 }
 
+interface FilteredMediaUrlEntry {
+  url: string;
+  originalIndex: number;
+}
+
+/**
+ * Shared filter step behind selectCandidateMediaUrls and
+ * selectCandidateSlideVideos: strings only, drop obvious video URLs, keep
+ * each survivor's original array index. Sharing this (rather than each
+ * function re-deriving its own filtered list) is what keeps the two
+ * functions provably index-aligned with each other.
+ */
+function filterMediaUrlEntries(mediaUrls: unknown): FilteredMediaUrlEntry[] {
+  if (!Array.isArray(mediaUrls)) return [];
+  const out: FilteredMediaUrlEntry[] = [];
+  mediaUrls.forEach((u, originalIndex) => {
+    if (typeof u === 'string' && u.trim().length > 0 && !VIDEO_EXTENSION_RE.test(u)) {
+      out.push({ url: u, originalIndex });
+    }
+  });
+  return out;
+}
+
 /**
  * Pure pre-filter: strings only, drop obvious video URLs, cap to the first
- * N (scope: first 3 per post). Order preserved — mediaUrls is already in
- * post order, and storagePaths index must match what actually got fetched.
+ * N (scope #240: raised from a fixed first-3 to a parameterized cap,
+ * default MAX_MEDIA_PER_POST — see that constant). Order preserved —
+ * mediaUrls is already in post order, and storagePaths index must match
+ * what actually got fetched.
  */
 export function selectCandidateMediaUrls(mediaUrls: unknown, cap: number = MAX_MEDIA_PER_POST): string[] {
-  if (!Array.isArray(mediaUrls)) return [];
-  const strings = mediaUrls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
-  const imagesOnly = strings.filter((u) => !VIDEO_EXTENSION_RE.test(u));
-  return imagesOnly.slice(0, cap);
+  return filterMediaUrlEntries(mediaUrls)
+    .slice(0, cap)
+    .map((e) => e.url);
+}
+
+/**
+ * Per-slide video URL selection for carousels (issue #240 scope item 2),
+ * index-aligned to selectCandidateMediaUrls' output: call it with the SAME
+ * `mediaUrls` and `cap` used for the sibling selectCandidateMediaUrls call
+ * so that result[i] and storagePaths[i] refer to the same carousel slide.
+ * `slideVideoUrls` must be index-aligned to `mediaUrls` itself (same length,
+ * one entry per slide; null/non-string for a slide with no video of its
+ * own). Returns exactly one entry per selected image candidate.
+ */
+export function selectCandidateSlideVideos(
+  mediaUrls: unknown,
+  slideVideoUrls: unknown,
+  cap: number = MAX_MEDIA_PER_POST
+): (string | null)[] {
+  const entries = filterMediaUrlEntries(mediaUrls).slice(0, cap);
+  const videos = Array.isArray(slideVideoUrls) ? slideVideoUrls : [];
+  return entries.map((e) => {
+    const v = videos[e.originalIndex];
+    return typeof v === 'string' && v.trim().length > 0 ? v : null;
+  });
 }
 
 /**
@@ -138,6 +197,7 @@ export async function downloadAndStoreIntelMedia(
   candidateUrls: string[]
 ): Promise<DownloadedIntelMedia> {
   const storagePaths: string[] = [];
+  const storagePathsByIndex: (string | null)[] = [];
   let failed = 0;
 
   for (let index = 0; index < candidateUrls.length; index++) {
@@ -151,19 +211,22 @@ export async function downloadAndStoreIntelMedia(
       if (!contentType.startsWith('image/')) {
         logger.warn('intelMedia: skipping non-image media', { venueIntelDocId, index, contentType });
         failed++;
+        storagePathsByIndex.push(null);
         continue;
       }
       const buffer = Buffer.from(await res.arrayBuffer());
       const storagePath = buildIntelMediaPath(venueIntelDocId, index);
       await bucket.file(storagePath).save(buffer, { contentType: 'image/jpeg' });
       storagePaths.push(storagePath);
+      storagePathsByIndex.push(storagePath);
     } catch (err) {
       failed++;
+      storagePathsByIndex.push(null);
       logger.warn('intelMedia: media download/store failed', { venueIntelDocId, index, url, err: String(err) });
     }
   }
 
-  return { storagePaths, attempted: candidateUrls.length, failed };
+  return { storagePaths, storagePathsByIndex, attempted: candidateUrls.length, failed };
 }
 
 export type IntelVideoSkipReason = 'too_large' | 'fetch_failed' | 'bad_content_type';
