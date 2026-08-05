@@ -334,6 +334,22 @@ export const asanaWebhook = onRequest(
     // Step 3: dispatch task-assignee-change events, and relay task-comment
     // events for the reverse lane (§ handleTaskCommentAdded)
     const events: AsanaEvent[] = (req.body?.events ?? []) as AsanaEvent[];
+    // Payload observability (8/5 outage): real deliveries were falling
+    // through the event-matching conditionals with zero trace. Persist the
+    // last signature-verified body to a single overwritten Firestore doc so
+    // payload shape is always inspectable without Cloud Logging (whose
+    // ingestion lag stalled the 8/5 diagnosis). Fire-and-forget; never
+    // blocks or fails the handler.
+    admin
+      .firestore()
+      .doc('system/asanaWebhookDebug')
+      .set({
+        lastBody: JSON.stringify(req.body ?? {}).slice(0, 8000),
+        eventCount: events.length,
+        project: (req.query?.project as string) ?? null,
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      })
+      .catch(() => undefined);
     for (const event of events) {
       try {
         if (
