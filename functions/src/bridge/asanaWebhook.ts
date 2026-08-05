@@ -282,6 +282,10 @@ async function handleTaskCommentAdded(
 
 export const asanaWebhook = onRequest(
   {
+    // Asana delivers unauthenticated POSTs (authenticity via X-Hook-Signature,
+    // verified in-code). Declare invoker explicitly so every deploy re-applies
+    // public access — the 8/5 outage was this binding silently going missing.
+    invoker: 'public',
     secrets: [asanaPat, githubToken, twilioSid, twilioAuthToken, twilioFrom],
     timeoutSeconds: 60,
     memory: '256MiB',

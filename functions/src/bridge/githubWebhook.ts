@@ -265,6 +265,9 @@ async function handlePullRequest(payload: any): Promise<void> {
 
 export const githubWebhook = onRequest(
   {
+    // GitHub delivers unauthenticated POSTs (authenticity via X-Hub-Signature-256,
+    // verified in-code). Explicit public invoker so deploys re-apply the binding.
+    invoker: 'public',
     secrets: [githubWebhookSecret, githubToken, asanaPat, twilioSid, twilioAuthToken, twilioFrom],
     // The final-report relay waits ~60s before re-fetching and posting
     // (see FINAL_REPORT_RELAY_DELAY_MS) — needs headroom beyond that delay.
