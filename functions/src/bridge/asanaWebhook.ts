@@ -127,7 +127,17 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
   }
 
   const task = await fetchAsanaTask(taskGid, pat);
-  if (task.assignee?.gid !== devAgentGidCache) return;
+  if (task.assignee?.gid !== devAgentGidCache) {
+    // Permanent observability: this gate exiting silently cost hours of
+    // diagnosis on 8/5. Always log why a dispatch was skipped.
+    logger.info('Assignee gate: not dev agent — skipping dispatch', {
+      taskGid,
+      taskAssigneeGid: task.assignee?.gid ?? null,
+      taskAssigneeName: task.assignee?.name ?? null,
+      expectedDevAgentGid: devAgentGidCache,
+    });
+    return;
+  }
 
   if (!(await claimDispatch(taskGid, ghToken))) {
     logger.info('Task already dispatched — skipping', { taskGid });
