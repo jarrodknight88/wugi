@@ -19,6 +19,7 @@ import type { Theme } from '../constants/colors';
 import type { EventData } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { formatEventDateShort } from '../utils/eventDateTime';
+import { getEventCardHero } from '../utils/eventMedia';
 
 type Props = {
   event: EventData;
@@ -31,8 +32,9 @@ type Props = {
 
 export function VibeEventCard({ event, theme, onPress, label, width = 170, height = 240 }: Props) {
   // No stock-photo fallback — an event without media gets a neutral
-  // card-colored block instead of a random picsum image.
-  const imageUri = (event.media || [])[0]?.uri;
+  // card-colored block instead of a random picsum image. Video-first
+  // events use the shared card-hero rule (image, not the raw video URL).
+  const imageUri = getEventCardHero(event.media);
   return (
     <TouchableOpacity
       style={{ width, height, borderRadius: 14, overflow: 'hidden' }}

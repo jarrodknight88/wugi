@@ -23,6 +23,7 @@ import { DAILY_SUGGESTION_CAP, getSuggestionCountToday, incrementSuggestionCount
 import { logForYouInteraction } from '../analytics/analyticsService';
 import { usePicksSignalStore } from '../state/picksSignalStore';
 import { rankPicksPool, cardVibes } from '../utils/picksRanking';
+import { getEventCardHero } from '../utils/eventMedia';
 
 const GALLERY_PHOTO_COLOR = '#0ea5b8';
 const VENUE_PHOTO_COLOR   = '#2563eb';
@@ -37,7 +38,7 @@ function fsEventToCard(e: FSEvent, venueCategory: string | null): ForYouCard {
   return {
     id: e.id, type: 'event',
     title: e.title, subtitle: `${e.venue} · ${formatEventDateShort(e.date)}`,
-    image: e.media?.[0]?.uri || `https://picsum.photos/seed/${e.id}/600/900`,
+    image: getEventCardHero(e.media) || `https://picsum.photos/seed/${e.id}/600/900`,
     tag: e.vibes?.[0] || 'Event', tagColor: '#2a7a5a',
     data: {
       id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,

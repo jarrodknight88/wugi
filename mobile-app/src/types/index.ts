@@ -78,6 +78,13 @@ export type PhotoDoc = {
   source: string;             // observed in prod: 'placeholder-prince-williams' (also 'dashboard' | 'lens')
 };
 
+// ── Media ─────────────────────────────────────────────────────────────
+// Shared shape for event/venue media array items. `posterUri` is optional
+// and only ever present on a `type: 'video'` entry when the data pipeline
+// supplies a poster frame — see getEventCardHero() in utils/eventMedia.ts,
+// the only place that reads it.
+export type MediaItem = { type: string; uri: string; posterUri?: string };
+
 // ── Event ─────────────────────────────────────────────────────────────
 export type EventData = {
   id: string;
@@ -95,9 +102,9 @@ export type EventData = {
   time: string;
   age: string;
   about: string;
-  media: { type: string; uri: string }[];
+  media: MediaItem[];
   // Optional editorial override for hero/banner surfaces (e.g. Home hero
-  // carousel). Falls back to media[0].uri when absent — see
+  // carousel). Falls back to getEventCardHero(media) when absent — see
   // resolveEventBannerImage() in HomeScreen.tsx. Dashboard-writable field,
   // not yet exposed in the dashboard UI (UAT-W3-1 follow-up).
   bannerImage?: string;
@@ -393,7 +400,7 @@ export type FSEvent = {
   age: string;
   about: string;
   vibes: string[];
-  media: { type: string; uri: string }[];
+  media: MediaItem[];
   status: string;
   hasTickets?: boolean;
   // Recurring-series id (mirrors events.seriesId). Threaded into EventData by the
@@ -406,7 +413,7 @@ export type FSEvent = {
   isFeatured?: boolean;
   createdAt: any;
   // Optional editorial override for hero/banner surfaces (e.g. Home hero
-  // carousel). Falls back to media[0].uri when absent — see
+  // carousel). Falls back to getEventCardHero(media) when absent — see
   // resolveEventBannerImage() in HomeScreen.tsx. Dashboard-writable field,
   // not yet exposed in the dashboard UI (UAT-W3-1 follow-up).
   bannerImage?: string;

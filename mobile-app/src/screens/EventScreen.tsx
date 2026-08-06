@@ -45,7 +45,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as Calendar from 'expo-calendar';
 import Svg, { Path } from 'react-native-svg';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode, Audio } from 'expo-av';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, FavoriteItem } from '../types';
 import { getApprovedEvents, type FSEvent } from '../../firestoreService';
@@ -61,6 +61,7 @@ import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { formatEventDateShort, formatEventTimeLabel } from '../utils/eventDateTime';
 import { hexToRgba } from '../utils/color';
 import { attachableImageUri, buildEventShareMessage } from '../utils/share';
+import { getEventCardHero } from '../utils/eventMedia';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Design hero: default aspectRatio 0.95 → height = width / 0.95. Used for
@@ -122,7 +123,16 @@ function EventScreenInner({
   onFavoriteToggle, onGetTickets, onMenuPress, onEventPress, theme,
 }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
+  // Detail-view video plays WITH sound by default (a mute toggle still lets
+  // the user opt out) — unlike card/feed autoplay, which stays muted.
+  const [isMuted, setIsMuted] = useState(false);
+
+  // iOS routes media playback silent by default unless the audio session
+  // opts in — without this, a video plays with no sound whenever the
+  // ringer/silent switch is on, even with isMuted={false} above.
+  useEffect(() => {
+    Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+  }, []);
 
   // Defensive: scraped events may carry venueName instead of (or in addition to) venue
   const venueName = (event as any).venue ?? (event as any).venueName ?? '';
@@ -243,7 +253,7 @@ function EventScreenInner({
           type: 'event',
           title: event.title,
           subtitle: event.date ? `${venueName} · ${formatEventDateShort(event.date)}` : venueName,
-          image: (event.media || [])[0]?.uri || '',
+          image: getEventCardHero(event.media) || '',
           read: false,
           data: event,
         });
@@ -252,7 +262,7 @@ function EventScreenInner({
         // text ending with "powered by @wugi" + link.
         (async () => {
           try {
-            const heroUri = media[0]?.uri || '';
+            const heroUri = getEventCardHero(media) || '';
             const localImageUri = await attachableImageUri(heroUri, event.id);
             const message = buildEventShareMessage(event);
             await Share.share(
@@ -724,7 +734,7 @@ function EventScreenInner({
                 >
                   <Image
                     cachePolicy="memory-disk"
-                    source={{ uri: (item.media || [])[0]?.uri || '' }}
+                    source={{ uri: getEventCardHero(item.media) || '' }}
                     style={StyleSheet.absoluteFillObject}
                     contentFit="cover"
                   />
