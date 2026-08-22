@@ -34,6 +34,8 @@ import twilio from 'twilio';
 
 import {
   JARROD_PHONE,
+  GITHUB_REPO,
+  KNOWN_REPOS,
   sendSms,
   getGithubPullRequest,
   squashMergeGithubPullRequest,
@@ -76,18 +78,23 @@ async function findLatestPmVerdict(taskGid: string): Promise<PmVerdict | null> {
 }
 
 /** Resolve (and cache) the PR-link record for a PR number, falling back
- * to a live GitHub lookup when nothing's cached yet. */
+ * to a live GitHub lookup when nothing's cached yet. The SMS grammar
+ * carries no repo (just a bare PR number), so the fallback probes every
+ * known repo (see KNOWN_REPOS in shared.ts) until one has that PR. */
 async function resolvePrLink(prNumber: number): Promise<PrLinkRecord | null> {
   const cached = await getPrLinkRecord(prNumber);
   if (cached) return cached;
 
-  const pr = await getGithubPullRequest(prNumber, githubToken.value());
-  if (!pr) return null;
-  const taskGid = await resolveTaskGidForPr(pr, githubToken.value());
-  if (!taskGid) return null;
-  const link: PrLinkRecord = { taskGid };
-  await setPrLinkRecord(prNumber, { ...link });
-  return link;
+  for (const repo of KNOWN_REPOS) {
+    const pr = await getGithubPullRequest(repo, prNumber, githubToken.value());
+    if (!pr) continue;
+    const taskGid = await resolveTaskGidForPr(repo, pr, githubToken.value());
+    if (!taskGid) continue;
+    const link: PrLinkRecord = { taskGid, repo };
+    await setPrLinkRecord(prNumber, { ...link });
+    return link;
+  }
+  return null;
 }
 
 interface MergeOutcome {
@@ -108,7 +115,8 @@ async function attemptMergePr(prNumber: number): Promise<MergeOutcome> {
     return { prNumber, merged: false, message: `PR #${prNumber}: on hold — reply REWORK ${prNumber} <notes> or wait for a fresh PM review.` };
   }
 
-  const pr = await getGithubPullRequest(prNumber, githubToken.value());
+  const repo = link.repo ?? GITHUB_REPO;
+  const pr = await getGithubPullRequest(repo, prNumber, githubToken.value());
   if (!pr) {
     return { prNumber, merged: false, message: `PR #${prNumber}: not found on GitHub.` };
   }
@@ -128,7 +136,7 @@ async function attemptMergePr(prNumber: number): Promise<MergeOutcome> {
     return outcome;
   }
 
-  const result = await squashMergeGithubPullRequest(prNumber, pr.title, githubToken.value());
+  const result = await squashMergeGithubPullRequest(repo, prNumber, pr.title, githubToken.value());
   const outcome: MergeOutcome = {
     prNumber,
     merged: result.merged,
@@ -166,7 +174,7 @@ async function handleRework(prNumber: number, notes: string): Promise<string> {
   }
   if (!issueNumber) return `Found the task for PR #${prNumber} but not its GitHub issue — can't post the rework comment.`;
 
-  await postGithubComment(issueNumber, `@claude ${notes}`, githubToken.value());
+  await postGithubComment(link.repo ?? GITHUB_REPO, issueNumber, `@claude ${notes}`, githubToken.value());
   // A rework supersedes any prior verdict/hold — the next merge decision
   // must come from a fresh PM CODE REVIEW after this round lands.
   await setPrLinkRecord(prNumber, { ...link, verdict: null, held: false });
@@ -187,7 +195,8 @@ async function handleStatus(): Promise<string> {
     .slice(0, 10)
     .map(([prNumber, link]) => {
       const state = link.held ? 'HOLD' : (link.verdict ?? 'pending review');
-      return `#${prNumber}: ${state}`;
+      const repoTag = link.repo && link.repo !== GITHUB_REPO ? ` [${link.repo}]` : '';
+      return `#${prNumber}${repoTag}: ${state}`;
     });
   return `Wugi Bridge status:\n${lines.join('\n')}`;
 }

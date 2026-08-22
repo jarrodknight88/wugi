@@ -16,6 +16,26 @@ export const GITHUB_OWNER = 'jarrodknight88';
 export const GITHUB_REPO = 'wugi';
 export const JARROD_PHONE = '+14704229247';
 
+/** Asana project GID → GitHub repo name, for the v1.4 multi-repo bridge.
+ * A task's dispatch repo is resolved from its project memberships; a task
+ * with no matching membership falls back to GITHUB_REPO. */
+export const PROJECT_REPO_MAP: Record<string, string> = {
+  '1217740061327313': 'wugi-ops', // Wugi Ops platform
+};
+
+/** Every repo the bridge may dispatch to or accept webhooks from. */
+export const KNOWN_REPOS: string[] = [GITHUB_REPO, ...new Set(Object.values(PROJECT_REPO_MAP))];
+
+/** Resolve the GitHub repo a task dispatches to from its Asana project
+ * memberships — the first mapped repo among them, else the default. */
+export function resolveRepo(projectGids: string[]): string {
+  for (const gid of projectGids) {
+    const mapped = PROJECT_REPO_MAP[gid];
+    if (mapped) return mapped;
+  }
+  return GITHUB_REPO;
+}
+
 /** Firestore doc holding Asana X-Hook-Secret values, one field per webhook. */
 export const SECRETS_DOC = 'system/asanaWebhookSecrets';
 /** Firestore doc holding dispatch records, one field per Asana task GID. */
@@ -60,6 +80,9 @@ export interface DispatchRecord {
   taskName?: string;
   issueNumber?: number;
   issueUrl?: string;
+  /** GitHub repo (see PROJECT_REPO_MAP) this dispatch's issue lives in.
+   * Absent on pre-v1.4 records — treat as the default GITHUB_REPO. */
+  repo?: string;
   firstReplySmsSent?: boolean;
   /** Issue number whose Claude final-report comment has already been relayed to Asana. */
   finalReportRelayedIssue?: number;
@@ -86,6 +109,9 @@ export interface AsanaStory {
 export interface PrLinkRecord {
   taskGid: string;
   issueNumber?: number;
+  /** GitHub repo (see PROJECT_REPO_MAP) this PR lives in. Absent on
+   * pre-v1.4 records — treat as the default GITHUB_REPO. */
+  repo?: string;
   /** Cached verdict from the most recent PM CODE REVIEW comment — a
    * convenience for STATUS/MERGE-ALL prompts. MERGE always re-verifies
    * against Asana directly rather than trusting this field alone. */
@@ -228,13 +254,14 @@ export function delay(ms: number): Promise<void> {
 const CREATE_ISSUE_MAX_ATTEMPTS = 3;
 
 export async function createGithubIssue(
+  repo: string,
   title: string,
   body: string,
   token: string
 ): Promise<{ number: number; html_url: string }> {
   for (let attempt = 1; ; attempt++) {
     try {
-      const issue = await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues`, token, {
+      const issue = await githubRequest(`/repos/${GITHUB_OWNER}/${repo}/issues`, token, {
         method: 'POST',
         body: { title, body },
       });
@@ -243,50 +270,50 @@ export async function createGithubIssue(
       const is5xx = err instanceof GithubApiError && err.status >= 500;
       if (!is5xx || attempt >= CREATE_ISSUE_MAX_ATTEMPTS) throw err;
       const backoffMs = 2 ** (attempt - 1) * 1000; // 1s, then 2s
-      logger.warn('createGithubIssue got a 5xx — retrying', { attempt, backoffMs, err: String(err) });
+      logger.warn('createGithubIssue got a 5xx — retrying', { repo, attempt, backoffMs, err: String(err) });
       await delay(backoffMs);
     }
   }
 }
 
 export async function getGithubIssue(
+  repo: string,
   issueNumber: number,
   token: string
 ): Promise<{ number: number; state: string; title: string; body: string | null } | null> {
   try {
-    const issue = await githubRequest(
-      `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${issueNumber}`,
-      token
-    );
+    const issue = await githubRequest(`/repos/${GITHUB_OWNER}/${repo}/issues/${issueNumber}`, token);
     return { number: issue.number, state: issue.state, title: issue.title, body: issue.body };
   } catch (err) {
-    logger.warn('getGithubIssue failed', { issueNumber, err: String(err) });
+    logger.warn('getGithubIssue failed', { repo, issueNumber, err: String(err) });
     return null;
   }
 }
 
 export async function getGithubComment(
+  repo: string,
   commentId: number,
   token: string
 ): Promise<{ id: number; body: string; html_url: string } | null> {
   try {
     const comment = await githubRequest(
-      `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/comments/${commentId}`,
+      `/repos/${GITHUB_OWNER}/${repo}/issues/comments/${commentId}`,
       token
     );
     return { id: comment.id, body: comment.body, html_url: comment.html_url };
   } catch (err) {
-    logger.warn('getGithubComment failed', { commentId, err: String(err) });
+    logger.warn('getGithubComment failed', { repo, commentId, err: String(err) });
     return null;
   }
 }
 
 export async function postGithubComment(
+  repo: string,
   issueNumber: number,
   body: string,
   token: string
 ): Promise<void> {
-  await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${issueNumber}/comments`, token, {
+  await githubRequest(`/repos/${GITHUB_OWNER}/${repo}/issues/${issueNumber}/comments`, token, {
     method: 'POST',
     body: { body },
   });
@@ -303,11 +330,12 @@ export interface GithubPullRequest {
 }
 
 export async function getGithubPullRequest(
+  repo: string,
   prNumber: number,
   token: string
 ): Promise<GithubPullRequest | null> {
   try {
-    const pr = await githubRequest(`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/pulls/${prNumber}`, token);
+    const pr = await githubRequest(`/repos/${GITHUB_OWNER}/${repo}/pulls/${prNumber}`, token);
     return {
       number: pr.number,
       state: pr.state,
@@ -318,19 +346,20 @@ export async function getGithubPullRequest(
       html_url: pr.html_url,
     };
   } catch (err) {
-    logger.warn('getGithubPullRequest failed', { prNumber, err: String(err) });
+    logger.warn('getGithubPullRequest failed', { repo, prNumber, err: String(err) });
     return null;
   }
 }
 
 export async function squashMergeGithubPullRequest(
+  repo: string,
   prNumber: number,
   commitTitle: string,
   token: string
 ): Promise<{ merged: boolean; message: string }> {
   try {
     const result = await githubRequest(
-      `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/pulls/${prNumber}/merge`,
+      `/repos/${GITHUB_OWNER}/${repo}/pulls/${prNumber}/merge`,
       token,
       { method: 'PUT', body: { merge_method: 'squash', commit_title: commitTitle } }
     );
@@ -338,7 +367,7 @@ export async function squashMergeGithubPullRequest(
   } catch (err) {
     const message =
       err instanceof GithubApiError ? err.message : `GitHub merge request failed: ${String(err)}`;
-    logger.error('squashMergeGithubPullRequest failed', { prNumber, err: message });
+    logger.error('squashMergeGithubPullRequest failed', { repo, prNumber, err: message });
     return { merged: false, message };
   }
 }
@@ -350,6 +379,7 @@ export async function squashMergeGithubPullRequest(
  * Twilio MERGE/HOLD command path so both resolve a PR the same way.
  */
 export async function resolveTaskGidForPr(
+  repo: string,
   pr: { body?: string | null; title?: string | null },
   ghToken: string
 ): Promise<string | null> {
@@ -357,7 +387,7 @@ export async function resolveTaskGidForPr(
   if (direct) return direct;
   const ref = `${pr.title ?? ''}\n${pr.body ?? ''}`.match(/#(\d+)/);
   if (!ref) return null;
-  const issue = await getGithubIssue(Number(ref[1]), ghToken);
+  const issue = await getGithubIssue(repo, Number(ref[1]), ghToken);
   return issue ? extractAsanaGid(issue.body ?? '') : null;
 }
 

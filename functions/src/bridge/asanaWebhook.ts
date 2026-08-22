@@ -35,6 +35,7 @@ import {
   postAsanaComment,
   postGithubComment,
   resolveAsanaUserGid,
+  resolveRepo,
   createGithubIssue,
   getGithubIssue,
   getDispatchRecord,
@@ -88,30 +89,37 @@ async function verifySignature(rawBody: Buffer, receivedHex: string): Promise<bo
 /**
  * Claim the task for dispatch. Returns false if a dispatch is already
  * pending or an earlier dispatch's issue is still open; a closed issue
- * allows re-dispatch.
+ * allows re-dispatch. Dedupe is scoped per (taskGid, repo): a prior
+ * dispatch recorded against a *different* repo (e.g. the task's project
+ * membership changed since) never blocks a fresh dispatch to the
+ * newly-resolved repo — "one live issue per task, per repo".
  */
-async function claimDispatch(taskGid: string, ghToken: string): Promise<boolean> {
+async function claimDispatch(taskGid: string, repo: string, ghToken: string): Promise<boolean> {
   const db = admin.firestore();
   const ref = db.doc(DISPATCHES_DOC);
   const existing = ((await ref.get()).data() ?? {})[taskGid] as DispatchRecord | undefined;
+  const existingSameRepo = existing && (existing.repo ?? GITHUB_REPO) === repo;
 
-  if (existing) {
-    if (existing.status === 'pending') return false;
-    if (!existing.issueNumber) return false;
-    const issue = await getGithubIssue(existing.issueNumber, ghToken);
+  if (existingSameRepo) {
+    if (existing!.status === 'pending') return false;
+    if (!existing!.issueNumber) return false;
+    const issue = await getGithubIssue(repo, existing!.issueNumber, ghToken);
     if (!issue || issue.state === 'open') return false;
-    logger.info('Previous issue closed — re-dispatching', { taskGid, issue: existing.issueNumber });
+    logger.info('Previous issue closed — re-dispatching', { taskGid, repo, issue: existing!.issueNumber });
   }
 
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const current = ((snap.data() ?? {})[taskGid] ?? null) as DispatchRecord | null;
-    // Bail if another delivery claimed or re-dispatched since our read
-    if (current?.status === 'pending') return false;
-    if ((current?.issueNumber ?? null) !== (existing?.issueNumber ?? null)) return false;
+    const currentSameRepo = current && (current.repo ?? GITHUB_REPO) === repo;
+    if (currentSameRepo) {
+      // Bail if another delivery claimed or re-dispatched since our read
+      if (current!.status === 'pending') return false;
+      if ((current!.issueNumber ?? null) !== (existing?.issueNumber ?? null)) return false;
+    }
     tx.set(
       ref,
-      { [taskGid]: { status: 'pending', claimedAt: admin.firestore.FieldValue.serverTimestamp() } },
+      { [taskGid]: { status: 'pending', repo, claimedAt: admin.firestore.FieldValue.serverTimestamp() } },
       { merge: true }
     );
     return true;
@@ -139,8 +147,10 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
     return;
   }
 
-  if (!(await claimDispatch(taskGid, ghToken))) {
-    logger.info('Task already dispatched — skipping', { taskGid });
+  const repo = resolveRepo((task.projects ?? []).map((p) => p.gid));
+
+  if (!(await claimDispatch(taskGid, repo, ghToken))) {
+    logger.info('Task already dispatched — skipping', { taskGid, repo });
     return;
   }
 
@@ -159,21 +169,22 @@ async function handleAssigneeChange(taskGid: string, pat: string, ghToken: strin
       `Asana-GID: ${task.gid}`,
     ].join('\n');
 
-    const issue = await createGithubIssue(task.name, issueBody, ghToken);
-    logger.info('GitHub issue created', { taskGid, issue: issue.number });
+    const issue = await createGithubIssue(repo, task.name, issueBody, ghToken);
+    logger.info('GitHub issue created', { taskGid, repo, issue: issue.number });
 
     await setDispatchRecord(taskGid, {
       status: 'dispatched',
       taskName: task.name,
       issueNumber: issue.number,
       issueUrl: issue.html_url,
+      repo,
       firstReplySmsSent: false,
       dispatchedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     await postAsanaComment(
       taskGid,
-      `Dispatched to Claude Code — github.com/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${issue.number}`,
+      `Dispatched to Claude Code — github.com/${GITHUB_OWNER}/${repo}/issues/${issue.number}`,
       pat
     );
   } catch (err) {
@@ -200,16 +211,18 @@ const CLAUDE_MENTION = /@claude\b/i;
 async function relayClaudeMention(
   taskGid: string,
   issueNumber: number,
+  repo: string,
   text: string,
   authorName: string,
   ghToken: string
 ): Promise<void> {
   await postGithubComment(
+    repo,
     issueNumber,
     `Comment from ${authorName} on the Asana task:\n\n${text}`,
     ghToken
   );
-  logger.info('Relayed Asana task comment to GitHub issue', { taskGid, issueNumber });
+  logger.info('Relayed Asana task comment to GitHub issue', { taskGid, issueNumber, repo });
 }
 
 /**
@@ -221,6 +234,7 @@ async function relayClaudeMention(
 async function relayPmVerdict(
   taskGid: string,
   issueNumber: number,
+  repo: string,
   text: string,
   pat: string,
   twilioSid: string,
@@ -232,6 +246,7 @@ async function relayPmVerdict(
     await setPrLinkRecord(verdict.prNumber, {
       taskGid,
       issueNumber,
+      repo,
       verdict: verdict.verdict,
       held: false, // a fresh verdict always lifts a prior SMS hold
     });
@@ -264,6 +279,7 @@ async function handleTaskCommentAdded(
 ): Promise<void> {
   const record = await getDispatchRecord(taskGid);
   if (!record || record.status !== 'dispatched' || !record.issueNumber) return;
+  const repo = record.repo ?? GITHUB_REPO;
 
   const story = await fetchAsanaStory(storyGid, pat);
   if (story.resource_subtype !== 'comment_added') return;
@@ -280,12 +296,12 @@ async function handleTaskCommentAdded(
   const authorName = story.created_by?.name ?? 'someone';
 
   if (isPmCodeReviewComment(text)) {
-    await relayPmVerdict(taskGid, record.issueNumber, text, pat, twilioSid, twilioAuthToken, twilioFrom);
+    await relayPmVerdict(taskGid, record.issueNumber, repo, text, pat, twilioSid, twilioAuthToken, twilioFrom);
     return;
   }
 
   if (!CLAUDE_MENTION.test(text)) return;
-  await relayClaudeMention(taskGid, record.issueNumber, text, authorName, ghToken);
+  await relayClaudeMention(taskGid, record.issueNumber, repo, text, authorName, ghToken);
 }
 
 // ── Main Cloud Function ──────────────────────────────────────────────
