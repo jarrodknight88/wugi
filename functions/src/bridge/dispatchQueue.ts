@@ -43,6 +43,7 @@ import {
   DEV_AGENT_EMAIL,
   DISPATCHES_DOC,
   DISPATCH_QUEUE_DOC,
+  GITHUB_REPO,
   DispatchRecord,
   Lane,
   DispatchLane,
@@ -171,7 +172,7 @@ async function computeInFlightLanes(ghToken: string): Promise<DispatchLane[]> {
       continue;
     }
     if (!record.issueNumber) continue;
-    const issue = await getGithubIssue(record.issueNumber, ghToken);
+    const issue = await getGithubIssue(record.repo ?? GITHUB_REPO, record.issueNumber, ghToken);
     if (issue?.state === 'open') lanes.push(record.lane ?? 'unknown');
   }
 

@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — githubWebhook Cloud Function (GitHub → Asana relay)
 //
-// Receives GitHub webhook events for jarrodknight88/wugi. Relays issue
-// comments and PR activity back to the originating Asana task (found via
-// the `Asana-GID:` marker the bridge embeds in issue bodies) and texts
+// Receives GitHub webhook events for both jarrodknight88/wugi and
+// jarrodknight88/wugi-ops (v1.4 — see PROJECT_REPO_MAP in shared.ts);
+// events from any other repo are rejected. Relays issue comments and PR
+// activity back to the originating Asana task (found via the
+// `Asana-GID:` marker the bridge embeds in issue bodies) and texts
 // Jarrod for the milestones that matter: Claude's first reply, PR opened,
 // PR merged.
 //
@@ -25,6 +27,7 @@ import * as crypto from 'crypto';
 import {
   JARROD_PHONE,
   DISPATCHES_DOC,
+  KNOWN_REPOS,
   DispatchRecord,
   fetchAsanaTask,
   postAsanaComment,
@@ -46,6 +49,11 @@ const asanaPat = defineSecret('ASANA_PAT');
 const twilioSid = defineSecret('TWILIO_ACCOUNT_SID');
 const twilioAuthToken = defineSecret('TWILIO_AUTH_TOKEN');
 const twilioFrom = defineSecret('TWILIO_PHONE_NUMBER');
+
+/** v1.4: this bridge now receives webhooks from both jarrodknight88/wugi
+ * and jarrodknight88/wugi-ops (see PROJECT_REPO_MAP in shared.ts) — any
+ * other repository.name is rejected outright. */
+const ALLOWED_REPOS = new Set(KNOWN_REPOS);
 
 // ── Signature verification ───────────────────────────────────────────
 
@@ -141,7 +149,7 @@ const FINAL_REPORT_RELAY_DELAY_MS = 60_000;
  * relay only once the edit lands on the terminal ("Claude finished")
  * state, deduped per issue so a burst of trailing edits only relays once.
  */
-async function handleIssueCommentEdited(payload: any): Promise<void> {
+async function handleIssueCommentEdited(payload: any, repo: string): Promise<void> {
   const issue = payload.issue;
   const comment = payload.comment;
   if (!issue || !comment) return;
@@ -157,7 +165,7 @@ async function handleIssueCommentEdited(payload: any): Promise<void> {
   // Don't claim yet — wait for trailing edits to settle, then relay
   // whatever the comment's *current* body is rather than this payload's.
   await delay(FINAL_REPORT_RELAY_DELAY_MS);
-  const latest = await getGithubComment(comment.id, githubToken.value());
+  const latest = await getGithubComment(repo, comment.id, githubToken.value());
   const finalBody = latest?.body?.trim() || body;
   const finalUrl = latest?.html_url ?? comment.html_url;
 
@@ -217,7 +225,7 @@ async function handleIssueComment(payload: any): Promise<void> {
   }
 }
 
-async function handlePullRequest(payload: any): Promise<void> {
+async function handlePullRequest(payload: any, repo: string): Promise<void> {
   const pr = payload.pull_request;
   const action = payload.action;
   if (!pr) return;
@@ -227,7 +235,7 @@ async function handlePullRequest(payload: any): Promise<void> {
 
   // Find the originating task: marker in the PR body, else via the
   // issue the PR references (e.g. "Fixes #12")
-  const gid = await resolveTaskGidForPr(pr, githubToken.value());
+  const gid = await resolveTaskGidForPr(repo, pr, githubToken.value());
   if (!gid) return;
 
   // Cache the PR ⇄ task link as soon as the PR exists, so a v1.3 SMS
@@ -235,7 +243,7 @@ async function handlePullRequest(payload: any): Promise<void> {
   // has been posted (which is what normally seeds this record).
   if (action === 'opened') {
     const dispatchRecord = await getDispatchRecord(gid);
-    await setPrLinkRecord(pr.number, { taskGid: gid, issueNumber: dispatchRecord?.issueNumber });
+    await setPrLinkRecord(pr.number, { taskGid: gid, issueNumber: dispatchRecord?.issueNumber, repo });
   }
 
   const author = pr.user?.login ?? 'unknown';
@@ -289,19 +297,27 @@ export const githubWebhook = onRequest(
       return;
     }
 
-    // Step 2: route events
-    const event = req.headers['x-github-event'] as string | undefined;
+    // Step 2: reject events from any repo outside the known set
     const payload = req.body ?? {};
+    const repo = payload.repository?.name as string | undefined;
+    if (!repo || !ALLOWED_REPOS.has(repo)) {
+      logger.warn('githubWebhook: rejecting event from unrecognized repo', { repo });
+      res.status(403).send('Unknown repo');
+      return;
+    }
+
+    // Step 3: route events
+    const event = req.headers['x-github-event'] as string | undefined;
     try {
       if (event === 'issue_comment' && payload.action === 'created') {
         await handleIssueComment(payload);
       } else if (event === 'issue_comment' && payload.action === 'edited') {
-        await handleIssueCommentEdited(payload);
+        await handleIssueCommentEdited(payload, repo);
       } else if (event === 'pull_request') {
-        await handlePullRequest(payload);
+        await handlePullRequest(payload, repo);
       }
     } catch (err) {
-      logger.error('githubWebhook handler failed', { event, err: String(err) });
+      logger.error('githubWebhook handler failed', { event, repo, err: String(err) });
     }
 
     res.status(200).send('OK');
