@@ -1,0 +1,4 @@
+lib/
+node_modules/
+serviceAccount.json
+package-lock.json
