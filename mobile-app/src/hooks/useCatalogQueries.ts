@@ -19,7 +19,7 @@
 // table availability from these hooks. Use useLiveSubscription for
 // any field that affects ticketing decisions.
 // ─────────────────────────────────────────────────────────────────────
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   useQuery,
   useInfiniteQuery,
@@ -34,6 +34,8 @@ import {
   getApprovedEventsPage,
   getVenueById,
   getEventById,
+  computeSeriesFeed,
+  sortFeed,
   type FSVenue,
   type FSEvent,
 } from '../../firestoreService';
@@ -167,14 +169,25 @@ export function useInfiniteEvents(filter?: { vibes?: string[] }) {
     gcTime:          GC_DAY,
   });
 
-  useEffect(() => {
-    if (!q.data) return;
+  // getApprovedEventsPage only collapses a recurring series WITHIN the page it
+  // was fetched on (see the REVIEW note there) — the same series can still land
+  // on two different scroll pages. Re-collapsing across the full accumulated
+  // set here catches that case once both pages have loaded, without needing the
+  // cursor-pagination model change a full fix would require.
+  const events = useMemo(() => {
+    if (!q.data) return [];
     const all: FSEvent[] = [];
     for (const page of q.data.pages) all.push(...((page && page.events) || []));
-    if (all.length) setEvents(all);
-  }, [q.data, setEvents]);
+    const deduped = computeSeriesFeed(all);
+    deduped.sort(sortFeed);
+    return deduped;
+  }, [q.data]);
 
-  return q;
+  useEffect(() => {
+    if (events.length) setEvents(events);
+  }, [events, setEvents]);
+
+  return { ...q, events };
 }
 
 // ── Single event ─────────────────────────────────────────────────────
