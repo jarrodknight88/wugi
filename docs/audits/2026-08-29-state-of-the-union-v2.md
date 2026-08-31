@@ -86,3 +86,15 @@ FlashList migration · Node 22 upgrade (due 9/8 — schedule week after launch, 
 - Nothing has merged to wugi main since 8/22 (#248) — post-UAT hardening happened in wugi-ops instead (PRs #2–#20, through 8/27)
 - Night-daemon PRs #195–#227 (8/2–8/3) merged under gate names only; UAT-A coverage inferred, not proven
 - Issue #251 (this audit's dispatch) parked in sweep-state; close on GitHub when convenient
+
+---
+
+## CORRECTION — 2026-08-31 (PM session, executed verification)
+
+The claim above that three security fixes were "merged but never deployed" is **WRONG**. Verified 8/31 by pulling the live rulesets from the Firebase Rules API and diffing against repo main:
+
+- Deployed firestore ruleset `c2d28f3d` (released 2026-08-03T23:54Z) is identical to `firebase/firestore.rules` on main except one mojibake character in a comment. It **contains** the /passes scoping fixes (39e8e8b, 3276fe2) and the catch-all deny-by-default (line 426, `write: if false`).
+- Deployed storage ruleset `50eb0c95` (released 2026-08-01T12:54Z) is **byte-identical** to `firebase/storage.rules` on main and contains the full Lens PR #43 blocks (lens-ingest device-claim writes, lens-quarantine lockdown, lens-renditions read-only).
+- Consequence: the "first-ever storage-rules deploy" human gate was already satisfied on 8/1. **No rules deploys are outstanding as of 8/31.**
+
+Method: `firebaserules.googleapis.com` releases + rulesets fetched with service-account token, diffed on the Air. Lesson repeated: inferred deploy-state is not deploy-state; always diff the live ruleset.
