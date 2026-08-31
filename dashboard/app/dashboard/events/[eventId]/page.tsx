@@ -14,6 +14,7 @@ import SearchSelect from "@/components/SearchSelect"
 import type { SelectOption } from "@/components/SearchSelect"
 import { GROUP_COLORS } from "@/components/TableGroupManager"
 import EventMediaPanel, { type EventMediaItem } from "./EventMediaPanel"
+import EventBronzeUploadPanel from "./EventBronzeUploadPanel"
 import Link from "next/link"
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -188,7 +189,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   const [tickets, setTickets]     = useState<TicketType[]>([])
   const [tableGroups, setTableGroups] = useState<TableGroup[]>([])
   const [venueOpts, setVenueOpts] = useState<SelectOption[]>([])
-  const [tab, setTab]             = useState<"info" | "media" | "door" | "tickets">("info")
+  const [tab, setTab]             = useState<"info" | "media" | "photos" | "door" | "tickets">("info")
   const [editing, setEditing]     = useState(false)
   const [ticketModal, setTicketModal] = useState<{ form: TicketForm & { id?: string } } | null>(null)
   const [form, setForm]           = useState<EditForm>({ title: "", venue: "", venueId: "", date: "", time: "", age: "21+", about: "", status: "approved", vibes: [], idVerificationThreshold: 30000 })
@@ -281,6 +282,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
   const TABS = [
     { key: "info", label: "Event Info" },
     { key: "media", label: `Media${event.media.length > 0 ? ` (${event.media.length})` : ""}` },
+    { key: "photos", label: "Photos" },
     { key: "door", label: "Door Access" },
     { key: "tickets", label: `Ticket Tiers${tickets.length > 0 ? ` (${tickets.length})` : ""}` },
   ] as const
@@ -423,6 +425,11 @@ export default function EventDetailPage({ params }: { params: Promise<{ eventId:
         {/* ── Media Tab ── */}
         {tab === "media" && (
           <EventMediaPanel eventId={eventId} media={event.media} seriesId={event.seriesId} canWrite={canWrite} />
+        )}
+
+        {/* ── Photos Tab (Bronze upload link, issue #255) ── */}
+        {tab === "photos" && (
+          <EventBronzeUploadPanel eventId={eventId} canWrite={canWrite} />
         )}
 
         {/* ── Door Tab ── */}
