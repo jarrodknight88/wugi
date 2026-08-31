@@ -434,7 +434,7 @@ export function computeSeriesFeed(events: FSEvent[]): FSEvent[] {
 
 // Stable feed ordering: featured first, then newest createdAt (matches the
 // prior server orderBy now that grouping happens client-side).
-function sortFeed(a: FSEvent, b: FSEvent): number {
+export function sortFeed(a: FSEvent, b: FSEvent): number {
   const f = ((b as any).isFeatured ? 1 : 0) - ((a as any).isFeatured ? 1 : 0);
   if (f !== 0) return f;
   return (((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0));
@@ -640,12 +640,21 @@ export async function getApprovedVenuesPage(args: {
 // Computed-anchor feed (retires isSeriesAnchor). Each page is collapsed to the
 // earliest eligible occurrence per series via computeSeriesFeed.
 //
-// ⚠️ REVIEW (#76, flagged — Phase 1 deliberately conservative): series dedup is
-// applied WITHIN each page only. Because pagination is cursor-based over raw
+// ⚠️ REVIEW (#76, flagged — Phase 1 deliberately conservative): series dedup here
+// is applied WITHIN each page only. Because pagination is cursor-based over raw
 // approved events, the same series could still appear on two different pages
 // (different occurrences). Guaranteeing one-card-per-series ACROSS pages without
 // the stored flag requires either offset pagination over the fully-computed feed
-// or a load-all approach — a pagination-model change. NOT decided here; see report.
+// or a load-all approach — a genuine pagination-model change, not done here.
+//
+// Scoped mitigation (low-priority; see issue #264): useInfiniteEvents (the only
+// consumer of this page function) re-runs computeSeriesFeed + sortFeed over the
+// full accumulated set of fetched pages, so a series repeated across pages
+// collapses to a single card once enough pages have loaded. This is exported
+// from here so the collapsing logic stays in one place. It does not change what
+// a single page-fetch returns (still per-page dedup only) and it can't prevent a
+// brief flash of a duplicate card on the page it first re-appears before the
+// merge runs — full elimination still needs the pagination-model change above.
 export async function getApprovedEventsPage(args: {
   cursor?:    PageCursor;
   limit?:     number;
