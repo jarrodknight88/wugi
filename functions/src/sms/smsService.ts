@@ -91,33 +91,3 @@ export async function sendPurchaseConfirmationSMS(data: PurchaseConfirmationSMSD
     `Wugi 🎟️ You're going!\n${data.ticketType}${qty} — ${total}\n${data.eventTitle} @ ${data.venueName}\nSee you there! 🎉`
   );
 }
-
-// ── Trigger 4: Check-in confirmation ─────────────────────────────────
-// Called when staff taps "Check In Now" in Wugi Door
-export interface CheckInSMSData {
-  phone:      string;
-  holderName: string;
-  eventTitle: string;
-  venueName:  string;
-}
-export async function sendCheckInSMS(data: CheckInSMSData): Promise<void> {
-  await sendSMS(
-    data.phone,
-    `Wugi 🎟️ You're checked in!\nWelcome to ${data.eventTitle} at ${data.venueName}. Have an amazing time!`
-  );
-}
-
-// ── Trigger 4: Ticket scan confirmation ──────────────────────────────
-// Called when ScannerScreen scans a QR code successfully
-export interface TicketScannedSMSData {
-  phone:      string;
-  holderName: string;
-  eventTitle: string;
-  venueName:  string;
-}
-export async function sendTicketScannedSMS(data: TicketScannedSMSData): Promise<void> {
-  await sendSMS(
-    data.phone,
-    `Wugi ✅ Ticket scanned!\n${data.eventTitle} @ ${data.venueName}. You're in — enjoy the night! 🙌`
-  );
-}

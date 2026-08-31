@@ -253,3 +253,47 @@ export async function sendDoorSaleReceipt(data: DoorSaleReceiptData): Promise<vo
   })
   functions.logger.info('Door sale receipt sent to:', data.to)
 }
+
+// ── Balance paid ───────────────────────────────────────────────────────
+// Mirrors sendBalancePaidSMS (smsService.ts) — called alongside it when an
+// existing ticket holder pays their remaining balance and has an email on file.
+export interface BalancePaidEmailData {
+  to:          string
+  holderName:  string
+  eventTitle:  string
+  venueName:   string
+  amountCents: number
+}
+
+export async function sendBalancePaidEmail(data: BalancePaidEmailData): Promise<void> {
+  const resend = getResend()
+  const amount = `$${(data.amountCents / 100).toFixed(2)}`
+
+  const html = wrap(`
+    <h2 style="color:#111;font-size:22px;font-weight:800;margin:0 0 4px">Balance paid 💳</h2>
+    <p style="color:#666;margin:0 0 24px">You're all set for ${data.eventTitle}!</p>
+
+    <div style="background:#f5f3ef;border-radius:${RADIUS};padding:20px;margin-bottom:24px">
+      <p style="color:#111;font-size:18px;font-weight:800;margin:0 0 4px">${data.eventTitle}</p>
+      <p style="color:#666;font-size:14px;margin:0">${data.venueName}</p>
+    </div>
+
+    <table width="100%" cellpadding="0" cellspacing="0">
+      ${row('Guest', data.holderName)}
+      ${row('Balance Paid', amount)}
+    </table>
+
+    ${divider}
+    <p style="color:#999;font-size:12px;text-align:center;margin:0">
+      All sales are final · No refunds · Valid ID required
+    </p>
+  `)
+
+  await resend.emails.send({
+    from:    FROM,
+    to:      data.to,
+    subject: `Balance paid for ${data.eventTitle}`,
+    html,
+  })
+  functions.logger.info('Balance paid email sent to:', data.to)
+}
