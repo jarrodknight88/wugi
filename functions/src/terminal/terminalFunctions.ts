@@ -292,16 +292,25 @@ export const captureTerminalPayment = functions
       }
     }
 
-    // For balance payments, look up ticket to get holder info
+    // For balance payments, look up ticket to get holder info. Balance-payment
+    // requests never send newTicketData (PaymentScreen.tsx only populates it
+    // for walk-in sales), so holderEmail/holderPhone must come from the
+    // ticket doc itself — otherwise the balance-paid SMS/email below never
+    // fire because recipientEmail/recipientPhone stay undefined.
     let holderName: string | null = null;
     let ticketTypeName: string | null = null;
+    let ticketHolderEmail: string | null = null;
+    let ticketHolderPhone: string | null = null;
     if (ticketId) {
       try {
         const ticketSnap = await db.collection('events').doc(eventId)
           .collection('tickets').doc(ticketId).get();
         if (ticketSnap.exists) {
-          holderName = ticketSnap.data()?.holderName || null;
-          ticketTypeName = ticketSnap.data()?.ticketTypeName || null;
+          const ticketData = ticketSnap.data();
+          holderName = ticketData?.holderName || null;
+          ticketTypeName = ticketData?.ticketTypeName || null;
+          ticketHolderEmail = ticketData?.holderEmail || null;
+          ticketHolderPhone = ticketData?.holderPhone || null;
         }
       } catch (e) {}
     } else if (newTicketData) {
@@ -357,14 +366,15 @@ export const captureTerminalPayment = functions
     });
 
     // Send receipt via email or SMS (non-blocking)
-    const recipientEmail = newTicketData?.holderEmail;
-    const recipientPhone = newTicketData?.holderPhone;
+    const recipientEmail = newTicketData?.holderEmail || ticketHolderEmail || undefined;
+    const recipientPhone = newTicketData?.holderPhone || ticketHolderPhone || undefined;
     if (recipientEmail || recipientPhone) {
       try {
-        const { sendDoorSaleReceipt } = await import('../email/emailService');
+        const { sendDoorSaleReceipt, sendBalancePaidEmail } = await import('../email/emailService');
         const venueData2 = (await db.collection('venues').doc(venueId).get()).data();
         const eventData2 = (await db.collection('events').doc(eventId).get()).data();
-        if (recipientEmail) {
+        // Door sale receipt (walk-up ticket purchase) — not for balance payments
+        if (!ticketId && recipientEmail) {
           await sendDoorSaleReceipt({
             to: recipientEmail,
             holderName: newTicketData?.holderName || '',
@@ -377,7 +387,7 @@ export const captureTerminalPayment = functions
           });
         }
         // SMS receipt for door sale (phone number)
-        if (recipientPhone) {
+        if (!ticketId && recipientPhone) {
           const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
           const venueData3 = venueData2 || (await db.collection('venues').doc(venueId).get()).data();
           await sendDoorSaleReceiptSMS({
@@ -389,13 +399,24 @@ export const captureTerminalPayment = functions
             amountCents,
           });
         }
-        // SMS for balance payment on existing ticket
+        // SMS + email for balance payment on existing ticket
         if (ticketId && recipientPhone) {
           const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
           await sendBalancePaidSMS({
             phone:      recipientPhone,
             holderName: holderName || '',
             eventTitle: eventData3?.title || '',
+            amountCents,
+          });
+        }
+        if (ticketId && recipientEmail) {
+          const eventData3 = eventData2 || (await db.collection('events').doc(eventId).get()).data();
+          const venueData4 = venueData2 || (await db.collection('venues').doc(venueId).get()).data();
+          await sendBalancePaidEmail({
+            to:          recipientEmail,
+            holderName:  holderName || '',
+            eventTitle:  eventData3?.title || '',
+            venueName:   venueData4?.name || '',
             amountCents,
           });
         }
