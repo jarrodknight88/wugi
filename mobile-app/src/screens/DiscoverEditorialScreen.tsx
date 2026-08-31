@@ -127,17 +127,20 @@ type Props = {
 // ── FS → navigation-payload converters (match DiscoverScreen) ──────────
 function toEventData(e: FSEvent): EventData {
   return {
-    id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+    id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', venueId: e.venueId,
     seriesId: e.seriesId ?? null,
-    date: e.date, time: e.time, age: e.age, about: e.about || '',
+    date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
     media: e.media || [],
     hasTickets: (e as any).hasTickets === true,
-    gallery: { id: e.id, title: e.title, venue: e.venue, date: e.date, coverImage: '', photos: [] },
+    gallery: {
+      id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '',
+      date: e.date || '', coverImage: '', photos: [],
+    },
   } as EventData;
 }
 function toVenueData(v: FSVenue): VenueData {
   return {
-    id: v.id, name: v.name, category: v.category || '',
+    id: v.id, name: v.name || '', category: v.category || '',
     address: v.address || '', phone: v.phone || '',
     logoUrl: (v as any).logoUrl || '',
     website: v.website || '', instagram: v.instagram || '',
@@ -162,7 +165,7 @@ function toVenueData(v: FSVenue): VenueData {
 function galleryDocToData(g: GalleryDoc, venueName?: string): GalleryData {
   const images = (g.images || []).filter(Boolean);
   return {
-    id: g.id, title: g.title, venue: venueName || '',
+    id: g.id, title: g.title || '', venue: venueName || '',
     date: g.date || '', coverImage: g.coverImage || images[0] || '',
     photos: (images.length > 0 ? images : [g.coverImage].filter(Boolean))
       .map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 300 })),

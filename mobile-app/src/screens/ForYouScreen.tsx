@@ -37,16 +37,16 @@ const STATUS_BAR_H = Constants.statusBarHeight ?? 0;
 function fsEventToCard(e: FSEvent, venueCategory: string | null): ForYouCard {
   return {
     id: e.id, type: 'event',
-    title: e.title, subtitle: `${e.venue} · ${formatEventDateShort(e.date)}`,
+    title: e.title || '', subtitle: `${e.venue || (e as any).venueName || ''} · ${formatEventDateShort(e.date || '')}`,
     image: getEventCardHero(e.media) || `https://picsum.photos/seed/${e.id}/600/900`,
     tag: e.vibes?.[0] || 'Event', tagColor: '#2a7a5a',
     data: {
-      id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+      id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', venueId: e.venueId,
       seriesId: e.seriesId ?? null,
-      date: e.date, time: e.time, age: e.age || '21+',
+      date: e.date || '', time: e.time || '', age: e.age || '21+',
       about: e.about || '', vibes: e.vibes || [],
       media: e.media?.map(m => ({ type: m.type as 'image'|'video', uri: m.uri })) || [{ type: 'image', uri: `https://picsum.photos/seed/${e.id}/600/900` }],
-      gallery: { id: e.id, title: e.title, venue: e.venue, date: e.date, coverImage: '', photos: [] },
+      gallery: { id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', date: e.date || '', coverImage: '', photos: [] },
       hasTickets: (e as any).hasTickets || false,
     } as EventData,
     contentType: 'event', venueCategory,
@@ -61,11 +61,11 @@ function fsVenueToCard(v: FSVenue): ForYouCard {
   );
   return {
     id: v.id, type: 'venue',
-    title: v.name, subtitle: `${v.category || 'Venue'} · ${v.neighborhood || 'Atlanta'}`,
+    title: v.name || '', subtitle: `${v.category || 'Venue'} · ${v.neighborhood || 'Atlanta'}`,
     image: normalizedMedia[0]?.uri || `https://picsum.photos/seed/${v.id}/600/900`,
     tag: v.vibes?.[0] || 'Venue', tagColor: '#7c3aed',
     data: {
-      id: v.id, name: v.name, category: v.category || '',
+      id: v.id, name: v.name || '', category: v.category || '',
       address: v.address || '', phone: v.phone || '',
       website: v.website || '', instagram: v.instagram || '',
       about: v.about || '', attributes: v.attributes || [],

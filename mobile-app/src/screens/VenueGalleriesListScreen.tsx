@@ -68,10 +68,10 @@ export function VenueGalleriesListScreen({ venueId, theme, onBack, onGalleryPres
 
   const toGalleryData = (g: GalleryDoc): GalleryData => ({
     id: g.id,
-    title: g.title,
+    title: g.title || '',
     venue: venueName,
-    date: g.date,
-    coverImage: g.coverImage,
+    date: g.date || '',
+    coverImage: g.coverImage || (g.images || [])[0] || '',
     photos: (g.images || []).map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 })),
     venueId: g.venueId || venueId,
   });

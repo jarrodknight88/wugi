@@ -83,15 +83,15 @@ function toRelatedEventData(e: FSEvent): EventData {
     venue: e.venue || (e as any).venueName || '',
     venueId: e.venueId,
     seriesId: e.seriesId ?? null,
-    date: e.date,
-    time: e.time,
-    age: e.age,
+    date: e.date || '',
+    time: e.time || '',
+    age: e.age || '',
     about: e.about || '',
     media: e.media || [],
     hasTickets: (e as any).hasTickets === true,
     gallery: {
-      id: e.id, title: e.title || '', venue: e.venue || '',
-      date: e.date, coverImage: '', photos: [],
+      id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '',
+      date: e.date || '', coverImage: '', photos: [],
     },
   };
 }

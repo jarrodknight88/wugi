@@ -380,10 +380,10 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
   // expects (consumer app is read-only against the galleries collection).
   const toGalleryData = (g: GalleryDoc): GalleryData => ({
     id: g.id,
-    title: g.title,
+    title: g.title || '',
     venue: venue.name,
-    date: g.date,
-    coverImage: g.coverImage,
+    date: g.date || '',
+    coverImage: g.coverImage || (g.images || [])[0] || '',
     photos: (g.images || []).map((uri, i) => ({ id: `${g.id}-${i}`, uri, height: 1000 })),
     venueId: g.venueId || venue.id,
     eventId: g.eventId ?? null,

@@ -111,7 +111,7 @@ function toEventData(e: FSEvent): EventData {
   return {
     id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', venueId: e.venueId,
     seriesId: e.seriesId ?? null,
-    date: e.date, time: e.time, age: e.age, about: e.about || '',
+    date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
     media: e.media || [],
     bannerImage: e.bannerImage || undefined,
     dateISO: (e as any).dateISO || undefined,
@@ -123,7 +123,7 @@ function toEventData(e: FSEvent): EventData {
 
 function toVenueData(v: FSVenue): VenueData {
   return {
-    id: v.id, name: v.name, category: v.category || '',
+    id: v.id, name: v.name || '', category: v.category || '',
     address: v.address || '', phone: v.phone || '',
     logoUrl: (v as any).logoUrl || '',
     website: v.website || '', instagram: v.instagram || '',
