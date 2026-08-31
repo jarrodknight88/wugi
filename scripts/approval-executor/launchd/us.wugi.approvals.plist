@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>us.wugi.approvals</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>lib/daemon.js</string>
+  </array>
+
+  <!-- Update to the absolute path of scripts/approval-executor/ on the Air. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/jarrod/wugi/scripts/approval-executor</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- WUGI_APPROVALS_HOSTNAME must equal this machine's `hostname` output —
+       the daemon's hostname guard refuses to start otherwise. The rest of
+       these are read from the shell environment when bootstrapped; launchd
+       does not inherit a login shell's env, so either hardcode them here
+       (never commit real values into a plist that's tracked in git — this
+       one ships with placeholders only) or source them via a wrapper script
+       set as ProgramArguments[0] instead of node directly. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>WUGI_APPROVALS_HOSTNAME</key>
+    <string>Jarrods-Air</string>
+    <key>GITHUB_TOKEN</key>
+    <string>__SET_VIA_LOCAL_OVERRIDE__</string>
+    <key>TELEGRAM_BOT_TOKEN</key>
+    <string>__SET_VIA_LOCAL_OVERRIDE__</string>
+    <key>TELEGRAM_CHAT_ID</key>
+    <string>__SET_VIA_LOCAL_OVERRIDE__</string>
+    <key>ASANA_PAT</key>
+    <string>__SET_VIA_LOCAL_OVERRIDE__</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/jarrod/wugi/logs/approval-executor.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/jarrod/wugi/logs/approval-executor.error.log</string>
+</dict>
+</plist>

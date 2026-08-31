@@ -1,0 +1,25 @@
+{
+  "name": "wugi-approval-executor",
+  "description": "Resident daemon that executes Jarrod's Telegram MERGE/DEPLOY/HOLD replies immediately, after re-running a safety gate",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/daemon.js",
+  "scripts": {
+    "build": "node node_modules/typescript/bin/tsc",
+    "build:watch": "tsc --watch",
+    "start": "npm run build && node lib/daemon.js",
+    "start:dry-run": "npm run build && node lib/daemon.js --dry-run",
+    "once": "npm run build && node lib/daemon.js --once",
+    "seed-baselines": "npm run build && node -e \"require('./lib/baselinesDoc').seedBuildBaselines().then(() => process.exit(0))\"",
+    "test": "npm run build && node test/test-denylist.js && node test/test-sha-check.js && node test/test-baseline-check.js && node test/test-overlap.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.3"
+  }
+}
