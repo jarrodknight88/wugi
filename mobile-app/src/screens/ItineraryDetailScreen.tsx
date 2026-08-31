@@ -75,7 +75,7 @@ type Props = {
 
 function toVenueData(v: any): VenueData {
   return {
-    id: v.id, name: v.name, category: v.category || '',
+    id: v.id, name: v.name || '', category: v.category || '',
     address: v.address || '', phone: v.phone || '',
     logoUrl: v.logoUrl || '',
     website: v.website || '', instagram: v.instagram || '',

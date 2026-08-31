@@ -29,7 +29,7 @@ function galleryDocToData(g: GalleryDoc, venueName: string): GalleryData {
   const images = (g.images || []).filter(Boolean);
   return {
     id: g.id,
-    title: g.title,
+    title: g.title || '',
     venue: venueName,
     date: g.date || '',
     coverImage: g.coverImage || images[0] || '',

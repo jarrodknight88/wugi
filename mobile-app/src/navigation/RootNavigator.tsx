@@ -157,7 +157,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
       const v = await svc.getVenueById(venueId);
       if (!v) return;
       const data = {
-        id: v.id, name: v.name, category: v.category || '',
+        id: v.id, name: v.name || '', category: v.category || '',
         address: v.address || '', phone: v.phone || '',
         website: v.website || '', instagram: v.instagram || '',
         logoUrl: (v as any).logoUrl || undefined,
@@ -364,14 +364,14 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             const e = await svc.getEventById(d.itemId);
             if (!e) return null;
             const data = {
-              id: e.id, title: e.title, venue: e.venue, venueId: e.venueId,
+              id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', venueId: e.venueId,
               seriesId: (e as any).seriesId ?? null,
-              date: e.date, time: e.time, age: e.age, about: e.about || '',
+              date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
               media: (e.media || []) as any, gallery: undefined as any,
               hasTickets: (e as any).hasTickets === true,
             } as unknown as EventData;
             return {
-              id: e.id, type: 'event', title: e.title,
+              id: e.id, type: 'event', title: e.title || '',
               subtitle: e.date ? `${e.venue || ''} · ${formatEventDateShort(e.date)}` : (e.venue || ''),
               image: (e.media || [])[0]?.uri || '',
               read: true, data,
@@ -383,7 +383,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
             const firstMedia = (v.media || [])[0] as any;
             const image = typeof firstMedia === 'string' ? firstMedia : (firstMedia?.uri || '');
             const data = {
-              id: v.id, name: v.name, category: v.category || '',
+              id: v.id, name: v.name || '', category: v.category || '',
               address: v.address || '', phone: v.phone || '',
               website: v.website || '', instagram: v.instagram || '',
               attributes: v.attributes || [], about: v.about || '',
@@ -393,7 +393,7 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
               location: (v as any).location ?? undefined,
             } as unknown as VenueData;
             return {
-              id: v.id, type: 'venue', title: v.name,
+              id: v.id, type: 'venue', title: v.name || '',
               subtitle: v.category || v.neighborhood || '', image,
               read: true, data,
             };
