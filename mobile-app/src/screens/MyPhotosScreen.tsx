@@ -17,6 +17,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import { FONTS, MONO } from '../constants/fonts';
 import { listMyUnlocks, resolveUnlockedPhotos, type UnlockedPhoto } from '../../firestoreService';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 3;
@@ -31,7 +32,7 @@ type Props = {
   onPhotoPress: (photoId: string) => void;
 };
 
-export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
+function MyPhotosScreenInner({ theme, onBack, onPhotoPress }: Props) {
   const [photos,  setPhotos]  = useState<UnlockedPhoto[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -94,5 +95,15 @@ export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
         />
       )}
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception recovers to a Retry/Back UI instead of force-closing the app.
+export function MyPhotosScreen(props: Props) {
+  return (
+    <ErrorBoundary label="your photos" screen="MyPhotosScreen" onBack={props.onBack}>
+      <MyPhotosScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

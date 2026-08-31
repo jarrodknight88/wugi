@@ -47,6 +47,7 @@ import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { WeatherBadge } from '../components/WeatherBadge';
 import { RecentGalleries } from '../components/RecentGalleries';
 import { formatEventDateShort } from '../utils/eventDateTime';
@@ -434,7 +435,7 @@ type Props = {
   onCameraPress:    () => void;
 };
 
-export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, onDealPress, onItineraryPress, userVibes, onCameraPress }: Props) {
+function HomeScreenInner({ theme, onEventPress, onVenuePress, onGalleryPress, onDealPress, onItineraryPress, userVibes, onCameraPress }: Props) {
   const [events,       setEvents]       = useState<FSEvent[]>([]);
   const [venues,       setVenues]       = useState<FSVenue[]>([]);
   const [deals,        setDeals]        = useState<FSDeal[]>([]);
@@ -757,7 +758,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
               data={picks} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <VibeEventCard event={item} label={picksReason} theme={theme} onPress={() => onEventPress(item)}/>
+                <ErrorBoundary compact width={170} height={240} label="this card" screen="HomeScreen:VibeEventCard" eventId={item.id ?? null}>
+                  <VibeEventCard event={item} label={picksReason} theme={theme} onPress={() => onEventPress(item)}/>
+                </ErrorBoundary>
               )}
             />
           </>
@@ -771,7 +774,9 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
               data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
               renderItem={({ item }) => (
-                <DealCard deal={item} theme={theme} onPress={() => onDealPress(item)}/>
+                <ErrorBoundary compact width={170} height={240} label="this card" screen="HomeScreen:DealCard">
+                  <DealCard deal={item} theme={theme} onPress={() => onDealPress(item)}/>
+                </ErrorBoundary>
               )}
             />
           </>
@@ -955,3 +960,14 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
 });
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception against malformed Firestore data recovers to a Retry UI instead
+// of white-screening the app. Home is a tab (no onBack — Retry only).
+export function HomeScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the home screen" screen="HomeScreen">
+      <HomeScreenInner {...props} />
+    </ErrorBoundary>
+  );
+}

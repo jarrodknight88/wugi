@@ -6,6 +6,7 @@ import { View, Text, TouchableOpacity, SafeAreaView, Linking,  } from 'react-nat
 import { Image } from 'expo-image';
 import type { Theme } from '../constants/colors';
 import { BackIcon, LocationIcon } from '../components/icons';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 type Props = {
   address: string;
@@ -14,7 +15,7 @@ type Props = {
   theme: Theme;
 };
 
-export function MapScreen({ address, venueName, onBack, theme }: Props) {
+function MapScreenInner({ address, venueName, onBack, theme }: Props) {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <SafeAreaView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 }}>
@@ -72,5 +73,15 @@ export function MapScreen({ address, venueName, onBack, theme }: Props) {
         </TouchableOpacity>
       </SafeAreaView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception recovers to a Retry/Back UI instead of force-closing the app.
+export function MapScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the map" screen="MapScreen" onBack={props.onBack}>
+      <MapScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

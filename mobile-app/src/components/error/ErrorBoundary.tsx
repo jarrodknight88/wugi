@@ -26,6 +26,13 @@ type Props = {
   eventId?:  string | null;      // when wrapping an event-scoped render
   venueId?:  string | null;      // when wrapping a venue-scoped render
   showDetails?: boolean;         // dev-only: print the error message inline
+  // Card-level use (list items — event/gallery cards): renders a small
+  // inline "couldn't load" placeholder sized to the card instead of the
+  // full-screen fallback, so one malformed doc drops just its card —
+  // blast radius = one card, not the screen.
+  compact?:  boolean;
+  width?:    number;
+  height?:   number;
 };
 
 type State = { error: Error | null };
@@ -60,7 +67,21 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
-    const { onBack, label = 'this screen', showDetails } = this.props;
+    const { onBack, label = 'this screen', showDetails, compact, width, height } = this.props;
+
+    if (compact) {
+      return (
+        <View style={{
+          width, height, minHeight: height ? undefined : 80,
+          borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.05)',
+          alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12,
+        }}>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, textAlign: 'center' }}>
+            Couldn't load {label}
+          </Text>
+        </View>
+      );
+    }
     return (
       <View style={{ flex: 1, backgroundColor: '#0a0a0a', justifyContent: 'center', paddingHorizontal: 28 }}>
         <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>

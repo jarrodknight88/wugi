@@ -44,6 +44,7 @@ import * as Sharing from 'expo-sharing';
 import type { Theme } from '../constants/colors';
 import type { GalleryPhoto } from '../types';
 import { BackIcon, HeartIcon, KebabVerticalIcon, ShoppingBagIcon, SendIcon } from '../components/icons';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -80,7 +81,7 @@ type Props = {
   theme: Theme;
 };
 
-export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, likedPhotoIds, onPhotoLikeChange, theme }: Props) {
+function PhotoViewerInner({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, likedPhotoIds, onPhotoLikeChange, theme }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showUI, setShowUI]   = useState(true);
   // In-session like/unlike overrides ONLY. The source of truth at render time is
@@ -440,5 +441,17 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
         </SafeAreaView>
       </Animated.View>
     </Animated.View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception (typically a null deref against a Firestore doc with an
+// unexpected field shape) recovers to a Retry/Back UI instead of
+// force-closing the app.
+export function PhotoViewer(props: Props) {
+  return (
+    <ErrorBoundary label="this photo" screen="PhotoViewer" onBack={props.onBack}>
+      <PhotoViewerInner {...props} />
+    </ErrorBoundary>
   );
 }

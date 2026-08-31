@@ -15,6 +15,7 @@ import { ChevronRightIcon } from '../components/icons';
 import { checkUsernameAvailable, saveUsername, getUserProfile } from '../../firestoreService';
 import { getAuth, sendPasswordResetEmail } from '@react-native-firebase/auth';
 import { FONTS, MONO } from '../constants/fonts';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 // ── Password strength (mirrors SignupScreen) ──────────────────────────
 type StrengthLevel = 'weak' | 'fair' | 'strong';
@@ -41,7 +42,7 @@ type Props = {
   onViewPhotos?: () => void;
 };
 
-export function AccountScreen({ theme, onViewPasses, onViewPhotos }: Props) {
+function AccountScreenInner({ theme, onViewPasses, onViewPhotos }: Props) {
   const { user, userVibes, saveVibes, signIn, signUp, signOut, authError, clearAuthError } = useFirebase();
 
   // Auth form state
@@ -491,5 +492,16 @@ export function AccountScreen({ theme, onViewPasses, onViewPhotos }: Props) {
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception against malformed Firestore data recovers to a Retry UI instead
+// of white-screening the app. Account is a tab (no onBack — Retry only).
+export function AccountScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the account screen" screen="AccountScreen">
+      <AccountScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

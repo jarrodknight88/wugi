@@ -18,6 +18,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { GalleryData, GalleryDoc } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GUTTER = 16;
@@ -32,7 +33,7 @@ type Props = {
   onGalleryPress: (gallery: GalleryData) => void;
 };
 
-export function VenueGalleriesListScreen({ venueId, theme, onBack, onGalleryPress }: Props) {
+function VenueGalleriesListScreenInner({ venueId, theme, onBack, onGalleryPress }: Props) {
   const [galleries, setGalleries] = useState<GalleryDoc[]>([]);
   const [venueName, setVenueName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -119,28 +120,39 @@ export function VenueGalleriesListScreen({ venueId, theme, onBack, onGalleryPres
         ) : (
           <View style={{ paddingHorizontal: GUTTER, flexDirection: 'row', flexWrap: 'wrap', gap: GAP }}>
             {galleries.map(g => (
-              <TouchableOpacity
-                key={g.id}
-                activeOpacity={0.9}
-                onPress={() => onGalleryPress(toGalleryData(g))}
-                style={{ width: CARD_W, height: CARD_W, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card }}
-              >
-                <Image cachePolicy="memory-disk" source={{ uri: g.coverImage }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover"/>
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={['transparent', 'transparent', 'rgba(0,0,0,0.85)']}
-                  locations={[0, 0.5, 1]}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                />
-                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 12, paddingVertical: 10 }}>
-                  <Text style={{ color: theme.onImage, fontSize: 14, fontFamily: FONTS.display, letterSpacing: -0.1 }} numberOfLines={1}>{g.photoCount} photos</Text>
-                  <Text style={{ color: 'rgba(244,239,225,0.6)', fontSize: 10, fontFamily: MONO, letterSpacing: 0.4 }} numberOfLines={1}>{g.date}</Text>
-                </View>
-              </TouchableOpacity>
+              <ErrorBoundary key={g.id} compact width={CARD_W} height={CARD_W} label="this card" screen="VenueGalleriesListScreen:GalleryCard" venueId={g.venueId ?? venueId}>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => onGalleryPress(toGalleryData(g))}
+                  style={{ width: CARD_W, height: CARD_W, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.card }}
+                >
+                  <Image cachePolicy="memory-disk" source={{ uri: g.coverImage }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover"/>
+                  <LinearGradient
+                    pointerEvents="none"
+                    colors={['transparent', 'transparent', 'rgba(0,0,0,0.85)']}
+                    locations={[0, 0.5, 1]}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                  />
+                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 12, paddingVertical: 10 }}>
+                    <Text style={{ color: theme.onImage, fontSize: 14, fontFamily: FONTS.display, letterSpacing: -0.1 }} numberOfLines={1}>{g.photoCount} photos</Text>
+                    <Text style={{ color: 'rgba(244,239,225,0.6)', fontSize: 10, fontFamily: MONO, letterSpacing: 0.4 }} numberOfLines={1}>{g.date}</Text>
+                  </View>
+                </TouchableOpacity>
+              </ErrorBoundary>
             ))}
           </View>
         )}
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception recovers to a Retry/Back UI instead of force-closing the app.
+export function VenueGalleriesListScreen(props: Props) {
+  return (
+    <ErrorBoundary label="these galleries" screen="VenueGalleriesListScreen" venueId={props.venueId ?? null} onBack={props.onBack}>
+      <VenueGalleriesListScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

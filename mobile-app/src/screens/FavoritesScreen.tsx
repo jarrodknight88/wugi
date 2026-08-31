@@ -41,6 +41,7 @@ import { HeartIconBordered } from '../components/HeartIconBordered';
 import { EmptyState } from '../components/StateViews';
 import { FONTS, MONO } from '../constants/fonts';
 import { PassGroupCard } from '../features/ticketing/PassGroupCard';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { groupPassesByOrder, classifyPassGroup, eventDateSortValue, mapPassDoc, isRenderablePassDoc } from '../utils/passGrouping';
 
 // Top-N active pass groups shown in the Saved preview before "View All Passes".
@@ -247,7 +248,7 @@ export function EmptySection({ label, theme }: { label: string; theme: Theme }) 
 }
 
 // ── FavoritesScreen ───────────────────────────────────────────────────
-export function FavoritesScreen({
+function FavoritesScreenInner({
   theme, favorites, onEventPress, onVenuePress, onRemove, onMarkRead, onViewAllPasses, onViewAllSaved, onPhotoPress, onGoToForYou,
 }: Props) {
   const [passes,       setPasses]       = useState<PassData[]>([]);
@@ -669,5 +670,16 @@ export function FavoritesScreen({
         </View>
       </Animated.View>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception against malformed Firestore data recovers to a Retry UI instead
+// of white-screening the app. Saved is a tab (no onBack — Retry only).
+export function FavoritesScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the saved screen" screen="FavoritesScreen">
+      <FavoritesScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

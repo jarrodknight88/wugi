@@ -35,6 +35,7 @@ import type { VenueData, ItineraryDoc, EditorialCard } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, ChevronRightIcon, KebabVerticalIcon } from '../components/icons';
 import { GetARideButton } from '../components/GetARideButton';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.1);   // aspect 1.1 per spec
@@ -128,7 +129,7 @@ function StopRow({ n, card, theme, isLast, onVenuePress }: {
 }
 
 // ── Screen ─────────────────────────────────────────────────────────────
-export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress }: Props) {
+function ItineraryDetailScreenInner({ itineraryId, theme, onBack, onVenuePress }: Props) {
   const [itinerary, setItinerary] = useState<ItineraryDoc | null>(null);
   const [loading,   setLoading]   = useState(true);
   // UAT-W2B: page-level "Get a ride" — implementer's call was per-page
@@ -348,5 +349,17 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception (typically a null deref against a Firestore doc with an
+// unexpected field shape) recovers to a Retry/Back UI instead of
+// force-closing the app.
+export function ItineraryDetailScreen(props: Props) {
+  return (
+    <ErrorBoundary label="this itinerary" screen="ItineraryDetailScreen" onBack={props.onBack}>
+      <ItineraryDetailScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

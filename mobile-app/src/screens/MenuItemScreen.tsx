@@ -32,6 +32,7 @@ import type { Theme } from '../constants/colors';
 import type { MenuItem } from '../types';
 import { BackIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Design uses 1.2 aspect for photo hero; 1.4 for no-image hero
@@ -285,7 +286,7 @@ function TextHero({
 }
 
 // ── Main screen ───────────────────────────────────────────────────────
-export function MenuItemScreen({ item, venueName, theme, onBack }: Props) {
+function MenuItemScreenInner({ item, venueName, theme, onBack }: Props) {
   const hasImage = typeof item.imageUrl === 'string' && item.imageUrl.length > 0;
 
   const tags      = item.tags      || [];
@@ -595,5 +596,17 @@ export function MenuItemScreen({ item, venueName, theme, onBack }: Props) {
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception (typically a null deref against a Firestore doc with an
+// unexpected field shape) recovers to a Retry/Back UI instead of
+// force-closing the app.
+export function MenuItemScreen(props: Props) {
+  return (
+    <ErrorBoundary label="this item" screen="MenuItemScreen" onBack={props.onBack}>
+      <MenuItemScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

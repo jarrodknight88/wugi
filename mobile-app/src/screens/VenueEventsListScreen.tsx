@@ -19,6 +19,7 @@ import { FONTS, MONO } from '../constants/fonts';
 import { computeSeriesFeed } from '../../firestoreService';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { formatEventDateShort } from '../utils/eventDateTime';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const CARD_W = Dimensions.get('window').width - 32;
 
@@ -29,7 +30,7 @@ type Props = {
   onEventPress: (event: EventData) => void;
 };
 
-export function VenueEventsListScreen({ venueId, theme, onBack, onEventPress }: Props) {
+function VenueEventsListScreenInner({ venueId, theme, onBack, onEventPress }: Props) {
   const [events, setEvents] = useState<EventData[]>([]);
   const [venueName, setVenueName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -117,11 +118,23 @@ export function VenueEventsListScreen({ venueId, theme, onBack, onEventPress }: 
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 12 }}>
             {events.map(ev => (
-              <VibeEventCard key={ev.id} event={ev} label={formatEventDateShort(ev.date)} theme={theme} onPress={() => onEventPress(ev)} width={CARD_W} height={220}/>
+              <ErrorBoundary key={ev.id} compact width={CARD_W} height={220} label="this card" screen="VenueEventsListScreen:VibeEventCard" eventId={ev.id ?? null}>
+                <VibeEventCard event={ev} label={formatEventDateShort(ev.date)} theme={theme} onPress={() => onEventPress(ev)} width={CARD_W} height={220}/>
+              </ErrorBoundary>
             ))}
           </View>
         )}
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception recovers to a Retry/Back UI instead of force-closing the app.
+export function VenueEventsListScreen(props: Props) {
+  return (
+    <ErrorBoundary label="these events" screen="VenueEventsListScreen" venueId={props.venueId ?? null} onBack={props.onBack}>
+      <VenueEventsListScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

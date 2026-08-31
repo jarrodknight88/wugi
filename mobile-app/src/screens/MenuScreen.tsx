@@ -39,6 +39,7 @@ import type { Theme } from '../constants/colors';
 import type { MenuItem } from '../types';
 import { BackIcon, KebabVerticalIcon } from '../components/icons';
 import { FONTS, MONO } from '../constants/fonts';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.8);
@@ -288,7 +289,7 @@ function MenuSectionBlock({
 }
 
 // ── Main screen ───────────────────────────────────────────────────────
-export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: Props) {
+function MenuScreenInner({ venueId, venueName, theme, onBack, onItemPress }: Props) {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [heroUri, setHeroUri] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -690,5 +691,17 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
         </View>
       )}
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception (typically a null deref against a Firestore doc with an
+// unexpected field shape) recovers to a Retry/Back UI instead of
+// force-closing the app.
+export function MenuScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the menu" screen="MenuScreen" venueId={props.venueId ?? null} onBack={props.onBack}>
+      <MenuScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

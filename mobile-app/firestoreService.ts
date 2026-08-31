@@ -377,6 +377,49 @@ function notTestVenue<T extends { isTestVenue?: boolean }>(d: T): boolean {
   return d.isTestVenue !== true;
 }
 
+// toEvent/toVenue/toGallery convert one doc defensively — same pattern as
+// toDeal below. A single malformed doc (e.g. a snap.data() that throws) is
+// skipped+logged rather than failing the whole map() and blanking the
+// entire feed/shelf — "blast radius = one card, not the app."
+function toEvent(d: any): FSEvent | null {
+  try {
+    return { id: d.id, ...d.data() } as FSEvent;
+  } catch (e) {
+    console.log('toEvent: skipping unreadable event doc', d?.id, e);
+    recordNonFatal('toEvent', e);
+    return null;
+  }
+}
+function isEvent(e: FSEvent | null): e is FSEvent {
+  return e !== null;
+}
+
+function toVenue(d: any): FSVenue | null {
+  try {
+    return { id: d.id, ...d.data() } as FSVenue;
+  } catch (e) {
+    console.log('toVenue: skipping unreadable venue doc', d?.id, e);
+    recordNonFatal('toVenue', e);
+    return null;
+  }
+}
+function isVenue(v: FSVenue | null): v is FSVenue {
+  return v !== null;
+}
+
+function toGallery(d: any): GalleryDoc | null {
+  try {
+    return { ...(d.data() as object), id: d.id } as GalleryDoc;
+  } catch (e) {
+    console.log('toGallery: skipping unreadable gallery doc', d?.id, e);
+    recordNonFatal('toGallery', e);
+    return null;
+  }
+}
+function isGallery(g: GalleryDoc | null): g is GalleryDoc {
+  return g !== null;
+}
+
 // ── Events ────────────────────────────────────────────────────────────
 // Default limit 100 (was 20) — catalog has 500+ events post-INFRA-VENUE-01.
 // orderBy(isFeatured desc, createdAt desc) so launch-featured events lead
@@ -462,7 +505,8 @@ export async function getApprovedEvents(
     );
     const snap = await getDocs(q);
     const raw = snap.docs
-      .map(d => ({ id: d.id, ...d.data() } as FSEvent))
+      .map(toEvent)
+      .filter(isEvent)
       .filter(notTestVenue);
 
     let feed = computeSeriesFeed(raw);
@@ -496,7 +540,8 @@ export async function getEventsForVenue(
     );
     const snap = await getDocs(q);
     return snap.docs
-      .map(d => ({ id: d.id, ...d.data() } as FSEvent))
+      .map(toEvent)
+      .filter(isEvent)
       .filter(notTestVenue);
   } catch (e) {
     console.log('getEventsForVenue error:', e);
@@ -509,7 +554,7 @@ export async function getEventById(eventId: string): Promise<FSEvent | null> {
   try {
     const snap = await getDoc(doc(collection(db, 'events'), eventId));
     if (!snap.exists()) return null;
-    return { id: snap.id, ...snap.data() } as FSEvent;
+    return toEvent(snap);
   } catch (e) {
     console.log('getEventById error:', e);
     recordNonFatal('getEventById', e);
@@ -559,7 +604,8 @@ export async function getApprovedVenues(
     [...approvedSnap.docs, ...unclaimedSnap.docs, ...pendingSnap.docs].forEach(d => {
       if (seen.has(d.id)) return;
       seen.add(d.id);
-      const data = { id: d.id, ...d.data() } as FSVenue;
+      const data = toVenue(d);
+      if (!data) return;                // skip unreadable doc
       if (!notTestVenue(data)) return;  // hide test venues
       results.push(data);
     });
@@ -584,7 +630,8 @@ export async function getVenueById(venueId: string): Promise<FSVenue | null> {
   try {
     const snap = await getDoc(doc(collection(db, 'venues'), venueId));
     if (!snap.exists()) return null;
-    const data = { id: snap.id, ...snap.data() } as FSVenue;
+    const data = toVenue(snap);
+    if (!data) return null;
     if (!notTestVenue(data)) return null;     // never deep-link to a test venue
     return data;
   } catch (e) {
@@ -622,7 +669,7 @@ export async function getApprovedVenuesPage(args: {
     constraints.push(limit(pageSize));
 
     const snap = await getDocs(query(collection(db, 'venues'), ...constraints));
-    const all  = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSVenue)).filter(notTestVenue);
+    const all  = snap.docs.map(toVenue).filter(isVenue).filter(notTestVenue);
     const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
     return {
       venues:     all,
@@ -662,7 +709,7 @@ export async function getApprovedEventsPage(args: {
     constraints.push(limit(pageSize));
 
     const snap = await getDocs(query(collection(db, 'events'), ...constraints));
-    const raw  = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSEvent)).filter(notTestVenue);
+    const raw  = snap.docs.map(toEvent).filter(isEvent).filter(notTestVenue);
     let events = computeSeriesFeed(raw);
     if (userVibes && userVibes.length > 0) {
       events = events.filter(e => (e.vibes || []).some(v => userVibes.includes(v)));
@@ -709,8 +756,8 @@ export async function getVenuesByNeighborhood(
     snaps.flatMap(s => s.docs).forEach(d => {
       if (seen.has(d.id)) return;
       seen.add(d.id);
-      const data = { id: d.id, ...d.data() } as FSVenue;
-      if (notTestVenue(data)) results.push(data);
+      const data = toVenue(d);
+      if (data && notTestVenue(data)) results.push(data);
     });
     results.sort((a, b) => {
       const af = (a as any).isFeatured ? 1 : 0;
@@ -1136,7 +1183,7 @@ export async function getGalleryById(galleryId: string): Promise<GalleryDoc | nu
   try {
     const snap = await getDoc(doc(collection(db, 'galleries'), galleryId));
     if (!snap.exists()) return null;
-    return { ...(snap.data() as object), id: snap.id } as GalleryDoc;
+    return toGallery(snap);
   } catch (e) {
     console.log('getGalleryById error:', e);
     recordNonFatal('getGalleryById', e);
@@ -1157,7 +1204,7 @@ export async function getGalleriesByEvent(eventId: string, max: number = 20): Pr
     const snap = await getDocs(
       query(collection(db, 'galleries'), where('eventId', '==', eventId), limit(max))
     );
-    const docs = snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
+    const docs = snap.docs.map(toGallery).filter(isGallery);
     docs.sort((a: GalleryDoc, b: GalleryDoc) => ((b as any).createdAt?.toMillis?.() ?? 0) - ((a as any).createdAt?.toMillis?.() ?? 0));
     return docs;
   } catch (e) {
@@ -1179,7 +1226,7 @@ export async function getGalleriesBySeries(seriesId: string, max: number = 20): 
     const snap = await getDocs(
       query(collection(db, 'galleries'), where('seriesId', '==', seriesId), limit(max))
     );
-    const docs = snap.docs.map((d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
+    const docs = snap.docs.map(toGallery).filter(isGallery);
     // Tiebreak: when multiple galleries share a seriesId, return the one tied to
     // the MOST RECENT occurrence first (newest by `event_date`, an ISO YYYY-MM-DD
     // string → lexical compare desc). Fall back to createdAt when event_date is
@@ -1224,7 +1271,7 @@ export async function getApprovedGalleries(max: number = 50): Promise<GalleryDoc
     const snap = await getDocs(
       query(collection(db, 'galleries'), orderBy('createdAt', 'desc'), limit(max))
     );
-    return snap.docs.map(d => ({ ...(d.data() as object), id: d.id } as GalleryDoc));
+    return snap.docs.map(toGallery).filter(isGallery);
   } catch (e) {
     console.log('getApprovedGalleries error:', e);
     recordNonFatal('getApprovedGalleries', e);

@@ -55,6 +55,7 @@ import { SearchIcon, ChevronRightIcon } from '../components/icons';
 import { ErrorState, EmptyState } from '../components/StateViews';
 import { dealTypeLabel } from '../utils/deals';
 import { getEventCardHero } from '../utils/eventMedia';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -257,7 +258,7 @@ type Props = {
 };
 
 // ── Main screen ───────────────────────────────────────────────────────
-export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, initialMapOn }: Props) {
+function DiscoverScreenInner({ theme, onEventPress, onVenuePress, onBack, initialMapOn }: Props) {
   const [search,         setSearch]         = useState('');
   const [searchFocused,  setSearchFocused]  = useState(false);
   const [cat,            setCat]            = useState<Category>('All');
@@ -855,5 +856,15 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
         <View style={{ height: 40 }}/>
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception recovers to a Retry/Back UI instead of force-closing the app.
+export function DiscoverScreen(props: Props) {
+  return (
+    <ErrorBoundary label="search" screen="DiscoverScreen" onBack={props.onBack}>
+      <DiscoverScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

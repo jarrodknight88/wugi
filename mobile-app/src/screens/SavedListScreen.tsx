@@ -16,6 +16,7 @@ import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FavoriteItem } from '../types';
 import { FONTS } from '../constants/fonts';
 import { SavedItemRow, EmptySection } from './FavoritesScreen';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 type Props = {
   kind: 'event' | 'venue';
@@ -28,7 +29,7 @@ type Props = {
   onMarkRead: (id: string) => void;
 };
 
-export function SavedListScreen({ kind, items, theme, onBack, onEventPress, onVenuePress, onRemove, onMarkRead }: Props) {
+function SavedListScreenInner({ kind, items, theme, onBack, onEventPress, onVenuePress, onRemove, onMarkRead }: Props) {
   const title = kind === 'event' ? 'Saved Events' : 'Saved Venues';
   const emptyLabel = kind === 'event'
     ? 'Swipe right on events in the For You tab to save them here.'
@@ -71,5 +72,15 @@ export function SavedListScreen({ kind, items, theme, onBack, onEventPress, onVe
         )}
       </ScrollView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception recovers to a Retry/Back UI instead of force-closing the app.
+export function SavedListScreen(props: Props) {
+  return (
+    <ErrorBoundary label="this list" screen="SavedListScreen" onBack={props.onBack}>
+      <SavedListScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

@@ -14,6 +14,7 @@ import {
   type FSEvent, type FSVenue,
 } from '../../firestoreService';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
@@ -301,7 +302,7 @@ type Props = {
   savedVenueIds?: string[];
 };
 
-export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteToggle, userVibes, savedVenueIds }: Props) {
+function ForYouScreenInner({ theme, onEventPress, onVenuePress, onFavoriteToggle, userVibes, savedVenueIds }: Props) {
   const [cards, setCards]           = useState<ForYouCard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDone, setIsDone]         = useState(false);
@@ -571,5 +572,16 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
         </View>
       </SafeAreaView>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception against malformed Firestore data recovers to a Retry UI instead
+// of white-screening the app. For You is a tab (no onBack — Retry only).
+export function ForYouScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the for you screen" screen="ForYouScreen">
+      <ForYouScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

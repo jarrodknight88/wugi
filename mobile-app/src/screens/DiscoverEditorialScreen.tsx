@@ -58,6 +58,7 @@ import { SearchIcon } from '../components/icons';
 import { DealCard } from '../components/DealCard';
 import { WeatherBadge } from '../components/WeatherBadge';
 import { RecentGalleries } from '../components/RecentGalleries';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 import { dealTypeLabel, orderDealsForDisplay } from '../utils/deals';
 import { getEventCardHero } from '../utils/eventMedia';
 
@@ -428,7 +429,9 @@ function DealsSection({ deals, theme, onDealPress }: {
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 18 }}>
           {deals.map(d => (
-            <DealCard key={d.id} deal={d} theme={theme} onPress={() => onDealPress(d)}/>
+            <ErrorBoundary key={d.id} compact width={170} height={240} label="this card" screen="DiscoverEditorialScreen:DealCard">
+              <DealCard deal={d} theme={theme} onPress={() => onDealPress(d)}/>
+            </ErrorBoundary>
           ))}
         </ScrollView>
       )}
@@ -882,7 +885,7 @@ function SearchBody({
 }
 
 // ── Top-level screen ────────────────────────────────────────────────────
-export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenuePress, onGalleryPress, onDealPress, onItineraryPress }: Props) {
+function DiscoverEditorialScreenInner({ theme, onMapTap, onEventPress, onVenuePress, onGalleryPress, onDealPress, onItineraryPress }: Props) {
   // Editorial-state data (always loaded, even when searching, so cancel is instant).
   const [shelves, setShelves] = useState<EditorialShelf[]>([]);
   const [editorialLoading, setEditorialLoading] = useState(true);
@@ -1177,5 +1180,16 @@ export function DiscoverEditorialScreen({ theme, onMapTap, onEventPress, onVenue
         onClose={() => setSheetOpen(false)}
       />
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception against malformed Firestore data recovers to a Retry UI instead
+// of white-screening the app. Discover is a tab (no onBack — Retry only).
+export function DiscoverEditorialScreen(props: Props) {
+  return (
+    <ErrorBoundary label="the discover screen" screen="DiscoverEditorialScreen">
+      <DiscoverEditorialScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

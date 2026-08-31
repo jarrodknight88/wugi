@@ -63,6 +63,7 @@ import { logVenueViewed } from '../analytics/analyticsService';
 import { computeSeriesFeed } from '../../firestoreService';
 // Shared event card — the SAME card as the home "Picks for you" feed.
 import { VibeEventCard } from '../components/VibeEventCard';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.2);
@@ -283,7 +284,9 @@ function VenueUpcomingEventsBlock({ events, venueId, theme, onEventPress, onAllE
         data={visible} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
         renderItem={({ item }) => (
-          <VibeEventCard event={item} label={formatEventDateShort(item.date)} theme={theme} onPress={() => onEventPress(item)}/>
+          <ErrorBoundary compact width={170} height={240} label="this card" screen="VenueScreen:VibeEventCard" eventId={item.id ?? null}>
+            <VibeEventCard event={item} label={formatEventDateShort(item.date)} theme={theme} onPress={() => onEventPress(item)}/>
+          </ErrorBoundary>
         )}
       />
     </>
@@ -306,7 +309,11 @@ function VenueDealsBlock({ deals, theme }: { deals: FSDeal[]; theme: Theme }) {
       <FlatList
         data={deals} keyExtractor={i => i.id} horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-        renderItem={({ item }) => <DealCard deal={item} theme={theme}/>}
+        renderItem={({ item }) => (
+          <ErrorBoundary compact width={170} height={240} label="this card" screen="VenueScreen:DealCard">
+            <DealCard deal={item} theme={theme}/>
+          </ErrorBoundary>
+        )}
       />
     </>
   );
@@ -362,7 +369,7 @@ function VenueGalleriesGrid({ galleries, venueId, theme, onGalleryPress, onAllGa
 }
 
 // ── Main screen ────────────────────────────────────────────────────────
-export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, onAllGalleries, onAllEvents, theme }: Props) {
+function VenueScreenInner({ venue, onBack, onEventPress, onMapPress, onGalleryPress, onMenuPress, onGetTickets, onFavoriteToggle, onAllGalleries, onAllEvents, theme }: Props) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [upcoming, setUpcoming] = useState<EventData[]>([]);
@@ -761,5 +768,17 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
         </View>
       </View>
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception (typically a null deref against a Firestore doc with an
+// unexpected field shape) recovers to a Retry/Back UI instead of
+// force-closing the app.
+export function VenueScreen(props: Props) {
+  return (
+    <ErrorBoundary label="this venue" screen="VenueScreen" venueId={props.venue?.id ?? null} onBack={props.onBack}>
+      <VenueScreenInner {...props} />
+    </ErrorBoundary>
   );
 }

@@ -39,6 +39,7 @@ import type { Theme } from '../constants/colors';
 import type { GalleryData } from '../types';
 import { BackIcon, ShareIcon } from '../components/icons';
 import { logGalleryViewed } from '../analytics/analyticsService';
+import { ErrorBoundary } from '../components/error/ErrorBoundary';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PAGE_SIZE = 50;
@@ -114,7 +115,7 @@ type LoadedPhoto = {
 
 type MasonryImage = { uri: string; width: number; height: number };
 
-export function GalleryScreen({ gallery, onBack, onPhotoPress, onVenuePress, theme }: Props) {
+function GalleryScreenInner({ gallery, onBack, onPhotoPress, onVenuePress, theme }: Props) {
   const [photos, setPhotos]               = useState<LoadedPhoto[]>([]);
   const [hasMore, setHasMore]             = useState(true);
   const [loadingMore, setLoadingMore]     = useState(false);
@@ -322,5 +323,17 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, onVenuePress, the
         </View>
       )}
     </View>
+  );
+}
+
+// Public export wraps the inner screen in an ErrorBoundary so a render-time
+// exception (typically a null deref against a Firestore doc with an
+// unexpected field shape) recovers to a Retry/Back UI instead of
+// force-closing the app.
+export function GalleryScreen(props: Props) {
+  return (
+    <ErrorBoundary label="this gallery" screen="GalleryScreen" venueId={props.gallery?.venueId ?? null} onBack={props.onBack}>
+      <GalleryScreenInner {...props} />
+    </ErrorBoundary>
   );
 }
