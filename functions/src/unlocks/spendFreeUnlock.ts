@@ -19,11 +19,11 @@
 // doc id) is a no-op that returns the existing record instead of erroring —
 // this also makes retried client calls idempotent.
 //
-// Extension point for the StoreKit IAP task (separate, due Aug 8): a
-// purchased unlock should write to this same `unlocks` collection with
-// source: 'purchased' (+ purchaseId/amountCents), using the identical
-// `${uid}_${photoId}` doc id scheme, from its own receipt-validated
-// callable/webhook. No schema change needed on this collection to support it.
+// Extension point filled by validateUnlockPurchase.ts (Asana
+// 1216729383901466 / issue #252) — writes to this same `unlocks`
+// collection with source: 'purchased' (+ purchaseId/productId), using the
+// identical `${uid}_${photoId}` doc id scheme, from its own
+// receipt-validated callable. No schema change was needed here.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';

@@ -66,6 +66,10 @@ export type UserProfile = {
   vibes: string[];
   affinityScores?: Record<string, number>;
   emailVerified?: boolean;
+  // Set by the `spendFreeUnlock` Cloud Function the first (and only) time
+  // this account spends its evergreen free HD-unlock credit. Absent/false
+  // means the credit is still available.
+  freeUnlockUsed?: boolean;
   createdAt: any;
 };
 
@@ -956,6 +960,10 @@ export type UnlockDoc = {
   photoIndex: number;
   photographerId: string | null;
   source: UnlockSource;
+  // Only present when source === 'purchased' — written by
+  // validateUnlockPurchase (functions/src/unlocks/validateUnlockPurchase.ts).
+  purchaseId?: string;
+  amountCents?: number;
   createdAt?: any;
 };
 
@@ -999,6 +1007,41 @@ export async function isPhotoUnlocked(userId: string, photoId: string): Promise<
     console.log('isPhotoUnlocked error:', e);
     return false;
   }
+}
+
+// ── Unlock intents (StoreKit purchase context) ──────────────────────────
+// Top-level `unlockIntents` collection — bridges an anonymous App Store
+// consumable purchase back to "which photo/gallery was this for". Written
+// by the client (own uid only, see firebase/firestore.rules) BEFORE
+// starting the StoreKit purchase, keyed by the same UUID passed to
+// StoreKit as `appAccountToken`. `validateUnlockPurchase`
+// (functions/src/unlocks/validateUnlockPurchase.ts) reads the
+// appAccountToken back out of Apple's *signed* transaction (never a
+// client-supplied id) and looks up this doc server-side to resolve
+// entitlement targets — see that file for why this exists and its
+// restore-purchases tradeoffs.
+export type UnlockIntentKind = 'photo' | 'gallery';
+
+export async function createUnlockIntent(params: {
+  intentId: string;
+  uid: string;
+  kind: UnlockIntentKind;
+  productId: string;
+  galleryId: string;
+  photoId?: string;
+  photoIndex?: number;
+}): Promise<void> {
+  const { intentId, uid, kind, productId, galleryId, photoId, photoIndex } = params;
+  await setDoc(doc(collection(db, 'unlockIntents'), intentId), {
+    uid,
+    kind,
+    productId,
+    galleryId,
+    photoId: photoId ?? null,
+    photoIndex: typeof photoIndex === 'number' ? photoIndex : null,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  });
 }
 
 // Resolves a batch of unlock docs into displayable photos, fetching each

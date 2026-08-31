@@ -18,7 +18,7 @@ import { FONTS } from '../constants/fonts';
 
 type Mode = 'landing' | 'signin' | 'signup';
 
-export type AuthIntent = 'save' | 'passes' | 'general';
+export type AuthIntent = 'save' | 'passes' | 'general' | 'unlock';
 
 type Props = {
   intent?:           AuthIntent;
@@ -34,6 +34,7 @@ const INTENT_COPY: Record<AuthIntent, { title: string; subtitle: string }> = {
   save:    { title: 'Keep your saves',      subtitle: 'Create a free account so your saved spots and events follow you everywhere.' },
   passes:  { title: 'Your passes, saved',   subtitle: 'Sign in to see every ticket you’ve bought, all in one place.' },
   general: { title: 'Join Wugi',            subtitle: 'Save spots, get your passes, and unlock a feed tuned to your vibe.' },
+  unlock:  { title: 'Unlock this photo',    subtitle: 'Sign in to buy or claim your free HD photo unlock.' },
 };
 
 // ── Password strength ─────────────────────────────────────────────────
