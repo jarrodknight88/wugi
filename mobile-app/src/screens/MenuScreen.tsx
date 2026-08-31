@@ -24,7 +24,6 @@ import {
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
-  ActivityIndicator,
   Dimensions,
   FlatList,
   Alert,
@@ -38,6 +37,7 @@ import Constants from 'expo-constants';
 import type { Theme } from '../constants/colors';
 import type { MenuItem } from '../types';
 import { BackIcon, KebabVerticalIcon } from '../components/icons';
+import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
 import { FONTS, MONO } from '../constants/fonts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -50,6 +50,34 @@ const STATUS_BAR_H = Constants.statusBarHeight ?? 0;
 // Honey-amber tag color from design
 const TAG_AMBER = '#d4a85c';
 const TAG_AMBER_BG = 'rgba(212,168,92,0.13)';
+
+// ── MenuScreenSkeleton ────────────────────────────────────────────────
+// Hero + pill nav + a couple of grouped item rows, matching the real
+// anatomy, shown while the menu subcollection loads.
+function MenuScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SkeletonBlock theme={theme} height={HERO_HEIGHT} borderRadius={0}/>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}>
+        {[70, 90, 60, 80].map((w, i) => (
+          <SkeletonBlock key={i} theme={theme} width={w} height={30} borderRadius={999}/>
+        ))}
+      </View>
+      <View style={{ paddingHorizontal: 16, gap: 18 }}>
+        <SkeletonLine theme={theme} width={100} height={13}/>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <SkeletonLine theme={theme} width="70%" height={14} style={{ marginBottom: 6 }}/>
+              <SkeletonLine theme={theme} width="90%" height={11}/>
+            </View>
+            <SkeletonLine theme={theme} width={40} height={14}/>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 type SectionBucket = { name: string; items: MenuItem[] };
 
@@ -404,19 +432,7 @@ export function MenuScreen({ venueId, venueName, theme, onBack, onItemPress }: P
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {loading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={theme.accent} size="large" />
-          <Text
-            style={{
-              color: theme.subtext,
-              fontSize: 13,
-              fontFamily: FONTS.body,
-              marginTop: 12,
-            }}
-          >
-            Loading menu…
-          </Text>
-        </View>
+        <MenuScreenSkeleton theme={theme}/>
       ) : sections.length === 0 ? (
         // ── Empty state ───────────────────────────────────────────────
         <View style={{ flex: 1 }}>

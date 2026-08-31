@@ -2,7 +2,7 @@
 // Wugi — ForYouScreen
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions, ActivityIndicator,  } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Animated, PanResponder, StyleSheet, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import Constants from 'expo-constants';
 import Svg, { Path } from 'react-native-svg';
@@ -14,6 +14,7 @@ import {
   type FSEvent, type FSVenue,
 } from '../../firestoreService';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { SkeletonBlock } from '../components/Skeleton';
 import { FONTS, MONO } from '../constants/fonts';
 import { DEAL_COLOR } from '../components/DealCard';
 import { dealTypeLabel, dealOffer, orderDealsForDisplay } from '../utils/deals';
@@ -155,6 +156,27 @@ function roundRobin<T>(buckets: T[][]): T[] {
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// ── ForYouScreenSkeleton ────────────────────────────────────────────
+// Mirrors the swipe-deck layout (header + progress bar + one big card)
+// instead of a centered spinner while the feed loads.
+function ForYouScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SafeAreaView style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: theme.divider }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ width: 36 }}/>
+          <Text style={{ color: theme.accent, fontSize: 34, fontFamily: FONTS.display, letterSpacing: -1.4, lineHeight: 38 }}>wugi</Text>
+          <View style={{ width: 36 }}/>
+        </View>
+        <View style={{ height: 3, backgroundColor: theme.divider, borderRadius: 2, marginTop: 10 }}/>
+      </SafeAreaView>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 20 }}>
+        <SkeletonBlock theme={theme} width={SCREEN_WIDTH - 32} height={SCREEN_HEIGHT * 0.65} borderRadius={20}/>
+      </View>
+    </View>
+  );
+}
 
 // ── ForYouCard component ──────────────────────────────────────────────
 function ForYouCardComponent({ card, onSwipeLeft, onSwipeRight, onSwipeUp, onTap, isTop }: {
@@ -423,12 +445,7 @@ export function ForYouScreen({ theme, onEventPress, onVenuePress, onFavoriteTogg
   }, [cards, currentIndex, status, isDone]);
 
   if (status === 'loading') {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>Loading for you...</Text>
-      </View>
-    );
+    return <ForYouScreenSkeleton theme={theme}/>;
   }
 
   if (status === 'error') {

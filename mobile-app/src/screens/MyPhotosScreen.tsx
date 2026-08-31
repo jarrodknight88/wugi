@@ -11,11 +11,12 @@
 // download/share reuses the viewer's existing handleShare flow.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, FlatList, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, FlatList, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import { FONTS, MONO } from '../constants/fonts';
+import { SkeletonBlock } from '../components/Skeleton';
 import { listMyUnlocks, resolveUnlockedPhotos, type UnlockedPhoto } from '../../firestoreService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -68,9 +69,10 @@ export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
       </SafeAreaView>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={theme.accent} size="large"/>
-          <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12 }}>Loading your photos...</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP }}>
+          {Array.from({ length: 9 }).map((_, i) => (
+            <SkeletonBlock key={i} theme={theme} width={CELL_SIZE} height={CELL_SIZE} borderRadius={0}/>
+          ))}
         </View>
       ) : photos.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>

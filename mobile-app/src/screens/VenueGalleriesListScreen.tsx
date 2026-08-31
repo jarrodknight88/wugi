@@ -11,13 +11,14 @@
 // by createdAt desc client-side — no composite index needed).
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { GalleryData, GalleryDoc } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
+import { SkeletonBlock } from '../components/Skeleton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GUTTER = 16;
@@ -104,8 +105,10 @@ export function VenueGalleriesListScreen({ venueId, theme, onBack, onGalleryPres
         )}
 
         {loading ? (
-          <View style={{ paddingTop: 60, alignItems: 'center' }}>
-            <ActivityIndicator color={theme.accent} size="large"/>
+          <View style={{ paddingHorizontal: GUTTER, flexDirection: 'row', flexWrap: 'wrap', gap: GAP }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonBlock key={i} theme={theme} width={CARD_W} height={CARD_W} borderRadius={12}/>
+            ))}
           </View>
         ) : galleries.length === 0 ? (
           <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>

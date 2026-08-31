@@ -5,13 +5,36 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  SafeAreaView, ActivityIndicator, Animated,
+  SafeAreaView, Animated,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../../constants/colors';
 import { safeNum, safeStr } from '../../utils/safeData';
 import { BackIcon } from '../../components/icons';
+import { SkeletonBlock, SkeletonLine } from '../../components/Skeleton';
 import { logTicketViewed, logTicketAddedToCart } from '../../analytics/analyticsService';
+
+// ── TicketSelectionScreenSkeleton ────────────────────────────────────
+// Header + a few ticket-tier row placeholders, shown while ticket types
+// load instead of a centered spinner.
+function TicketSelectionScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 }}>
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.card }}/>
+          <SkeletonLine theme={theme} width={120} height={18}/>
+          <View style={{ width: 36 }}/>
+        </View>
+      </SafeAreaView>
+      <View style={{ padding: 16, gap: 12 }}>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <SkeletonBlock key={i} theme={theme} height={78} borderRadius={14}/>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────
 export type TicketType = {
@@ -170,11 +193,7 @@ export function TicketSelectionScreen({
   };
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-      </View>
-    );
+    return <TicketSelectionScreenSkeleton theme={theme}/>;
   }
 
   if (ticketTypes.length === 0) {

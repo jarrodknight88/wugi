@@ -6,13 +6,40 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  SafeAreaView, ActivityIndicator, Share,
+  SafeAreaView, Share,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import type { Theme } from '../../constants/colors';
 import { FONTS, MONO } from '../../constants/fonts';
 import { ShareIcon } from '../../components/icons';
+import { SkeletonBlock, SkeletonLine } from '../../components/Skeleton';
 import Svg, { Path } from 'react-native-svg';
+
+// ── PassScreenSkeleton ────────────────────────────────────────────────
+// Header + boarding-pass-card shape (QR square + info lines), shown
+// while the order/pass doc resolves.
+function PassScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingBottom: 12 }}>
+        <View style={{ alignItems: 'center', paddingTop: 8 }}>
+          <SkeletonLine theme={theme} width={100} height={16}/>
+        </View>
+      </SafeAreaView>
+      <View style={{ padding: 20, alignItems: 'center' }}>
+        <View style={{
+          backgroundColor: theme.card, borderRadius: 20, borderWidth: 1, borderColor: theme.border,
+          padding: 24, alignItems: 'center', width: '100%', gap: 14,
+        }}>
+          <SkeletonBlock theme={theme} width={160} height={160} borderRadius={12}/>
+          <SkeletonLine theme={theme} width="70%" height={16}/>
+          <SkeletonLine theme={theme} width="50%" height={12}/>
+          <SkeletonLine theme={theme} width="40%" height={12}/>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 type Pass = {
   id: string;
@@ -122,14 +149,7 @@ export function PassScreen({ orderId, isGuest, guestEmail, theme, onClose, onSig
   };
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, marginTop: 12, fontFamily: FONTS.body }}>
-          Loading your pass...
-        </Text>
-      </View>
-    );
+    return <PassScreenSkeleton theme={theme}/>;
   }
 
   // ── Guest confirmation / authed still-processing states ────────────

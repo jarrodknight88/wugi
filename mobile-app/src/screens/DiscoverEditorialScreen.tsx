@@ -42,7 +42,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput,
-  Dimensions, ActivityIndicator, StyleSheet, FlatList, Modal,
+  Dimensions, StyleSheet, FlatList, Modal,
   TouchableWithoutFeedback,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -58,10 +58,49 @@ import { SearchIcon } from '../components/icons';
 import { DealCard } from '../components/DealCard';
 import { WeatherBadge } from '../components/WeatherBadge';
 import { RecentGalleries } from '../components/RecentGalleries';
+import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
 import { dealTypeLabel, orderDealsForDisplay } from '../utils/deals';
 import { getEventCardHero } from '../utils/eventMedia';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Editorial shelves — horizontal-card shelf shape, shown while the
+// editorial shelves load instead of a centered spinner.
+function EditorialShelvesSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ paddingTop: 8 }}>
+      {[{ w: 170, h: 240 }, { w: 260, h: 150 }].map((size, row) => (
+        <View key={row}>
+          <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 10 }}>
+            <SkeletonLine theme={theme} width={90} height={10} style={{ marginBottom: 8 }}/>
+            <SkeletonLine theme={theme} width={140} height={16}/>
+          </View>
+          <View style={{ flexDirection: 'row', paddingHorizontal: 16, gap: 10 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <SkeletonBlock key={i} theme={theme} width={size.w} height={size.h} borderRadius={14}/>
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Search/filter results — 2-col grid shape, matching renderGridCard.
+function SearchResultsGridSkeleton({ theme }: { theme: Theme }) {
+  const cardW = (SCREEN_WIDTH - 32 - 10) / 2;
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <View key={i} style={{ width: cardW }}>
+          <SkeletonBlock theme={theme} width={cardW} height={cardW} borderRadius={14}/>
+          <SkeletonLine theme={theme} width={cardW * 0.7} height={12} style={{ marginTop: 8, marginBottom: 4 }}/>
+          <SkeletonLine theme={theme} width={cardW * 0.5} height={10}/>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 // ── Filter taxonomy ────────────────────────────────────────────────────
 // Three multi-select dimensions per the handoff. Type is hardcoded (app
@@ -452,9 +491,7 @@ function EditorialBody({ shelves, loading, theme, onCard, venueNameById, gallery
   return (
     <ScrollView showsVerticalScrollIndicator={false}>
       {loading ? (
-        <View style={{ paddingTop: 80, alignItems: 'center' }}>
-          <ActivityIndicator color={theme.accent} size="large"/>
-        </View>
+        <EditorialShelvesSkeleton theme={theme}/>
       ) : visibleShelves.length === 0 ? (
         <>
           <DealsSection deals={deals} theme={theme} onDealPress={onDealPress}/>
@@ -838,9 +875,7 @@ function SearchBody({
     return (
       <View style={{ flex: 1 }}>
         <FilterBar/>
-        <View style={{ paddingTop: 60, alignItems: 'center' }}>
-          <ActivityIndicator color={theme.accent} size="large"/>
-        </View>
+        <SearchResultsGridSkeleton theme={theme}/>
       </View>
     );
   }

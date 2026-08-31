@@ -15,6 +15,7 @@ import { groupPassesByOrder, classifyPassGroup, mapPassDoc, isRenderablePassDoc 
 import { PassGroupCard } from './PassGroupCard';
 import { BackIcon } from '../../components/icons';
 import { logPassViewed } from '../../analytics/analyticsService';
+import { SkeletonBlock, SkeletonLine } from '../../components/Skeleton';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -457,6 +458,39 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
 }
 
 // ── MyPassesScreen ────────────────────────────────────────────────────
+// ── MyPassesScreenSkeleton ────────────────────────────────────────────
+// A stack of pass-card-shaped placeholders, matching PassGroupCard's
+// rounded shell, shown while the Firestore passes listener resolves.
+function PassCardSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ borderRadius: 16, padding: 16, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, gap: 10 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <SkeletonLine theme={theme} width="60%" height={16}/>
+        <SkeletonBlock theme={theme} width={64} height={20} borderRadius={999}/>
+      </View>
+      <SkeletonLine theme={theme} width="40%" height={12}/>
+      <SkeletonLine theme={theme} width="30%" height={12}/>
+    </View>
+  );
+}
+
+function MyPassesScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex:1, backgroundColor:theme.bg }}>
+      <SafeAreaView style={{ borderBottomWidth:1, borderBottomColor:theme.divider, paddingHorizontal:16, paddingBottom:12 }}>
+        <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
+          <View style={{ width:36, height:36 }}/>
+          <Text style={{ color:theme.text, fontSize:18, fontWeight:'800' }}>My Passes</Text>
+          <View style={{ width:36 }}/>
+        </View>
+      </SafeAreaView>
+      <View style={{ padding:16, gap:12 }}>
+        {Array.from({ length: 3 }).map((_, i) => <PassCardSkeleton key={i} theme={theme}/>)}
+      </View>
+    </View>
+  );
+}
+
 type MyPassesProps = {
   onBack: () => void;
   theme:  Theme;
@@ -524,12 +558,7 @@ export function MyPassesScreen({ onBack, theme }: MyPassesProps) {
   }
 
   if (loading) {
-    return (
-      <View style={{ flex:1, backgroundColor:theme.bg, alignItems:'center', justifyContent:'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color:theme.subtext, fontSize:13, marginTop:12 }}>Loading passes...</Text>
-      </View>
-    );
+    return <MyPassesScreenSkeleton theme={theme}/>;
   }
 
   return (

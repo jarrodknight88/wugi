@@ -38,10 +38,30 @@ import MasonryList from 'react-native-masonry-list';
 import type { Theme } from '../constants/colors';
 import type { GalleryData } from '../types';
 import { BackIcon, ShareIcon } from '../components/icons';
+import { SkeletonBlock } from '../components/Skeleton';
 import { logGalleryViewed } from '../analytics/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PAGE_SIZE = 50;
+
+// Initial-load skeleton — two staggered-height columns approximating the
+// masonry grid, shown instead of a centered spinner before the first page
+// of photos resolves.
+const MASONRY_COL_W = SCREEN_WIDTH / 2 - 1;
+const MASONRY_HEIGHTS = [180, 240, 150, 220, 190, 260];
+function GalleryMasonrySkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, flexDirection: 'row', gap: 1 }}>
+      {[0, 1].map(col => (
+        <View key={col} style={{ flex: 1, gap: 1 }}>
+          {MASONRY_HEIGHTS.map((h, i) => (
+            <SkeletonBlock key={i} theme={theme} width={MASONRY_COL_W} height={h} borderRadius={0}/>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
 
 // Pulsing skeleton shown behind each masonry tile while its photo loads.
 // Lightweight looping-opacity pulse (no gradient sweep) — keeps it cheap
@@ -283,9 +303,7 @@ export function GalleryScreen({ gallery, onBack, onPhotoPress, onVenuePress, the
 
       {/* Body */}
       {initialLoading && photos.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={theme.accent} size="large"/>
-        </View>
+        <GalleryMasonrySkeleton theme={theme}/>
       ) : photos.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
           <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2, marginBottom: 6 }}>No photos yet</Text>
