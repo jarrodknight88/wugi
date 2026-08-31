@@ -36,7 +36,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
-  SafeAreaView, Dimensions, ActivityIndicator, StyleSheet,
+  SafeAreaView, Dimensions, StyleSheet,
   ActionSheetIOS, Platform, Alert, Share, Linking,
   Image as RNImage,
 } from 'react-native';
@@ -52,6 +52,7 @@ import { getApprovedEvents, type FSEvent } from '../../firestoreService';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, KebabVerticalIcon, ChevronRightIcon } from '../components/icons';
 import { VenueIdentityBlock } from '../components/VenueIdentityBlock';
+import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
 import { GetARideButton } from '../components/GetARideButton';
 import { useEventGallery } from '../hooks/useEventGallery';
 import { useEventGalleriesByEventId } from '../hooks/useEventGalleriesByEventId';
@@ -649,7 +650,7 @@ function EventScreenInner({
                     GALLERIES
                   </Text>
                   {galleryLoading ? (
-                    <ActivityIndicator size="small" color={theme.accent} style={{ alignSelf: 'flex-start', marginTop: 2 }}/>
+                    <SkeletonLine theme={theme} width={160} height={17}/>
                   ) : (
                     <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3 }}>
                       {`${galleryPhotos.length} photos from past nights`}
@@ -675,6 +676,9 @@ function EventScreenInner({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
             >
+              {galleryLoading && Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonBlock key={i} theme={theme} width={100} height={100} borderRadius={10}/>
+              ))}
               {galleryPhotos.slice(0, 5).map(photo => (
                 <TouchableOpacity key={photo.id} onPress={() => onGalleryPress(activeGallery!)} activeOpacity={0.9}>
                   <Image

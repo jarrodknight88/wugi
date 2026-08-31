@@ -11,13 +11,14 @@
 // client-side (no composite index needed).
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Dimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { computeSeriesFeed } from '../../firestoreService';
 import { VibeEventCard } from '../components/VibeEventCard';
+import { SkeletonBlock } from '../components/Skeleton';
 import { formatEventDateShort } from '../utils/eventDateTime';
 
 const CARD_W = Dimensions.get('window').width - 32;
@@ -102,8 +103,10 @@ export function VenueEventsListScreen({ venueId, theme, onBack, onEventPress }: 
         )}
 
         {loading ? (
-          <View style={{ paddingTop: 60, alignItems: 'center' }}>
-            <ActivityIndicator color={theme.accent} size="large"/>
+          <View style={{ paddingHorizontal: 16, gap: 12 }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonBlock key={i} theme={theme} width={CARD_W} height={220} borderRadius={14}/>
+            ))}
           </View>
         ) : events.length === 0 ? (
           <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>

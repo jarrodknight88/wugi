@@ -33,7 +33,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, FlatList,
-  SafeAreaView, ActivityIndicator, StyleSheet, RefreshControl,
+  SafeAreaView, StyleSheet, RefreshControl,
   Animated, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -47,6 +47,7 @@ import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
 import { DealCard } from '../components/DealCard';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
 import { WeatherBadge } from '../components/WeatherBadge';
 import { RecentGalleries } from '../components/RecentGalleries';
 import { formatEventDateShort } from '../utils/eventDateTime';
@@ -169,6 +170,45 @@ function ShelfHeader({ kicker, title, theme, onSeeAll }: {
           <ChevronRightIcon color={theme.accent}/>
         </TouchableOpacity>
       )}
+    </View>
+  );
+}
+
+// ── HomeScreenSkeleton ───────────────────────────────────────────────
+// Shown instead of the centered spinner while the feed loads. Mirrors the
+// real layout: header, hero carousel, and three horizontal shelves
+// (Picks for you / Deals / Where to start) — content shape appears
+// immediately instead of a blank screen.
+function HomeShelfSkeleton({ theme, cardWidth, cardHeight, count = 3 }: {
+  theme: Theme; cardWidth: number; cardHeight: number; count?: number;
+}) {
+  return (
+    <View>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 10 }}>
+        <SkeletonLine theme={theme} width={100} height={10} style={{ marginBottom: 8 }}/>
+        <SkeletonLine theme={theme} width={150} height={17}/>
+      </View>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, gap: 10 }}>
+        {Array.from({ length: count }).map((_, i) => (
+          <SkeletonBlock key={i} theme={theme} width={cardWidth} height={cardHeight} borderRadius={14}/>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function HomeScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SafeAreaView style={{ borderBottomWidth: 1, borderBottomColor: theme.divider, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 18, alignItems: 'center' }}>
+        <SkeletonLine theme={theme} width={70} height={30}/>
+      </SafeAreaView>
+      <ScrollView showsVerticalScrollIndicator={false} scrollEnabled={false}>
+        <SkeletonBlock theme={theme} height={280} borderRadius={20} style={{ marginHorizontal: 16, marginTop: 12 }}/>
+        <HomeShelfSkeleton theme={theme} cardWidth={170} cardHeight={240}/>
+        <HomeShelfSkeleton theme={theme} cardWidth={260} cardHeight={150} count={2}/>
+        <HomeShelfSkeleton theme={theme} cardWidth={160} cardHeight={220} count={4}/>
+      </ScrollView>
     </View>
   );
 }
@@ -687,12 +727,7 @@ export function HomeScreen({ theme, onEventPress, onVenuePress, onGalleryPress, 
   }
 
   if (status === 'loading') {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>Loading your feed...</Text>
-      </View>
-    );
+    return <HomeScreenSkeleton theme={theme}/>;
   }
 
   if (status === 'error') {

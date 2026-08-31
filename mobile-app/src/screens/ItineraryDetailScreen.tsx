@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Dimensions,
+  View, Text, TouchableOpacity, ScrollView, Dimensions,
   ActionSheetIOS, Platform, Alert, Share, StyleSheet,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -35,9 +35,36 @@ import type { VenueData, ItineraryDoc, EditorialCard } from '../types';
 import { FONTS, MONO } from '../constants/fonts';
 import { BackIcon, ChevronRightIcon, KebabVerticalIcon } from '../components/icons';
 import { GetARideButton } from '../components/GetARideButton';
+import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HERO_HEIGHT = Math.round(SCREEN_WIDTH / 1.1);   // aspect 1.1 per spec
+
+// ── ItineraryDetailScreenSkeleton ────────────────────────────────────
+// Hero block + meta chips + a few numbered-stop row placeholders,
+// mirroring the real "THE ROUTE" timeline while the doc loads.
+function ItineraryDetailScreenSkeleton({ theme }: { theme: Theme }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SkeletonBlock theme={theme} width={SCREEN_WIDTH} height={HERO_HEIGHT} borderRadius={0}/>
+      <View style={{ paddingHorizontal: 16, paddingTop: 14, flexDirection: 'row', gap: 8 }}>
+        <SkeletonBlock theme={theme} height={34} borderRadius={10} style={{ flex: 1 }}/>
+        <SkeletonBlock theme={theme} height={34} borderRadius={10} style={{ flex: 1 }}/>
+      </View>
+      <View style={{ padding: 16, gap: 20 }}>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <View key={i} style={{ flexDirection: 'row', gap: 12 }}>
+            <SkeletonBlock theme={theme} width={28} height={28} borderRadius={14}/>
+            <View style={{ flex: 1 }}>
+              <SkeletonLine theme={theme} width="60%" height={15} style={{ marginBottom: 6 }}/>
+              <SkeletonLine theme={theme} width="40%" height={12}/>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 type Props = {
   itineraryId: string;
@@ -198,11 +225,7 @@ export function ItineraryDetailScreen({ itineraryId, theme, onBack, onVenuePress
   };
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-      </View>
-    );
+    return <ItineraryDetailScreenSkeleton theme={theme}/>;
   }
   if (!itinerary) {
     return (

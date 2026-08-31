@@ -41,7 +41,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  SafeAreaView, TextInput, Dimensions, ActivityIndicator,
+  SafeAreaView, TextInput, Dimensions,
   StyleSheet, RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -53,10 +53,45 @@ import { makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon, ChevronRightIcon } from '../components/icons';
 import { ErrorState, EmptyState } from '../components/StateViews';
+import { SkeletonBlock, SkeletonLine } from '../components/Skeleton';
 import { dealTypeLabel } from '../utils/deals';
 import { getEventCardHero } from '../utils/eventMedia';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// ── DiscoverScreenSkeleton ───────────────────────────────────────────
+// Header + pill row + 2-col grid, matching the real layout, shown while
+// results load instead of a centered spinner.
+function DiscoverScreenSkeleton({ theme }: { theme: Theme }) {
+  const colWidth = (SCREEN_WIDTH - 48) / 2;
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SafeAreaView style={{
+        backgroundColor: theme.bg, borderBottomWidth: 1, borderBottomColor: theme.divider,
+        paddingHorizontal: 16, paddingTop: 60, paddingBottom: 14,
+      }}>
+        <View style={{ alignItems: 'center', marginBottom: 12 }}>
+          <SkeletonLine theme={theme} width={110} height={22}/>
+        </View>
+        <SkeletonBlock theme={theme} height={42} borderRadius={12}/>
+      </SafeAreaView>
+      <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', gap: 6 }}>
+        {[70, 84, 76, 64].map((w, i) => (
+          <SkeletonBlock key={i} theme={theme} width={w} height={30} borderRadius={999}/>
+        ))}
+      </View>
+      <View style={{ paddingHorizontal: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <View key={i} style={{ width: colWidth }}>
+            <SkeletonBlock theme={theme} width={colWidth} height={colWidth} borderRadius={14}/>
+            <SkeletonLine theme={theme} width={colWidth * 0.7} height={13} style={{ marginTop: 8, marginBottom: 4 }}/>
+            <SkeletonLine theme={theme} width={colWidth * 0.5} height={11}/>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 // ── Converters ────────────────────────────────────────────────────────
 function toEventData(e: FSEvent): EventData {
@@ -509,14 +544,7 @@ export function DiscoverScreen({ theme, onEventPress, onVenuePress, onBack, init
 
   // ── Loading ───────────────────────────────────────────────────────
   if (status === 'loading') {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.accent} size="large"/>
-        <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, marginTop: 12 }}>
-          Loading…
-        </Text>
-      </View>
-    );
+    return <DiscoverScreenSkeleton theme={theme}/>;
   }
 
   // ── Error ─────────────────────────────────────────────────────────
