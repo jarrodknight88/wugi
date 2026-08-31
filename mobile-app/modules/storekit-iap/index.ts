@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
-import { requireNativeModule, EventEmitter, type Subscription } from 'expo';
+import { requireNativeModule } from 'expo';
+import { EventEmitter, type EventSubscription } from 'expo-modules-core';
 import type { StoreProduct, StoreTransaction, TransactionUpdateEvent } from './src/StoreKitIAP.types';
 
 export type { StoreProduct, StoreTransaction, TransactionUpdateEvent };
@@ -9,7 +10,9 @@ export type { StoreProduct, StoreTransaction, TransactionUpdateEvent };
 // scope). `null` on Android/web makes every export below a safe no-op
 // rather than a crash on require().
 const NativeStoreKitIAP = Platform.OS === 'ios' ? requireNativeModule('StoreKitIAP') : null;
-const emitter = NativeStoreKitIAP ? new EventEmitter(NativeStoreKitIAP) : null;
+const emitter = NativeStoreKitIAP
+  ? new EventEmitter<{ onTransactionUpdate: (event: TransactionUpdateEvent) => void }>(NativeStoreKitIAP)
+  : null;
 
 export function isAvailable(): boolean {
   return NativeStoreKitIAP != null;
@@ -41,7 +44,7 @@ export async function restoreUnfinished(): Promise<StoreTransaction[]> {
 
 export function addTransactionUpdateListener(
   listener: (event: TransactionUpdateEvent) => void
-): Subscription | null {
+): EventSubscription | null {
   if (!emitter) return null;
   return emitter.addListener('onTransactionUpdate', listener);
 }
