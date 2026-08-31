@@ -28,7 +28,15 @@ export default async function GalleryPage({
     .where('approved', '==', true)
     .get()
 
-  const photos: GalleryPhoto[] = photosSnap.docs.map(d => ({
+  // EXIF-ordered (issue #255): photos land in whatever order the ingest
+  // functions happen to process them in — parallel bulk uploads especially
+  // scramble upload order — so sort by capturedAt (EXIF DateTimeOriginal,
+  // falling back to the object's timeCreated) rather than trusting query
+  // order, which Firestore doesn't guarantee here anyway (no orderBy).
+  const sortedDocs = [...photosSnap.docs].sort((a, b) =>
+    (a.data().capturedAt?.toDate?.()?.getTime() ?? 0) - (b.data().capturedAt?.toDate?.()?.getTime() ?? 0)
+  )
+  const photos: GalleryPhoto[] = sortedDocs.map(d => ({
     id:         d.id,
     url:        d.data().url       || '',
     thumbUrl:   d.data().thumbUrl  || d.data().url || '',

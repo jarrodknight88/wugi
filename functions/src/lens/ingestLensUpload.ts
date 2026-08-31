@@ -32,21 +32,13 @@
 import { onObjectFinalized, StorageObjectData } from 'firebase-functions/v2/storage';
 import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
-import * as crypto from 'crypto';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import sharp from 'sharp';
-import exifReader from 'exif-reader';
+import { photoIdFor, downloadUrl, buildRenditions } from './photoIngest';
 
 const INGEST_PREFIX     = 'lens-ingest/';
 const QUARANTINE_PREFIX = 'lens-quarantine/';
-const RENDITION_PREFIX  = 'lens-renditions/';
-
-const WEB_WIDTH    = 1600;
-const WEB_QUALITY  = 80;
-const THUMB_WIDTH  = 400;
-const THUMB_QUALITY = 70;
 
 type DeviceDoc = {
   authUid?: string;
@@ -62,41 +54,6 @@ type DeviceDoc = {
     photographerId?: string;
   };
 };
-
-// Deterministic doc id from the storage path so trigger re-deliveries hit
-// the same doc (transaction below then no-ops).
-function photoIdFor(objectName: string): string {
-  const base = path.basename(objectName).replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
-  const hash = crypto.createHash('sha1').update(objectName).digest('hex').slice(0, 8);
-  return `${base}_${hash}`;
-}
-
-// Tokenized Firebase download URL for an object we just uploaded.
-function downloadUrl(bucketName: string, objectPath: string, token: string): string {
-  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(objectPath)}?alt=media&token=${token}`;
-}
-
-// EXIF DateTimeOriginal via exif-reader; sharp exposes the raw EXIF buffer.
-// exif-reader returns { Image, Photo, ... } with JS Dates for datetime tags.
-function capturedAtFromExif(exifBuffer: Buffer | undefined): Date | null {
-  if (!exifBuffer) return null;
-  try {
-    const exif: any = exifReader(exifBuffer);
-    const raw = exif?.Photo?.DateTimeOriginal || exif?.Image?.DateTime || null;
-    if (raw instanceof Date && !isNaN(raw.getTime())) return raw;
-    if (typeof raw === 'string') {
-      // EXIF format "YYYY:MM:DD HH:MM:SS"
-      const m = raw.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
-      if (m) {
-        const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
-        if (!isNaN(d.getTime())) return d;
-      }
-    }
-  } catch (e) {
-    logger.warn('ingestLensUpload: EXIF parse failed, falling back to object timeCreated', e);
-  }
-  return null;
-}
 
 async function quarantine(
   object: StorageObjectData,
@@ -174,37 +131,10 @@ export const ingestLensUpload = onObjectFinalized(
     await bucket.file(name).download({ destination: tmpFile });
 
     try {
-      const meta = await sharp(tmpFile, { failOn: 'none' }).metadata();
-      const capturedAt = capturedAtFromExif(meta.exif)
-        || (object.timeCreated ? new Date(object.timeCreated) : new Date());
-
-      const webRendition = await sharp(tmpFile, { failOn: 'none' })
-        .rotate() // honor EXIF orientation
-        .resize({ width: WEB_WIDTH, withoutEnlargement: true })
-        .jpeg({ quality: WEB_QUALITY, mozjpeg: true })
-        .toBuffer({ resolveWithObject: true });
-
-      const thumbRendition = await sharp(tmpFile, { failOn: 'none' })
-        .rotate()
-        .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-        .jpeg({ quality: THUMB_QUALITY, mozjpeg: true })
-        .toBuffer({ resolveWithObject: true });
-
-      const webPath   = `${RENDITION_PREFIX}${galleryId}/${photoId}_web.jpg`;
-      const thumbPath = `${RENDITION_PREFIX}${galleryId}/${photoId}_thumb.jpg`;
-      const webToken   = crypto.randomUUID();
-      const thumbToken = crypto.randomUUID();
-
-      await Promise.all([
-        bucket.file(webPath).save(webRendition.data, {
-          contentType: 'image/jpeg',
-          metadata: { metadata: { firebaseStorageDownloadTokens: webToken } },
-        }),
-        bucket.file(thumbPath).save(thumbRendition.data, {
-          contentType: 'image/jpeg',
-          metadata: { metadata: { firebaseStorageDownloadTokens: thumbToken } },
-        }),
-      ]);
+      const fallbackCapturedAt = object.timeCreated ? new Date(object.timeCreated) : new Date();
+      const {
+        webPath, thumbPath, webToken, thumbToken, capturedAt, width, height,
+      } = await buildRenditions(bucket, tmpFile, galleryId, photoId, fallbackCapturedAt);
 
       const autoPublish = device.mode === 'auto';
       const galleryRef  = db.doc(`eventGalleries/${galleryId}`);
@@ -238,8 +168,8 @@ export const ingestLensUpload = onObjectFinalized(
           url:            downloadUrl(object.bucket, webPath, webToken),
           thumbUrl:       downloadUrl(object.bucket, thumbPath, thumbToken),
           originalPath:   name,                     // paid-tier original (private prefix)
-          width:          webRendition.info.width,
-          height:         webRendition.info.height,
+          width,
+          height,
           status:         autoPublish ? 'published' : 'pending',
           approved:       autoPublish,              // consumer surfaces filter approved == true
           capturedAt:     admin.firestore.Timestamp.fromDate(capturedAt),
