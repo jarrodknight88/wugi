@@ -1,0 +1,7 @@
+{
+  "name": "storekit-iap",
+  "version": "0.1.0",
+  "description": "StoreKit 2 purchase flow (consumable photo-unlock IAP) — local Expo module, no third-party IAP package.",
+  "main": "index.ts",
+  "private": true
+}

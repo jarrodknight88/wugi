@@ -24,6 +24,7 @@ import { KB_ACCESSORY_ID, KBContext } from './src/constants/keyboard';
 import { queryKeys } from './src/hooks/useCatalogQueries';
 import { getApprovedVenues, getApprovedEvents } from './firestoreService';
 import { initRemoteConfig, getMinSupportedVersion } from './src/lib/remoteConfig';
+import { watchTransactionUpdates } from './src/lib/iap';
 import { isVersionBelow } from './src/utils/version';
 import { ForceUpdateScreen } from './src/screens/ForceUpdateScreen';
 
@@ -82,6 +83,16 @@ export default function App() {
       setGateState(isVersionBelow(installedVersion, getMinSupportedVersion()) ? 'blocked' : 'ok');
     });
     return () => { cancelled = true; };
+  }, []);
+
+  // ── StoreKit transaction listener (Asana 1216729383901466 / issue #252) ──
+  // Catches purchases StoreKit delivers outside a direct purchase() call
+  // (Ask to Buy approval landing later, a purchase syncing in from
+  // another device) for the whole app session — see
+  // mobile-app/src/lib/iap.ts watchTransactionUpdates doc comment.
+  useEffect(() => {
+    const unsubscribe = watchTransactionUpdates();
+    return unsubscribe;
   }, []);
 
   // ── Catalog warm-start (Deliverable E.4) ───────────────────────────

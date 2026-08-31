@@ -364,7 +364,7 @@ export type NavEntry =
   | { screen: 'claimTransfer'; token: string }
   // Auth sheet — pushed at the moment of intent (save / passes / general),
   // never as an up-front gate. Dismissible; pop returns to prior context.
-  | { screen: 'auth'; intent?: 'save' | 'passes' | 'general' }
+  | { screen: 'auth'; intent?: 'save' | 'passes' | 'general' | 'unlock' }
   // Username selection — pushed after a NEW account is created (email or
   // social). Skippable; thenPasses continues to My Passes afterwards.
   | { screen: 'username'; thenPasses?: boolean }

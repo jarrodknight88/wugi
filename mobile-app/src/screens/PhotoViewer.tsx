@@ -44,6 +44,9 @@ import * as Sharing from 'expo-sharing';
 import type { Theme } from '../constants/colors';
 import type { GalleryPhoto } from '../types';
 import { BackIcon, HeartIcon, KebabVerticalIcon, ShoppingBagIcon, SendIcon } from '../components/icons';
+import { PaywallSheet } from '../components/PaywallSheet';
+import { parsePhotoId } from '../utils/photoId';
+import { isPhotoUnlocked } from '../../firestoreService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -77,10 +80,14 @@ type Props = {
     liked: boolean,
     meta: { title: string; subtitle: string; image: string },
   ) => void;
+  // Signed-in uid, when available — drives the "Buy" unlock affordance.
+  // Null/undefined shows Buy but routes to sign-in first (onRequireAuth).
+  uid?: string | null;
+  onRequireAuth?: () => void;
   theme: Theme;
 };
 
-export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, likedPhotoIds, onPhotoLikeChange, theme }: Props) {
+export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, onBack, onVenuePress, likedPhotoIds, onPhotoLikeChange, uid, onRequireAuth, theme }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showUI, setShowUI]   = useState(true);
   // In-session like/unlike overrides ONLY. The source of truth at render time is
@@ -94,6 +101,15 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
   // fall back to the favorites store. Used by both render and the toggles.
   const isPhotoLiked = (id: string): boolean =>
     Object.prototype.hasOwnProperty.call(likedOverrides, id) ? likedOverrides[id] : storeLikedIds.has(id);
+
+  // Photo-unlock state (Asana 1216729383901466 / issue #252) — per-photoId
+  // map of already-checked entitlement, populated lazily as the viewer
+  // scrolls to each photo. Not preloaded for the whole gallery up front:
+  // the free/purchased-unlock model is opt-in per photo (or per-gallery,
+  // handled by marking every sibling id below), not a viewing gate, so
+  // there's no rush to know this before the user taps Buy.
+  const [unlockedIds, setUnlockedIds] = useState<Record<string, boolean>>({});
+  const [showPaywall, setShowPaywall] = useState(false);
 
   const scrollRef    = useRef<ScrollView>(null);
   const uiOpacity    = useRef(new Animated.Value(1)).current;
@@ -111,6 +127,47 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
       }, 50);
     }
   }, []);
+
+  // Lazily check unlock status for whichever photo is on screen. Cached
+  // in unlockedIds so re-visiting a photo this session doesn't re-fetch.
+  useEffect(() => {
+    if (!uid || !photo) return;
+    const id = photo.id;
+    if (id in unlockedIds) return;
+    let cancelled = false;
+    isPhotoUnlocked(uid, id).then(unlocked => {
+      if (!cancelled) setUnlockedIds(prev => (id in prev ? prev : { ...prev, [id]: unlocked }));
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photo?.id, uid]);
+
+  const isCurrentPhotoUnlocked = !!(photo && unlockedIds[photo.id]);
+
+  const handleBuyPress = () => {
+    if (isCurrentPhotoUnlocked) return;
+    if (!uid) { onRequireAuth?.(); return; }
+    setShowPaywall(true);
+  };
+
+  // On a successful purchase/free-unlock, mark the relevant photo(s) as
+  // unlocked locally rather than re-fetching — a gallery unlock covers
+  // every photo sharing this photo's galleryId among whatever's loaded
+  // in `photos` right now.
+  const handleUnlocked = (kind: 'photo' | 'gallery') => {
+    if (kind === 'gallery') {
+      const parsed = parsePhotoId(photo.id);
+      setUnlockedIds(prev => {
+        const next = { ...prev };
+        for (const p of photos) {
+          if (!parsed || parsePhotoId(p.id)?.galleryId === parsed.galleryId) next[p.id] = true;
+        }
+        return next;
+      });
+    } else {
+      setUnlockedIds(prev => ({ ...prev, [photo.id]: true }));
+    }
+  };
 
   const toggleUI = () => {
     Animated.timing(uiOpacity, { toValue: showUI ? 0 : 1, duration: 200, useNativeDriver: true }).start();
@@ -428,9 +485,11 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
               <HeartIcon color={isPhotoLiked(photo.id) ? '#e74c3c' : '#fff'} filled={isPhotoLiked(photo.id)}/>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Like</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }}>
-              <ShoppingBagIcon color="#fff"/>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10 }}>Buy</Text>
+            <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={handleBuyPress} disabled={isCurrentPhotoUnlocked}>
+              <ShoppingBagIcon color={isCurrentPhotoUnlocked ? theme.accent : '#fff'}/>
+              <Text style={{ color: isCurrentPhotoUnlocked ? theme.accent : 'rgba(255,255,255,0.6)', fontSize: 10 }}>
+                {isCurrentPhotoUnlocked ? 'Unlocked' : 'Buy'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={{ alignItems: 'center', gap: 4 }} onPress={handleShare}>
               <SendIcon color="#fff"/>
@@ -439,6 +498,19 @@ export function PhotoViewer({ photos, initialIndex, galleryTitle, venue, date, o
           </View>
         </SafeAreaView>
       </Animated.View>
+
+      {uid && (
+        <PaywallSheet
+          visible={showPaywall}
+          onClose={() => setShowPaywall(false)}
+          onUnlocked={handleUnlocked}
+          theme={theme}
+          uid={uid}
+          photoId={photo.id}
+          galleryId={parsePhotoId(photo.id)?.galleryId ?? ''}
+          photoIndex={parsePhotoId(photo.id)?.index ?? currentIndex}
+        />
+      )}
     </Animated.View>
   );
 }

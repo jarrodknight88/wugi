@@ -330,6 +330,31 @@ service cloud.firestore {
       allow write: if false;    // Cloud Functions only
     }
 
+    // ── Unlock intents (StoreKit purchase context) ──────────────────────
+    // Top-level `unlockIntents` collection (Asana 1216729383901466 / issue
+    // #252) — bridges an anonymous App Store consumable purchase back to
+    // "which photo/gallery". Doc id is a client-minted UUID (also passed
+    // to StoreKit as `appAccountToken`). The client creates its OWN
+    // pending intent right before starting a purchase; only
+    // `validateUnlockPurchase` (Admin SDK) may mark it fulfilled or read
+    // someone else's — read access here is scoped the same way as
+    // `unlocks`.
+    match /unlockIntents/{intentId} {
+      allow read:   if isAuth() && resource.data.uid == request.auth.uid;
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow update, delete: if false;  // Cloud Functions only (fulfillment)
+    }
+
+    // ── Purchases (StoreKit idempotency ledger) ─────────────────────────
+    // Top-level `purchases` collection, doc id = Apple transactionId.
+    // Written exclusively by validateUnlockPurchase to guard against
+    // double-processing the same signed transaction. No client access —
+    // MyPhotosScreen reads entitlements from `unlocks`, not this ledger.
+    match /purchases/{transactionId} {
+      allow read, write: if false;    // Cloud Functions only
+    }
+
     // ── Reports ──────────────────────────────────────────────────────
     // Top-level `reports` collection. Users flag photos; the doc is created
     // with status 'open' and the reporter's uid. Reporters can read their own
