@@ -19,7 +19,13 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   disabled:       { bg: "#f3f4f6", color: "#9ca3af" },
 }
 
-type Venue = { id: string; name: string; category: string; address: string; status: string; isFeatured?: boolean; neighborhood?: string }
+type Venue = { id: string; name: string; category: string; address: string; status: string; isFeatured?: boolean; neighborhood?: string; approvedAssetCount: number }
+
+// Coverage target mirrors functions/src/venues/venueAssetGallery.ts's
+// GALLERY_ASSET_LIMIT — a venue below this many approved assets can't fill
+// its event galleries, which is the "404 Atlanta zero-media problem" this
+// column exists to surface (issue #269).
+const ASSET_COVERAGE_TARGET = 6
 type VenueForm = { name: string; category: string; address: string; phone: string; website: string; instagram: string; about: string; neighborhood: string; status: string; isFeatured: boolean; vibes: string[] }
 
 const EMPTY_FORM: VenueForm = { name: "", category: "", address: "", phone: "", website: "", instagram: "", about: "", neighborhood: "", status: "pending_review", isFeatured: false, vibes: [] }
@@ -46,7 +52,7 @@ function VenuesPageInner() {
   useEffect(() => {
     if (!user) return
     const unsub = onSnapshot(collection(db, "venues"), snap => {
-      let all = snap.docs.map(d => ({ id: d.id, name: d.data().name || "Unnamed", category: d.data().category || "", address: d.data().address || "", status: d.data().status || "unknown", isFeatured: d.data().isFeatured || false, neighborhood: d.data().neighborhood || "" }))
+      let all = snap.docs.map(d => ({ id: d.id, name: d.data().name || "Unnamed", category: d.data().category || "", address: d.data().address || "", status: d.data().status || "unknown", isFeatured: d.data().isFeatured || false, neighborhood: d.data().neighborhood || "", approvedAssetCount: d.data().approvedAssetCount || 0 }))
       // Scope: non-super-admins only see their assigned venues
       if (venueIds !== null) all = all.filter(v => venueIds.includes(v.id))
       setVenues(all)
@@ -122,14 +128,14 @@ function VenuesPageInner() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 600 }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                {["Name","Category","Neighborhood","Status","Featured","Actions"].map(h => (
+                {["Name","Category","Neighborhood","Status","Featured","Assets","Actions"].map(h => (
                   <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, color: "#374151", fontSize: 13 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {displayed.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>No venues found</td></tr>
+                <tr><td colSpan={7} style={{ padding: "40px 16px", textAlign: "center", color: "#9ca3af" }}>No venues found</td></tr>
               ) : displayed.map((v, i) => {
                 const sc = STATUS_COLORS[v.status] || { bg: "#f3f4f6", color: "#6b7280" }
                 return (
@@ -141,6 +147,15 @@ function VenuesPageInner() {
                       <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: sc.bg, color: sc.color }}>{v.status}</span>
                     </td>
                     <td style={{ padding: "12px 16px", color: v.isFeatured ? "#2a7a5a" : "#d1d5db" }}>{v.isFeatured ? "★" : "—"}</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{
+                        padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+                        background: v.approvedAssetCount < ASSET_COVERAGE_TARGET ? "#fef9c3" : "#dcfce7",
+                        color: v.approvedAssetCount < ASSET_COVERAGE_TARGET ? "#a16207" : "#15803d",
+                      }} title={v.approvedAssetCount < ASSET_COVERAGE_TARGET ? `Low coverage — target ${ASSET_COVERAGE_TARGET}` : "Full coverage"}>
+                        {v.approvedAssetCount}{v.approvedAssetCount < ASSET_COVERAGE_TARGET ? " ⚠" : ""}
+                      </span>
+                    </td>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => router.push(`/dashboard/venues/${v.id}`)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, background: "#f3f4f6", border: "none", cursor: "pointer", color: "#374151" }}>{canWrite ? "Edit" : "View"}</button>

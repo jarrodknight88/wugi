@@ -479,6 +479,38 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "venueAssets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "venueId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "approved",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastUsedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "venueAssets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "venueId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

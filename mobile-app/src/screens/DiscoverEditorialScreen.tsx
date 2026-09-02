@@ -170,6 +170,7 @@ function toEventData(e: FSEvent): EventData {
     seriesId: e.seriesId ?? null,
     date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
     media: e.media || [],
+    galleryAssets: e.galleryAssets || [],
     hasTickets: (e as any).hasTickets === true,
     gallery: {
       id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '',

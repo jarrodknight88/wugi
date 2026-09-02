@@ -47,6 +47,7 @@ function fsEventToCard(e: FSEvent, venueCategory: string | null): ForYouCard {
       date: e.date || '', time: e.time || '', age: e.age || '21+',
       about: e.about || '', vibes: e.vibes || [],
       media: e.media?.map(m => ({ type: m.type as 'image'|'video', uri: m.uri })) || [{ type: 'image', uri: `https://picsum.photos/seed/${e.id}/600/900` }],
+      galleryAssets: e.galleryAssets || [],
       gallery: { id: e.id, title: e.title || '', venue: e.venue || (e as any).venueName || '', date: e.date || '', coverImage: '', photos: [] },
       hasTickets: (e as any).hasTickets || false,
     } as EventData,

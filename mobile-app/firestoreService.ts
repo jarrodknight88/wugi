@@ -84,6 +84,11 @@ export type FSEvent = {
   about: string;
   vibes: string[];
   media: { type: string; uri: string }[];
+  // Supporting gallery imagery composed server-side from the venue's
+  // evergreen asset pool (functions/src/venues/venueAssetGallery.ts, issue
+  // #269) — up to 6 approved venueAssets, rotated least-recently-used-first.
+  // Absent on events created before this field existed.
+  galleryAssets?: { id: string; type: string; url: string; thumbnailUrl: string; tags: string[] }[];
   status: string;
   hasTickets?: boolean;
   // VENUE-DATA-08 Deliverable C: recurring-event series fields

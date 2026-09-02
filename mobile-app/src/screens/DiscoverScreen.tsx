@@ -100,6 +100,7 @@ function toEventData(e: FSEvent): EventData {
     seriesId: e.seriesId ?? null,
     date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
     media: e.media || [],
+    galleryAssets: e.galleryAssets || [],
     hasTickets: (e as any).hasTickets === true,
     gallery: makeGallery(e.id, e.title, e.venue, e.date, ['gp1','gp2','gp3','gp4']),
   };
