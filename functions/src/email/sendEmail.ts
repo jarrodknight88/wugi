@@ -8,13 +8,21 @@ import {
   sendTransferNotification,
   sendReclaimEmail,
 } from './emailService'
+import { verifyBearerToken } from '../utils/httpAuth'
 
 export const sendEmail = functions.runWith({ secrets: ['RESEND_API_KEY'] }).https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*')
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.set('Access-Control-Allow-Headers', 'Content-Type')
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') { res.status(204).send(''); return }
   if (req.method !== 'POST')    { res.status(405).json({ error: 'Method not allowed' }); return }
+
+  // Dashboard-only endpoint — without this it's an open mail relay via the
+  // Resend API to any address, on Wugi's dime and reputation.
+  const decoded = await verifyBearerToken(req)
+  if (!decoded) {
+    res.status(403).json({ error: 'Must be signed in' }); return
+  }
 
   const { type, ...data } = req.body
 
@@ -35,6 +43,6 @@ export const sendEmail = functions.runWith({ secrets: ['RESEND_API_KEY'] }).http
     res.json({ success: true })
   } catch (e: unknown) {
     functions.logger.error('sendEmail error:', e)
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Email failed' })
+    res.status(500).json({ error: 'Email failed' })
   }
 })

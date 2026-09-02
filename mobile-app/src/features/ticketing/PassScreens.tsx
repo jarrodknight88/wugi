@@ -22,6 +22,14 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const TRANSFER_URL    = 'https://us-central1-wugi-prod.cloudfunctions.net/initiateTransfer';
 const CANCEL_URL      = 'https://us-central1-wugi-prod.cloudfunctions.net/cancelTransfer';
 
+// The server verifies ownership from a Firebase ID token — both endpoints
+// require the caller to be signed in as the ticket's owner.
+async function buildAuthHeaders(): Promise<Record<string, string>> {
+  const { getAuth } = await import('@react-native-firebase/auth');
+  const token = await getAuth().currentUser?.getIdToken();
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` };
+}
+
 // ── TransferModal ─────────────────────────────────────────────────────
 type TransferModalProps = {
   visible:  boolean;
@@ -45,7 +53,7 @@ function TransferModal({ visible, pass, onClose, onSuccess }: TransferModalProps
     try {
       const res = await fetch(TRANSFER_URL, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await buildAuthHeaders(),
         body:    JSON.stringify({ orderId: pass.orderId, toEmail: email.trim() }),
       });
       const data = await res.json();
@@ -237,7 +245,7 @@ export function PassViewerScreen({ pass, onBack }: PassViewerProps) {
       { text: 'No', style: 'cancel' },
       { text: 'Yes, cancel', style: 'destructive', onPress: async () => {
         setCancelling(true);
-        try { await fetch(CANCEL_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transferId: livePass.transferId, orderId: livePass.orderId }) }); } catch {}
+        try { await fetch(CANCEL_URL, { method: 'POST', headers: await buildAuthHeaders(), body: JSON.stringify({ transferId: livePass.transferId }) }); } catch {}
         setCancelling(false); onBack();
       }},
     ]);

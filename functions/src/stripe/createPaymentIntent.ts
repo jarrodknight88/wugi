@@ -8,8 +8,14 @@ import * as functions from 'firebase-functions';
 import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { stripe, calculateBookingFee } from '../stripe/stripeUtils';
+import { checkRateLimit } from '../utils/rateLimit';
 
 const db = admin.firestore();
+
+// A single table order still books as one purchaseable "unit" elsewhere in
+// the system — this cap is just a sane ceiling against a malformed/abusive
+// quantity value, not a real-world purchase limit.
+const MAX_QUANTITY_PER_PURCHASE = 50;
 
 interface CreatePaymentIntentRequest {
   eventId:         string;
@@ -30,13 +36,20 @@ export const createPaymentIntent = functions.https.onCall(
     const isGuest    = !userId;
 
     // ── Validate required fields ────────────────────────────────────
-    if (!eventId || !ticketTypeId || !quantity) {
-      throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
+    if (!eventId || !ticketTypeId || !Number.isInteger(quantity) ||
+        quantity <= 0 || quantity > MAX_QUANTITY_PER_PURCHASE) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing or invalid required fields');
     }
 
     // Guest must provide contact info
     if (isGuest && (!data.guestEmail || !data.guestName)) {
       throw new functions.https.HttpsError('invalid-argument', 'Guest checkout requires name and email');
+    }
+
+    const rateLimitKey = userId ?? context.rawRequest?.ip ?? 'anon';
+    const rateLimitOk = await checkRateLimit(`createPaymentIntent:${rateLimitKey}`, { max: 10, windowSeconds: 60 });
+    if (!rateLimitOk) {
+      throw new functions.https.HttpsError('resource-exhausted', 'Too many requests. Please slow down.');
     }
 
     // ── Fetch ticket type ────────────────────────────────────────────

@@ -102,7 +102,7 @@ export const stripeWebhook = functions
     res.json({ received: true });
   } catch (err: any) {
     logger.error(`Error handling ${event.type}`, err);
-    res.status(500).send(`Handler Error: ${err.message}`);
+    res.status(500).send('Handler Error');
   }
 });
 
@@ -553,6 +553,19 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
   const orderData = orderDoc.data();
   const orderId   = orderDoc.id;
 
+  // Idempotency guard — Stripe may redeliver charge.dispute.created. Without
+  // this, a redelivery would create a second chargeback doc and double the
+  // venue's chargebackCount.
+  const existingChargeback = await db
+    .collection('chargebacks')
+    .where('stripeDisputeId', '==', dispute.id)
+    .limit(1)
+    .get();
+  if (!existingChargeback.empty) {
+    logger.info(`Chargeback already exists for dispute ${dispute.id} — skipping`);
+    return;
+  }
+
   // Find associated passes for scan evidence
   const passesSnap = await db
     .collection('passes')
@@ -639,6 +652,14 @@ async function handleDisputeClosed(dispute: Stripe.Dispute) {
 
   const chargebackRef  = chargebackSnap.docs[0].ref;
   const chargebackData = chargebackSnap.docs[0].data();
+
+  // Idempotency guard — Stripe may redeliver charge.dispute.closed. Without
+  // this, a redelivery would re-debit the venue's reserve/chargeback
+  // balance a second time for the same dispute.
+  if (chargebackData.status === 'won' || chargebackData.status === 'lost') {
+    logger.info(`Dispute ${dispute.id} already resolved (${chargebackData.status}) — skipping`);
+    return;
+  }
 
   const won = dispute.status === 'won';
   const outcome = won ? 'won' : 'lost';

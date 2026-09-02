@@ -16,6 +16,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { issueStripeRefund } from '../stripe/refundUtils';
+import { checkRateLimit } from '../utils/rateLimit';
 
 const db = admin.firestore();
 
@@ -37,6 +38,11 @@ export const refundTicketOrder = functions.https.onCall(async (data: {
   const callerRole: string = callerDoc.exists ? (callerDoc.data()?.role || '') : '';
   if (!REFUND_ROLES.includes(callerRole)) {
     throw new functions.https.HttpsError('permission-denied', 'Only Super Admin or Moderator can issue refunds');
+  }
+
+  const rateLimitOk = await checkRateLimit(`refundTicketOrder:${context.auth.uid}`, { max: 5, windowSeconds: 60 });
+  if (!rateLimitOk) {
+    throw new functions.https.HttpsError('resource-exhausted', 'Too many refund requests. Please slow down.');
   }
 
   const { orderId, staffNote } = data;

@@ -6,6 +6,7 @@
 // Add new admins: firebase functions:secrets:set SUPER_ADMIN_PIN_NAME
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
+import { checkRateLimit } from '../utils/rateLimit';
 
 export const SUPER_ADMIN_SECRETS = ['SUPER_ADMIN_PIN', 'SUPER_ADMIN_PIN_RICH'];
 
@@ -14,9 +15,16 @@ export const SUPER_ADMIN_NAMES: Record<string, string> = {
   SUPER_ADMIN_PIN_RICH: 'Rich',
 };
 
+// Real constant-time compare — `.every()` short-circuits on the first
+// mismatch, which made the old implementation a timing side-channel
+// despite the name. Walk every character regardless of match.
 export function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
-  return a.split('').every((c, i) => c === b[i]);
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
 }
 
 export const validateSuperAdminPin = functions
@@ -25,6 +33,15 @@ export const validateSuperAdminPin = functions
     const { pin } = data;
     if (!pin || typeof pin !== 'string') {
       throw new functions.https.HttpsError('invalid-argument', 'PIN required');
+    }
+
+    // Rate limit by caller IP — PINs are short, so brute force is
+    // otherwise cheap for an unauthenticated caller.
+    const ip = context.rawRequest?.ip ?? 'unknown';
+    const allowed = await checkRateLimit(`superAdminPin:${ip}`, { max: 5, windowSeconds: 60 });
+    if (!allowed) {
+      functions.logger.warn('Super admin PIN rate limit exceeded', { ip });
+      throw new functions.https.HttpsError('resource-exhausted', 'Too many attempts. Try again later.');
     }
 
     // Check pin against all registered super admin PINs

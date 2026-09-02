@@ -49,6 +49,20 @@ function centsToDisplay(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// The server derives identity from a verified Firebase ID token, not from
+// a client-supplied userId field — attach it whenever the user is signed in.
+async function buildAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const { getAuth } = await import('@react-native-firebase/auth');
+    const token = await getAuth().currentUser?.getIdToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {
+    // Not signed in / auth unavailable — proceed as guest.
+  }
+  return headers;
+}
+
 function formatPhone(text: string): string {
   const digits = text.replace(/\D/g, '').slice(0, 10);
   if (digits.length <= 3) return digits;
@@ -86,12 +100,11 @@ export function PaymentScreen({
       // without creating a PaymentIntent (that happens in confirmHandler)
       const json = await fetch(CREATE_PAYMENT_INTENT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await buildAuthHeaders(),
         body: JSON.stringify({ data: {
           eventId:      selection.eventId,
           ticketTypeId: selection.ticketType.id,
           quantity:     selection.quantity,
-          userId:       userId ?? undefined,
           guestName:    isGuest ? guestName.trim()  : undefined,
           guestEmail:   isGuest ? guestEmail.trim() : undefined,
           guestPhone:   phone.trim() || undefined,
@@ -185,12 +198,11 @@ export function PaymentScreen({
               // Face ID passed (or new card) — create PaymentIntent now
               const json = await fetch(CREATE_PAYMENT_INTENT_URL, {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: await buildAuthHeaders(),
                 body:    JSON.stringify({ data: {
                   eventId:        selection.eventId,
                   ticketTypeId:   selection.ticketType.id,
                   quantity:       selection.quantity,
-                  userId:         userId ?? undefined,
                   guestName:      isGuest ? guestName.trim()  : undefined,
                   guestEmail:     isGuest ? guestEmail.trim() : undefined,
                   guestPhone:     phone.trim() || undefined,
