@@ -7,8 +7,13 @@ import * as functions from 'firebase-functions';
 import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { stripe, calculateBookingFee } from '../stripe/stripeUtils';
+import { verifyBearerToken } from '../utils/httpAuth';
+import { checkRateLimit } from '../utils/rateLimit';
 
 const db = admin.firestore();
+
+// See createPaymentIntent.ts for rationale.
+const MAX_QUANTITY_PER_PURCHASE = 50;
 
 export const createPaymentIntentHttp = functions.https.onRequest(async (req, res) => {
   // Allow CORS
@@ -20,14 +25,30 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
   if (req.method !== 'POST')    { res.status(405).json({ error: 'Method not allowed' }); return; }
 
   const body = req.body?.data ?? req.body;
-  const { eventId, ticketTypeId, quantity, userId, guestName, guestEmail, guestPhone,
+  const { eventId, ticketTypeId, quantity, guestName, guestEmail, guestPhone,
           paymentMethodId, savePaymentMethod } = body;
 
-  if (!eventId || !ticketTypeId || !quantity) {
+  // This is a plain onRequest endpoint (not onCall), so there's no
+  // context.auth — identity must be derived from a verified ID token, never
+  // trusted from a client-supplied `userId` field (that would let anyone
+  // attribute a purchase, and the Stripe customer/ephemeral key that comes
+  // with it, to an arbitrary account).
+  const decoded = await verifyBearerToken(req);
+  const userId  = decoded?.uid ?? null;
+
+  if (!eventId || !ticketTypeId || !Number.isInteger(quantity) ||
+      quantity <= 0 || quantity > MAX_QUANTITY_PER_PURCHASE) {
     res.status(400).json({ error: { code: 'missing_fields', message: 'Missing required fields' } }); return;
   }
   if (!userId && (!guestEmail || !guestName)) {
     res.status(400).json({ error: { code: 'guest_info_required', message: 'Guest checkout requires name and email' } }); return;
+  }
+
+  const rateLimitKey = userId ?? req.ip ?? 'anon';
+  const rateLimitOk  = await checkRateLimit(`createPaymentIntentHttp:${rateLimitKey}`, { max: 10, windowSeconds: 60 });
+  if (!rateLimitOk) {
+    res.status(429).json({ error: { code: 'rate_limited', message: 'Too many requests. Please slow down.' } });
+    return;
   }
 
   try {
@@ -281,6 +302,6 @@ export const createPaymentIntentHttp = functions.https.onRequest(async (req, res
     });
   } catch (e: any) {
     logger.error('createPaymentIntentHttp error', e);
-    res.status(500).json({ error: { code: 'internal_error', message: e.message ?? 'Internal error' } });
+    res.status(500).json({ error: { code: 'internal_error', message: 'Payment failed. Please try again.' } });
   }
 });

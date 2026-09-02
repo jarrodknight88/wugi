@@ -5,7 +5,7 @@ import {
   doc, onSnapshot, collection, updateDoc, addDoc,
   serverTimestamp, writeBatch, increment, query, where,
 } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { db, auth } from "@/lib/firebase"
 import { useAuthContext } from "@/context/AuthContext"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { GROUP_COLORS } from "@/components/TableGroupManager"
@@ -120,9 +120,10 @@ function WalkinModal({
       })
       // Optionally send email via Resend Cloud Function
       if (sendEmail && email.trim()) {
+        const idToken = await auth.currentUser?.getIdToken()
         await fetch(`https://us-central1-wugi-prod.cloudfunctions.net/sendEmail`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
           body: JSON.stringify({
             to: email.trim(), toName: name.trim(),
             subject: `Your ticket to ${eventTitle}`,

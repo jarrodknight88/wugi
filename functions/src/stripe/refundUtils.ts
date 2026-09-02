@@ -7,6 +7,7 @@
 // surfaces can never drift out of sync on the actual Stripe call.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
+import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { stripe } from './stripeUtils';
@@ -36,8 +37,11 @@ export async function resolveChargeId(paymentIntentId: string): Promise<string> 
       const charge = pi.latest_charge as any;
       chargeId = typeof charge === 'string' ? charge : charge?.id;
     } catch (stripeErr: any) {
-      throw new functions.https.HttpsError('not-found',
-        `Cannot find payment to refund. The transaction may have been created in test mode. Error: ${stripeErr.message}`);
+      // Preserve our own precondition error as-is (safe, non-leaking) —
+      // only sanitize genuine Stripe SDK failures below.
+      if (stripeErr instanceof functions.https.HttpsError) throw stripeErr;
+      logger.error('resolveChargeId: Stripe lookup failed', { paymentIntentId, message: stripeErr.message });
+      throw new functions.https.HttpsError('not-found', 'Cannot find payment to refund.');
     }
   }
 

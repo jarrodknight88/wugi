@@ -7,6 +7,7 @@ import * as functions from 'firebase-functions'
 import * as admin from 'firebase-admin'
 import { buildPassBuffer, storePass } from './generatePass'
 import { sendTransferNotification } from '../email/emailService'
+import { verifyBearerToken } from '../utils/httpAuth'
 
 const db = admin.firestore()
 
@@ -23,6 +24,14 @@ export const initiateTransfer = functions.runWith({ secrets: ['RESEND_API_KEY'] 
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') { res.status(204).send(''); return }
 
+  // Must prove ownership of the ticket being transferred — this is a plain
+  // onRequest endpoint, so identity has to come from a verified ID token,
+  // never trusted from the request body.
+  const decoded = await verifyBearerToken(req)
+  if (!decoded) {
+    res.status(403).json({ error: 'Must be signed in to transfer a ticket' }); return
+  }
+
   const { orderId, toEmail } = req.body
   if (!orderId || !toEmail) {
     res.status(400).json({ error: 'orderId and toEmail required' }); return
@@ -36,6 +45,9 @@ export const initiateTransfer = functions.runWith({ secrets: ['RESEND_API_KEY'] 
     }
 
     const order = orderDoc.data()!
+    if (order.userId !== decoded.uid) {
+      res.status(403).json({ error: 'You do not own this ticket' }); return
+    }
     if (order.checkedIn) {
       res.status(400).json({ error: 'Cannot transfer a checked-in ticket' }); return
     }
@@ -92,7 +104,7 @@ export const initiateTransfer = functions.runWith({ secrets: ['RESEND_API_KEY'] 
     res.json({ success: true, transferId: transferRef.id, claimUrl, token })
   } catch (e: unknown) {
     functions.logger.error('initiateTransfer error:', e)
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Transfer failed' })
+    res.status(500).json({ error: 'Transfer failed' })
   }
 })
 
@@ -254,7 +266,7 @@ export const claimTransfer = functions.https.onRequest(async (req, res) => {
     res.json({ success: true, orderId: newOrderRef.id, passId: newPassRef.id, passUrl })
   } catch (e: unknown) {
     functions.logger.error('claimTransfer error:', e)
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Claim failed' })
+    res.status(500).json({ error: 'Claim failed' })
   }
 })
 
@@ -262,12 +274,17 @@ export const claimTransfer = functions.https.onRequest(async (req, res) => {
 export const cancelTransfer = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*')
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.set('Access-Control-Allow-Headers', 'Content-Type')
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') { res.status(204).send(''); return }
 
-  const { transferId, orderId } = req.body
-  if (!transferId || !orderId) {
-    res.status(400).json({ error: 'transferId and orderId required' }); return
+  const decoded = await verifyBearerToken(req)
+  if (!decoded) {
+    res.status(403).json({ error: 'Must be signed in to cancel a transfer' }); return
+  }
+
+  const { transferId } = req.body
+  if (!transferId) {
+    res.status(400).json({ error: 'transferId required' }); return
   }
 
   try {
@@ -275,13 +292,20 @@ export const cancelTransfer = functions.https.onRequest(async (req, res) => {
     if (!transferDoc.exists || transferDoc.data()?.status !== 'pending') {
       res.status(400).json({ error: 'Transfer cannot be cancelled' }); return
     }
+    const transfer = transferDoc.data()!
+    if (transfer.fromUid !== decoded.uid) {
+      res.status(403).json({ error: 'You do not own this transfer' }); return
+    }
 
+    // Derive orderId from the transfer doc itself rather than trusting a
+    // client-supplied value, which would let a caller clear
+    // transferPending on an unrelated order.
     await transferDoc.ref.update({ status: 'cancelled', cancelledAt: admin.firestore.FieldValue.serverTimestamp() })
-    await db.collection('orders').doc(orderId).update({ transferPending: false, transferId: null })
+    await db.collection('orders').doc(transfer.orderId).update({ transferPending: false, transferId: null })
 
     res.json({ success: true })
   } catch (e: unknown) {
     functions.logger.error('cancelTransfer error:', e)
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Cancel failed' })
+    res.status(500).json({ error: 'Cancel failed' })
   }
 })

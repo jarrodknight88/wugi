@@ -9,6 +9,10 @@ import * as admin from 'firebase-admin'
 
 const db = admin.firestore()
 
+// Mirrors the staff bar used elsewhere for admin-triggered actions
+// (see door/checkInPass.ts, unlocks/getPhotographerEarnings.ts).
+const STAFF_ROLES = new Set(['super_admin', 'moderator', 'support'])
+
 // ── OneSignal REST API helper ─────────────────────────────────────────
 async function sendOneSignal(payload: object): Promise<void> {
   const apiKey = process.env.ONESIGNAL_REST_API_KEY
@@ -69,7 +73,16 @@ export async function sendToTopic(
 // ── HTTP callable for dashboard sends ────────────────────────────────
 export const sendPushNotification = functions
   .runWith({ secrets: ['ONESIGNAL_REST_API_KEY', 'ONESIGNAL_APP_ID'] })
-  .https.onCall(async (request) => {
+  .https.onCall(async (request, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be signed in')
+    }
+    const callerDoc  = await db.collection('users').doc(context.auth.uid).get()
+    const callerRole = callerDoc.exists ? (callerDoc.data()?.role || '') : ''
+    if (!STAFF_ROLES.has(callerRole)) {
+      throw new functions.https.HttpsError('permission-denied', 'Only staff can send notifications')
+    }
+
     const { title, body, data, uid, topic } = request.data as {
       title: string; body: string; data?: Record<string, string>;
       uid?: string; topic?: string;
