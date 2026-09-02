@@ -165,6 +165,13 @@ export interface MediaAssetDocInput {
   // don't need updating — buildMediaAssetDoc derives it from storagePaths
   // when omitted, so every doc still ends up with a usable `assets` array.
   assets?: MediaAsset[];
+  // Defaults to 'unverified' (the Instagram-scrape case — a human has to
+  // clear rights before publish, see docs/VENUE-INTEL-SOP.md §6). Callers
+  // ingesting from a source with a standing permission grant (e.g. the
+  // atlpics.net/nightlifelink.com gallery crawler — issue #267) pass
+  // 'permission_granted' so those assets skip the publish-blocking gate
+  // that dashboard code already applies to 'unverified' media.
+  rightsStatus?: 'unverified' | 'permission_granted';
 }
 
 /** The `createdAt` value is left to the caller (FieldValue.serverTimestamp() in prod, a fixed value in tests). */
@@ -178,7 +185,7 @@ export function buildMediaAssetDoc(input: MediaAssetDocInput, createdAt: unknown
     postUrl: input.postUrl,
     storagePaths: input.storagePaths,
     assets,
-    rightsStatus: 'unverified' as const,
+    rightsStatus: input.rightsStatus ?? ('unverified' as const),
     venueId: null,
     createdAt,
   };
