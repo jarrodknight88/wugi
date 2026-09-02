@@ -77,20 +77,28 @@ const Icon = {
       <path d="M8 12l2 2 4-4"/>
     </svg>
   ),
+  EditorialCalendar: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+      <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      <rect x="7" y="13" width="3" height="3"/><rect x="14" y="13" width="3" height="3"/>
+    </svg>
+  ),
 }
 
 const NAV = [
-  { href: "/dashboard",             label: "Overview",     Icon: Icon.Overview   },
-  { href: "/dashboard/venues",      label: "Venues",       Icon: Icon.Venues     },
-  { href: "/dashboard/events",      label: "Events",       Icon: Icon.Events     },
-  { href: "/dashboard/deals",       label: "Deals",        Icon: Icon.Deals      },
-  { href: "/dashboard/tickets",     label: "Tickets",      Icon: Icon.Tickets    },
-  { href: "/dashboard/series",      label: "Series",       Icon: Icon.Series     },
-  { href: "/dashboard/galleries",   label: "Galleries",    Icon: Icon.Galleries  },
-  { href: "/dashboard/itineraries", label: "Itineraries",  Icon: Icon.Itineraries },
-  { href: "/dashboard/venue-intel", label: "Venue Intel",  Icon: Icon.VenueIntel },
-  { href: "/dashboard/users",       label: "Users",        Icon: Icon.Users      },
-  { href: "/dashboard/audit",       label: "Audit Log",    Icon: Icon.Audit      },
+  { href: "/dashboard",                    label: "Overview",           Icon: Icon.Overview          },
+  { href: "/dashboard/venues",             label: "Venues",             Icon: Icon.Venues            },
+  { href: "/dashboard/events",             label: "Events",             Icon: Icon.Events            },
+  { href: "/dashboard/editorial-calendar", label: "Editorial Calendar", Icon: Icon.EditorialCalendar },
+  { href: "/dashboard/deals",              label: "Deals",              Icon: Icon.Deals             },
+  { href: "/dashboard/tickets",            label: "Tickets",            Icon: Icon.Tickets           },
+  { href: "/dashboard/series",             label: "Series",             Icon: Icon.Series            },
+  { href: "/dashboard/galleries",          label: "Galleries",          Icon: Icon.Galleries         },
+  { href: "/dashboard/itineraries",        label: "Itineraries",        Icon: Icon.Itineraries       },
+  { href: "/dashboard/venue-intel",        label: "Venue Intel",        Icon: Icon.VenueIntel        },
+  { href: "/dashboard/users",              label: "Users",              Icon: Icon.Users             },
+  { href: "/dashboard/audit",              label: "Audit Log",          Icon: Icon.Audit             },
 ]
 
 const TOPBAR_H = 52 // px — fixed mobile topbar height
