@@ -81,6 +81,13 @@ export interface VenueIntelDoc {
   // mention-match fallback — caption text is re-scanned separately there via
   // extractMentionsFromCaption, so this never needs to duplicate that work.
   mentionedHandles: string[];
+  // Set only by the gallery-site ingest path (apifyGalleryWebhook.ts, issue
+  // #267) — undefined/absent for every Instagram-scrape doc, so existing
+  // venueIntel docs and current dashboard rendering are unaffected. Lets a
+  // reviewer (and any future source-specific handling) tell an
+  // atlpics.net/nightlifelink.com gallery recap apart from an IG post
+  // without sniffing sourceAccount.
+  source?: 'atlpics' | 'nightlifelink';
 }
 
 export interface MappedVenueIntelItem {
@@ -237,8 +244,12 @@ export function mapApifyItemToVenueIntelDoc(item: any, runId: string): MappedVen
 
 // ── Apify API (fetch, no SDK) ────────────────────────────────────────
 
-/** Looks the run up under our own account. Throws on any non-2xx or network failure. */
-async function fetchApifyRun(runId: string, token: string): Promise<{ id: string } | null> {
+/**
+ * Looks the run up under our own account. Throws on any non-2xx or network
+ * failure. Exported for reuse by apifyGalleryWebhook.ts (issue #267) — same
+ * "no shared webhook secret, verify via our own token instead" auth model.
+ */
+export async function fetchApifyRun(runId: string, token: string): Promise<{ id: string } | null> {
   const res = await fetch(`${APIFY_API}/actor-runs/${encodeURIComponent(runId)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -249,7 +260,8 @@ async function fetchApifyRun(runId: string, token: string): Promise<{ id: string
   return json?.data ?? null;
 }
 
-async function fetchDatasetItems(datasetId: string, token: string): Promise<any[]> {
+/** Exported for reuse by apifyGalleryWebhook.ts (issue #267) — identical dataset-pagination contract regardless of what actor produced the items. */
+export async function fetchDatasetItems(datasetId: string, token: string): Promise<any[]> {
   const items: any[] = [];
   let offset = 0;
   for (;;) {
@@ -283,8 +295,12 @@ function chunk<T>(items: T[], size: number): T[][] {
  * the subset of items that were genuinely new in this run — media
  * download only ever runs for those (never on a re-merge of an existing
  * docId), per scope item 1.
+ *
+ * Exported for reuse by apifyGalleryWebhook.ts (issue #267) — the dedupe/
+ * merge/new-item-detection contract is identical for a gallery-crawl doc,
+ * since both ingest paths write into the same venueIntel collection.
  */
-async function writeVenueIntelDocs(
+export async function writeVenueIntelDocs(
   mapped: MappedVenueIntelItem[]
 ): Promise<{ ingested: number; errors: number; newItems: MappedVenueIntelItem[] }> {
   const db = admin.firestore();
@@ -368,8 +384,16 @@ function withModeration(asset: MediaAsset, moderationByPath: Map<string, Moderat
  * the rest of this function: moderateImagesForPost never throws (fails open
  * to 'unscanned' internally), so a Vision outage degrades the flag, never
  * blocks the write.
+ *
+ * `rightsStatus` defaults to 'unverified' (the Instagram-scrape case).
+ * Exported so apifyGalleryWebhook.ts (issue #267) can reuse this same
+ * download/moderate/asset-build pipeline while passing 'permission_granted'
+ * for its already-rights-cleared sources (atlpics.net, nightlifelink.com).
  */
-async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<void> {
+export async function persistNewIntelMedia(
+  newItems: MappedVenueIntelItem[],
+  rightsStatus?: 'unverified' | 'permission_granted'
+): Promise<void> {
   if (newItems.length === 0) return;
 
   const db = admin.firestore();
@@ -452,6 +476,7 @@ async function persistNewIntelMedia(newItems: MappedVenueIntelItem[]): Promise<v
               postUrl: item.doc.postUrl,
               storagePaths,
               assets: moderatedAssets,
+              rightsStatus,
             },
             admin.firestore.FieldValue.serverTimestamp()
           )
