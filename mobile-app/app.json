@@ -89,7 +89,9 @@
       "eas": {
         "projectId": "02118aa1-ca85-4fed-87a2-be67c8e6255b"
       },
-      "googleWebClientId": "226519294074-2odntgqm6huida3okdg5hlkop66s84jv.apps.googleusercontent.com"
+      "googleWebClientId": "226519294074-2odntgqm6huida3okdg5hlkop66s84jv.apps.googleusercontent.com",
+      "stripePublishableKey": "pk_live_51TFpeBDdJ1ZAq3aIiX3I2pInGOK0BlYZI38eqkhQz5OAK6g9Dw1cjcu2iHEc6eQRrYxqKBHWsCkGOi7G9WaTCyaZ00gfpRKfzK",
+      "oneSignalAppId": "02095a4e-3918-4e7b-9335-3677e95afe3c"
     },
     "android": {
       "permissions": [

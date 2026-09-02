@@ -3,17 +3,21 @@
 // Push notifications via OneSignal (primary) + FCM (kept for Door compatibility)
 // S1-05: Replaced unreliable FCM implementation with OneSignal SDK
 //
-// OneSignal App ID: 02095a4e-3918-4e7b-9335-3677e95afe3c
+// OneSignal App ID lives in app.json → extra.oneSignalAppId (see below).
 // FCM kept in place — do not remove until [BACK-30] post-launch cleanup
 // ─────────────────────────────────────────────────────────────────────
 import { useEffect, useRef } from 'react'
 import { Platform } from 'react-native'
+import Constants from 'expo-constants'
 import { OneSignal, LogLevel, NotificationClickedEvent } from 'react-native-onesignal'
 import auth from '@react-native-firebase/auth'
 import firestore from '@react-native-firebase/firestore'
 
-// OneSignal App ID — matches Firebase secret ONESIGNAL_APP_ID
-const ONESIGNAL_APP_ID = '02095a4e-3918-4e7b-9335-3677e95afe3c'
+// OneSignal App ID is a public client identifier (not a secret — the REST
+// API key is the secret half, kept server-side as the Firebase secret
+// ONESIGNAL_REST_API_KEY / ONESIGNAL_APP_ID). Sourced from app.json → extra
+// so it has one canonical source, matching stripePublishableKey.
+const ONESIGNAL_APP_ID = (Constants.expoConfig?.extra as { oneSignalAppId?: string } | undefined)?.oneSignalAppId ?? ''
 
 // Callback type for handling notification taps
 type NotificationHandler = (data: Record<string, string>) => void
