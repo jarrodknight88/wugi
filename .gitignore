@@ -7,10 +7,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment
+# Environment (covers .env, .env.local, .env.production, .env.*.local, etc.)
 .env
-.env.local
-.env.*.local
+.env.*
 
 # Node
 node_modules/

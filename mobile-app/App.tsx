@@ -46,7 +46,10 @@ const queryClient = new QueryClient({
 
 const FOREGROUND_INVALIDATE_AFTER_MS = 5 * 60 * 1000; // 5 min idle threshold
 
-const STRIPE_PUBLISHABLE_KEY = 'pk_live_51TFpeBDdJ1ZAq3aIiX3I2pInGOK0BlYZI38eqkhQz5OAK6g9Dw1cjcu2iHEc6eQRrYxqKBHWsCkGOi7G9WaTCyaZ00gfpRKfzK';
+// Publishable key is non-secret by design (Stripe ships it in every client
+// bundle) but lives in app.json → extra so it has one canonical source,
+// matching the googleWebClientId pattern below.
+const STRIPE_PUBLISHABLE_KEY = (Constants.expoConfig?.extra as { stripePublishableKey?: string } | undefined)?.stripePublishableKey ?? '';
 
 export default function App() {
   useNotifications();
