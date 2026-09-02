@@ -13,6 +13,7 @@ import { authedFetch, errorMessage } from "@/lib/authedFetch"
 import DoorAccessPanel from "@/components/DoorAccessPanel"
 import TableGroupManager from "@/components/TableGroupManager"
 import VenueMediaPanel from "./VenueMediaPanel"
+import VenueAssetPoolPanel from "./VenueAssetPoolPanel"
 import Link from "next/link"
 
 type Venue = {
@@ -143,7 +144,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   const { user, loading, hasDashboardAccess, canWrite, canManageTables } = useAuthContext()
   const [venueId, setVenueId] = useState("")
   const [venue, setVenue] = useState<Venue | null>(null)
-  const [tab, setTab] = useState<"info" | "media" | "door" | "tables" | "payments">("info")
+  const [tab, setTab] = useState<"info" | "media" | "assets" | "door" | "tables" | "payments">("info")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -217,6 +218,7 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
   const TABS = [
     { key: "info",     label: "Venue Info" },
     { key: "media",    label: "Media" },
+    { key: "assets",   label: "Asset Pool" },
     { key: "door",     label: "Door Access" },
     { key: "tables",   label: "Tables" },
     { key: "payments", label: "Payments & ID" },
@@ -359,6 +361,11 @@ export default function VenueDetailPage({ params }: { params: Promise<{ venueId:
         {/* ── Media Tab ── */}
         {tab === "media" && (
           <VenueMediaPanel venueId={venueId} canWrite={canWrite} />
+        )}
+
+        {/* ── Asset Pool Tab ── */}
+        {tab === "assets" && (
+          <VenueAssetPoolPanel venueId={venueId} canWrite={canWrite} />
         )}
 
         {/* ── Door Access Tab ── */}

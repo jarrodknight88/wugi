@@ -63,6 +63,7 @@ export function VenueEventsListScreen({ venueId, theme, onBack, onEventPress }: 
             seriesId: e.seriesId ?? null,
             date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
             media: (e.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
+            galleryAssets: e.galleryAssets || [],
             hasTickets: e.hasTickets === true,
             gallery: { id: e.id, title: e.title || '', venue: vname, date: e.date || '', coverImage: '', photos: [] },
           })) as EventData[];

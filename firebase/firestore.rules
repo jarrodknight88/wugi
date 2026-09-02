@@ -99,6 +99,25 @@ service cloud.firestore {
       }
     }
 
+    // ── Venue Assets (issue #269) ───────────────────────────────────────
+    // Evergreen, per-venue curated media pool. Distinct from mediaAssets
+    // (deny-all scrape staging, see below) and venues.media (the venue's own
+    // manually-ordered hero reel) — this is the rotation pool
+    // functions/src/venues/venueAssetGallery.ts draws from to compose each
+    // event's supporting gallery. Same public-read/approved-gate shape as
+    // eventGalleries/photos below: approved assets are public (consumer app
+    // renders them), unapproved ones are staff/venue-admin-only so the
+    // asset manager can preview before publishing. lastUsedAt/approvedBy are
+    // Cloud-Function/dashboard-route-only writes in practice but are not
+    // separately locked down here — same trust level as the rest of this
+    // doc, mirroring canWriteVenue's existing scope.
+    match /venueAssets/{assetId} {
+      allow read:   if resource.data.approved == true || canAccessVenue(resource.data.venueId);
+      allow create: if canWriteVenue(request.resource.data.venueId);
+      allow update: if canWriteVenue(resource.data.venueId);
+      allow delete: if canWriteVenue(resource.data.venueId);
+    }
+
     // ── Events ───────────────────────────────────────────────────────
     match /events/{eventId} {
       allow read:   if true;  // public

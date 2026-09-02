@@ -114,6 +114,7 @@ function toEventData(e: FSEvent): EventData {
     seriesId: e.seriesId ?? null,
     date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
     media: e.media || [],
+    galleryAssets: e.galleryAssets || [],
     bannerImage: e.bannerImage || undefined,
     dateISO: (e as any).dateISO || undefined,
     hasTickets: (e as any).hasTickets === true,

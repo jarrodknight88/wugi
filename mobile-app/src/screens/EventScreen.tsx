@@ -149,8 +149,18 @@ function EventScreenInner({
     ? (venue.menuDescription?.trim() || (venue.menuAttributes?.length ? venue.menuAttributes.join(' · ') : ''))
     : '';
 
-  // Defensive: media may be missing/empty on incomplete docs
-  const media = Array.isArray(event.media) ? event.media : [];
+  // Defensive: media may be missing/empty on incomplete docs. Hero stays
+  // exactly the scraped-flyer media[] Wugi has always rendered here; the
+  // venue's evergreen asset pool (issue #269) is appended after it, capped
+  // at 6, so hero-driven logic below (aspect ratio, getEventCardHero, share)
+  // that keys off media[0]/media[] order is unaffected — this only extends
+  // the carousel with supporting shots.
+  const heroMedia = Array.isArray(event.media) ? event.media : [];
+  const galleryAssets = Array.isArray(event.galleryAssets) ? event.galleryAssets : [];
+  const media = [
+    ...heroMedia,
+    ...galleryAssets.slice(0, 6).map(a => ({ type: a.type, uri: a.url })),
+  ];
 
   // Dynamic hero sizing — portrait flyers (aspectRatio < 1, common in
   // nightlife) must display FULLY instead of being cropped by the fixed

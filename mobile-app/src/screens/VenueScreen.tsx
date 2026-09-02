@@ -420,6 +420,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             seriesId: e.seriesId ?? null,
             date: e.date || '', time: e.time || '', age: e.age || venue.age || '', about: e.about || '',
             media: (e.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
+            galleryAssets: e.galleryAssets || [],
             hasTickets: e.hasTickets === true,
             gallery: makeGallery(e.id, e.title || e.name || '', venue.name, e.date || '', ['gp1','gp2','gp3','gp4']),
           }));

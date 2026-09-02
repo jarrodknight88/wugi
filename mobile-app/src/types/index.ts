@@ -85,6 +85,13 @@ export type PhotoDoc = {
 // the only place that reads it.
 export type MediaItem = { type: string; uri: string; posterUri?: string };
 
+// Supporting gallery imagery composed server-side from the venue's evergreen
+// asset pool (functions/src/venues/venueAssetGallery.ts, issue #269) — up to
+// 6 approved venueAssets, rotated least-recently-used-first. Appended after
+// the event's own scraped-flyer media[] on EventScreen's hero carousel; the
+// hero itself is untouched by this field.
+export type GalleryAssetItem = { id: string; type: string; url: string; thumbnailUrl: string; tags: string[] };
+
 // ── Event ─────────────────────────────────────────────────────────────
 export type EventData = {
   id: string;
@@ -103,6 +110,9 @@ export type EventData = {
   age: string;
   about: string;
   media: MediaItem[];
+  // See GalleryAssetItem above. Optional/absent for events built before this
+  // field existed, or for hand-seeded mock data.
+  galleryAssets?: GalleryAssetItem[];
   // Optional editorial override for hero/banner surfaces (e.g. Home hero
   // carousel). Falls back to getEventCardHero(media) when absent — see
   // resolveEventBannerImage() in HomeScreen.tsx. Dashboard-writable field,
@@ -401,6 +411,9 @@ export type FSEvent = {
   about: string;
   vibes: string[];
   media: MediaItem[];
+  // See GalleryAssetItem above. Threaded into EventData by the FSEvent→
+  // EventData mappers alongside media.
+  galleryAssets?: GalleryAssetItem[];
   status: string;
   hasTickets?: boolean;
   // Recurring-series id (mirrors events.seriesId). Threaded into EventData by the

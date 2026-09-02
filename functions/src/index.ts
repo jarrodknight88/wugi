@@ -39,6 +39,8 @@ export { runTargetedScrape }  from './bridge/runTargetedScrape';
 export { syncApifySeedList }  from './bridge/syncApifySeedList';
 export { ingestLensUpload }   from './lens/ingestLensUpload';
 export { onVenueIntelApproved } from './intel/onVenueIntelApproved';
+export { composeEventGallery }    from './venues/venueAssetGallery';
+export { onVenueAssetCoverageChange } from './venues/venueAssetCoverage';
 export { spendFreeUnlock }        from './unlocks/spendFreeUnlock';
 export { getPhotographerEarnings } from './unlocks/getPhotographerEarnings';
 export { validateUnlockPurchase } from './unlocks/validateUnlockPurchase';
