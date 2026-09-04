@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions'
 import * as admin from 'firebase-admin'
+import * as crypto from 'crypto'
 import { buildPassBuffer, storePass } from './generatePass'
 import { sendTransferNotification } from '../email/emailService'
 
@@ -208,9 +209,19 @@ export const claimTransfer = functions.https.onRequest(async (req, res) => {
     }
     await newPassRef.set(newPassData)
 
-    // Generate a new pass for the recipient — store under new passId
+    // Generate a new pass for the recipient. Wallet Pass Update Protocol
+    // (passWebService.ts) keys everything — walletPasses doc, storage path,
+    // walletDevices registrations — off the pass's serialNumber, which
+    // generatePass always sets to `orderId` (never passId, see PassData
+    // jsdoc in generatePass.ts). Store under newOrderRef.id and mint an
+    // authenticationToken + walletPasses doc here too, or the claimed pass
+    // silently loses live wallet updates: no webServiceURL gets embedded
+    // (buildPassBuffer only adds it when authToken is truthy) and even a
+    // manual GET/registration would 404 against a walletPasses doc that
+    // was never created.
     let passUrl: string | null = null
     try {
+      const authenticationToken = crypto.randomBytes(20).toString('hex')
       const passBuffer = await buildPassBuffer({
         orderId:     newOrderRef.id,
         passId:      newPassRef.id,   // QR value Door scanner looks up
@@ -226,10 +237,16 @@ export const claimTransfer = functions.https.onRequest(async (req, res) => {
         passColor:   order.passColor || null,
         colorLabel:  order.colorLabel || null,
         tableNumber: order.tableNumber || null,
+        webServiceURL:       'https://us-central1-wugi-prod.cloudfunctions.net/passWebService',
+        authenticationToken,
       })
-      passUrl = await storePass(newPassRef.id, passBuffer)
+      passUrl = await storePass(newOrderRef.id, passBuffer)
+      await db.collection('walletPasses').doc(newOrderRef.id).set({
+        orderId: newOrderRef.id, passId: newPassRef.id, authenticationToken,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      })
       await newPassRef.update({ appleWalletPassUrl: passUrl, updatedAt: admin.firestore.FieldValue.serverTimestamp() })
-      await newOrderRef.update({ passUrl, passGeneratedAt: admin.firestore.FieldValue.serverTimestamp() })
+      await newOrderRef.update({ passUrl, authenticationToken, passGeneratedAt: admin.firestore.FieldValue.serverTimestamp() })
     } catch (passErr) {
       functions.logger.error('Pass generation during claim failed:', passErr)
     }

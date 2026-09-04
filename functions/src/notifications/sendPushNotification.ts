@@ -46,23 +46,46 @@ export async function sendToUser(
 }
 
 // ── Send to a topic/segment ───────────────────────────────────────────
+// Topics map to the player tag the Account screen's notification toggles
+// set (see mobile-app/src/screens/AccountScreen.tsx `OneSignal.User.addTag`)
+// — 'events', 'deals', 'galleries', each 'on'/'off'. Filtering server-side
+// on that tag (instead of a static 'All' segment) is what makes those
+// toggles actually take effect; a device that never touched the toggle has
+// no tag set at all, so `not_exists` keeps it opted in by default.
+const TOPIC_TAG_KEY: Record<string, string> = {
+  'atlanta-events': 'events',
+}
+
 export async function sendToTopic(
   topic: string,
   title: string,
   body: string,
   data?: Record<string, string>
 ) {
-  // Map legacy FCM topics to OneSignal segments
-  const segmentMap: Record<string, string> = {
-    'atlanta-events': 'All',   // default segment until we set up custom segments
+  const tagKey = TOPIC_TAG_KEY[topic]
+
+  if (!tagKey) {
+    // No preference toggle maps to this topic — fall back to broadcasting.
+    await sendOneSignal({
+      headings:          { en: title },
+      contents:          { en: body },
+      data:              data ?? {},
+      included_segments: ['All'],
+      target_channel:    'push',
+    })
+    return
   }
-  const segment = segmentMap[topic] ?? 'All'
+
   await sendOneSignal({
-    headings:        { en: title },
-    contents:        { en: body },
-    data:            data ?? {},
-    included_segments: [segment],
-    target_channel:  'push',
+    headings: { en: title },
+    contents: { en: body },
+    data:     data ?? {},
+    filters: [
+      { field: 'tag', key: tagKey, relation: '=', value: 'on' },
+      { operator: 'OR' },
+      { field: 'tag', key: tagKey, relation: 'not_exists' },
+    ],
+    target_channel: 'push',
   })
 }
 
