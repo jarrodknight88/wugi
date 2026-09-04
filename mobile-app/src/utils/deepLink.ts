@@ -16,3 +16,16 @@ export function parseClaimToken(url: string | null | undefined): string | null {
   const match = url.match(CLAIM_PATH_RE);
   return match ? decodeURIComponent(match[1]) : null;
 }
+
+// Matches the "view an already-owned ticket" link (wugi://tickets/{passId} /
+// https://wugi.us/tickets/{passId}) emitted by the web pass page's "Open in
+// App" button (web/app/tickets/[orderId]/PassView.tsx). Deliberately
+// excludes the claim path above via negative lookahead — claim tokens are
+// opaque transfer tokens, not passIds, and are handled by parseClaimToken.
+const TICKET_PATH_RE = /tickets\/(?!claim\/)([^/?#]+)/i;
+
+export function parseTicketPassId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(TICKET_PATH_RE);
+  return match ? decodeURIComponent(match[1]) : null;
+}

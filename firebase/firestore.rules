@@ -246,16 +246,6 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // ── Phone Index ──────────────────────────────────────────────────
-    // phoneIndex/{e164Phone} → { uid, claimedAt }
-    // Written by Cloud Function or authenticated owner only.
-    match /phoneIndex/{phone} {
-      allow read:   if isAuth() && (isSuperAdmin() || resource.data.uid == request.auth.uid);
-      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuth() && resource.data.uid == request.auth.uid;
-      allow delete: if isSuperAdmin();
-    }
-
     // ── Passes / Wallets / Transfers ─────────────────────────────────
     // passes: allow list queries by userId (needed for MyPassesScreen)
     // and individual doc reads for pass viewer

@@ -11,9 +11,6 @@
 //   - events/{eventId}.tableInventory (live ticketing inventory)
 //   - venues/{id}/photos         (Wugi Lens user-generated content)
 //   - any Wugi Door scan/session data
-//
-// Catalog metadata (venue cards, event listings, vibes) goes through
-// useCatalogQueries instead — see Deliverable E.6 in the ticket.
 // ─────────────────────────────────────────────────────────────────────
 import { useEffect, useRef, useState } from 'react';
 import {

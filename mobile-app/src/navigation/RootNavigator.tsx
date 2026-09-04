@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
 import type { NavEntry, EventData, VenueData, GalleryData, GalleryPhoto, FavoriteItem, FSDeal } from '../types';
 import { FirebaseProvider, useFirebase } from '../context/FirebaseContext';
-import { parseClaimToken } from '../utils/deepLink';
+import { parseClaimToken, parseTicketPassId } from '../utils/deepLink';
 import { formatEventDateShort } from '../utils/eventDateTime';
 import { logBreadcrumb } from '../lib/crashlyticsService';
 
@@ -265,6 +265,38 @@ function Navigator({ onNotificationNavigate }: { onNotificationNavigate?: (fn: (
     const sub = Linking.addEventListener('url', ({ url }) => handleClaimUrl(url));
     return () => sub.remove();
   }, [handleClaimUrl]);
+
+  // ── Existing-ticket deep link ─────────────────────────────────────────
+  // Handles wugi://tickets/{passId} (custom scheme) and
+  // https://wugi.us/tickets/{passId} (universal link) — the "Open in App"
+  // button on the web pass page (web/app/tickets/[orderId]/PassView.tsx).
+  // Resolves passId -> orderId so it can reuse the same PassScreen the
+  // post-purchase confirmation flow renders.
+  const lastTicketPassIdRef = useRef<string | null>(null);
+  const handleTicketUrl = useCallback((url: string | null) => {
+    const passId = parseTicketPassId(url);
+    if (!passId || passId === lastTicketPassIdRef.current) return;
+    lastTicketPassIdRef.current = passId;
+    routedRef.current = true;
+    splashDoneRef.current = true;
+    setAppPhase('main');
+    (async () => {
+      try {
+        const { getFirestore, doc, getDoc } = await import('@react-native-firebase/firestore');
+        const snap = await getDoc(doc(getFirestore(), 'passes', passId));
+        const orderId = snap.exists() ? (snap.data() as any)?.orderId : null;
+        push(orderId ? { screen: 'pass', orderId, isGuest: false } : { screen: 'passes' });
+      } catch {
+        push({ screen: 'passes' });
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    Linking.getInitialURL().then(handleTicketUrl).catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => handleTicketUrl(url));
+    return () => sub.remove();
+  }, [handleTicketUrl]);
 
   // ── Favorites (in-memory UI + Firestore persistence) ─────────────────
   // The in-memory `favorites` array drives the UI immediately (Saved tab,

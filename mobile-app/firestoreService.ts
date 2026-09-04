@@ -325,31 +325,6 @@ export async function saveUsername(uid: string, username: string): Promise<void>
   throw lastError;
 }
 
-// ── Phone Index ───────────────────────────────────────────────────────
-// phoneIndex/{E164PhoneNumber} → { uid, claimedAt }
-// Prevents recycled-number attacks. Old number freed after 30 days.
-
-export async function savePhoneNumber(uid: string, e164Phone: string): Promise<void> {
-  try {
-    const phoneRef = doc(collection(db, 'phoneIndex'), e164Phone);
-    const userRef  = doc(collection(db, 'users'), uid);
-
-    const existing = await getDoc(phoneRef);
-    if (existing.exists() && existing.data()?.uid !== uid) {
-      throw new Error('Phone number already linked to another account');
-    }
-
-    await Promise.all([
-      setDoc(phoneRef, { uid, claimedAt: serverTimestamp() }),
-      updateDoc(userRef, { phoneNumber: e164Phone, updatedAt: serverTimestamp() }),
-    ]);
-    console.log('savePhoneNumber: linked', e164Phone, 'to', uid);
-  } catch (e) {
-    console.log('savePhoneNumber error:', e);
-    throw e;
-  }
-}
-
 // ── Activity Tracking ─────────────────────────────────────────────────
 export async function logActivity(
   uid: string,
@@ -1112,8 +1087,7 @@ export async function getForYouFeed(
 
 // ── For You: Food/Menu Items suggestion source (UAT-W2D) ───────────────
 // Cross-venue menu browsing has no `collectionGroup('menu')` index or
-// `match /{path=**}/menu/{id}` rule today — see the TYPE_MENUS_TODO note in
-// DiscoverEditorialScreen.tsx, which explicitly flags adding that infra as
+// `match /{path=**}/menu/{id}` rule today, and adding that infra is
 // out-of-scope for a screen-level task. So instead of a collectionGroup
 // query, this fans out the SAME per-venue subcollection read MenuScreen
 // already does (`venues/{venueId}/menu`) across a bounded sample of venues

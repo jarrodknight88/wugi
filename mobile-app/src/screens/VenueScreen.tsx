@@ -56,7 +56,6 @@ import { orderDealsForDisplay } from '../utils/deals';
 import { formatEventDateShort } from '../utils/eventDateTime';
 import { hexToRgba } from '../utils/color';
 import { attachableImageUri, buildVenueShareMessage } from '../utils/share';
-import { makeGallery } from '../constants/mockData';
 import { logVenueViewed } from '../analytics/analyticsService';
 // Reuse the SAME series-collapse the marquee uses (one card per series, soonest
 // eligible, expired dropped) — do not reimplement. Exported from firestoreService.
@@ -421,7 +420,7 @@ export function VenueScreen({ venue, onBack, onEventPress, onMapPress, onGallery
             date: e.date || '', time: e.time || '', age: e.age || venue.age || '', about: e.about || '',
             media: (e.media || []).map((m: any) => typeof m === 'string' ? { type: 'image', uri: m } : m),
             hasTickets: e.hasTickets === true,
-            gallery: makeGallery(e.id, e.title || e.name || '', venue.name, e.date || '', ['gp1','gp2','gp3','gp4']),
+            gallery: { id: e.id, title: e.title || e.name || '', venue: venue.name, date: e.date || '', coverImage: '', photos: [] },
           }));
         const ticketDoc = approved.find((d: any) => d.data().hasTickets === true);
 
