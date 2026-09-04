@@ -49,7 +49,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, FSEvent, FSVenue } from '../types';
-import { makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { SearchIcon, ChevronRightIcon } from '../components/icons';
 import { ErrorState, EmptyState } from '../components/StateViews';
@@ -101,7 +100,7 @@ function toEventData(e: FSEvent): EventData {
     date: e.date || '', time: e.time || '', age: e.age || '', about: e.about || '',
     media: e.media || [],
     hasTickets: (e as any).hasTickets === true,
-    gallery: makeGallery(e.id, e.title, e.venue, e.date, ['gp1','gp2','gp3','gp4']),
+    gallery: { id: e.id, title: e.title || '', venue: e.venue || '', date: e.date || '', coverImage: '', photos: [] },
   };
 }
 

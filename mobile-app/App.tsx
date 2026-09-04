@@ -3,48 +3,20 @@
 // Entry point. Wraps with StripeProvider for payment sheet support.
 // InputAccessoryView lives here at root level (correct iOS pattern).
 // KBContext provides prev/next field navigation to the toolbar.
-//
-// VENUE-DATA-07 Deliverable E.4 additions:
-//  - QueryClientProvider wraps the app for React Query catalog hooks
-//  - Background prefetch of venues + events at mount (non-blocking)
-//  - AppState foreground listener invalidates catalog after >5min idle
-//  - Zustand catalog store hydrates from AsyncStorage automatically
-//    via persist() middleware — no explicit hydrate call needed here
 // ─────────────────────────────────────────────────────────────────────
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Keyboard, InputAccessoryView, Platform, AppState, type AppStateStatus } from 'react-native';
+import { View, Text, TouchableOpacity, Keyboard, InputAccessoryView, Platform } from 'react-native';
 import type { TextInput } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { useFonts } from 'expo-font';
 import Constants from 'expo-constants';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useNotifications, setNotificationTapHandler } from './src/hooks/useNotifications';
 import { KB_ACCESSORY_ID, KBContext } from './src/constants/keyboard';
-import { queryKeys } from './src/hooks/useCatalogQueries';
-import { getApprovedVenues, getApprovedEvents } from './firestoreService';
 import { initRemoteConfig, getMinSupportedVersion } from './src/lib/remoteConfig';
 import { watchTransactionUpdates } from './src/lib/iap';
 import { isVersionBelow } from './src/utils/version';
 import { ForceUpdateScreen } from './src/screens/ForceUpdateScreen';
-
-// React Query client — defaults tuned for mobile catalog reads.
-// staleTime 1h: most catalog data doesn't churn between sessions.
-// retry 3 with default exponential backoff.
-// refetchOnWindowFocus disabled: irrelevant on mobile; covered by AppState below.
-// refetchOnReconnect true: pick up changes after network outage.
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime:            60 * 60 * 1000,
-      retry:                3,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect:   true,
-    },
-  },
-});
-
-const FOREGROUND_INVALIDATE_AFTER_MS = 5 * 60 * 1000; // 5 min idle threshold
 
 // Publishable key is non-secret by design (Stripe ships it in every client
 // bundle) but lives in app.json → extra so it has one canonical source,
@@ -98,42 +70,6 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // ── Catalog warm-start (Deliverable E.4) ───────────────────────────
-  // Kick off a non-blocking prefetch on mount. Falls into React Query
-  // cache, then any consumer using useVenues/useEvents resolves
-  // immediately. Errors are swallowed — UI handles loading state.
-  useEffect(() => {
-    queryClient.prefetchQuery({
-      queryKey: queryKeys.venues(),
-      queryFn:  async () => getApprovedVenues(undefined, 100),
-    }).catch(() => { /* non-blocking */ });
-    queryClient.prefetchQuery({
-      queryKey: queryKeys.events(),
-      queryFn:  async () => getApprovedEvents(undefined, 100),
-    }).catch(() => { /* non-blocking */ });
-  }, []);
-
-  // ── AppState foreground listener (Deliverable E.4) ─────────────────
-  // When the app comes back to the foreground after >5min in background,
-  // invalidate the catalog so freshness re-checks happen in the background.
-  // Cached data still renders immediately; new data swaps in when ready.
-  const lastBackgroundedAt = useRef<number | null>(null);
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'background' || next === 'inactive') {
-        lastBackgroundedAt.current = Date.now();
-      } else if (next === 'active') {
-        const idleMs = lastBackgroundedAt.current ? Date.now() - lastBackgroundedAt.current : 0;
-        if (idleMs > FOREGROUND_INVALIDATE_AFTER_MS) {
-          queryClient.invalidateQueries({ queryKey: ['venues'] });
-          queryClient.invalidateQueries({ queryKey: ['events'] });
-        }
-        lastBackgroundedAt.current = null;
-      }
-    });
-    return () => sub.remove();
-  }, []);
-
   const register = useCallback((refs: React.RefObject<TextInput>[]) => {
     fieldRefsRef.current = refs;
   }, []);
@@ -164,7 +100,6 @@ export default function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
     <KBContext.Provider value={{ register, focusPrev, focusNext }}>
       <StripeProvider
         publishableKey={STRIPE_PUBLISHABLE_KEY}
@@ -194,6 +129,5 @@ export default function App() {
         </InputAccessoryView>
       )}
     </KBContext.Provider>
-    </QueryClientProvider>
   );
 }

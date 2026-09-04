@@ -41,7 +41,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import type { Theme } from '../constants/colors';
 import type { EventData, VenueData, GalleryData, FSEvent, FSVenue, FSDeal, ItineraryDoc } from '../types';
-import { makeGallery } from '../constants/mockData';
 import { FONTS, MONO } from '../constants/fonts';
 import { ChevronRightIcon } from '../components/icons';
 import { VibeEventCard } from '../components/VibeEventCard';
@@ -117,8 +116,7 @@ function toEventData(e: FSEvent): EventData {
     bannerImage: e.bannerImage || undefined,
     dateISO: (e as any).dateISO || undefined,
     hasTickets: (e as any).hasTickets === true,
-    gallery: makeGallery(e.id, e.title, e.venue, e.date,
-      ['gp1','gp2','gp3','gp4','gp5','gp6','gp7','gp8']),
+    gallery: { id: e.id, title: e.title || '', venue: e.venue || '', date: e.date || '', coverImage: '', photos: [] },
   };
 }
 

@@ -22,7 +22,7 @@
 //   • Result count line ("N RESULTS · QUERY").
 //   • Grid (default) or list cards over real Firestore data
 //     (getApprovedEvents + getApprovedVenues + getActiveDeals
-//      + getApprovedGalleries; Menus deferred — see TYPE_MENUS_TODO below).
+//      + getApprovedGalleries).
 //
 // Filter sheet (RN Modal slide-up; no new native deps):
 //   • Three categorized multi-select dimensions — Type / Vibe / Amenities.
@@ -30,9 +30,7 @@
 //     discards. "Clear all" empties the draft.
 //
 // BATCH 6 — Type filter expansion + Vibe/Amenities taxonomy moved to Firestore.
-//   • Type filter now includes Events / Venues / Deals / Galleries / Menus.
-//     Menus is a no-op placeholder pending a collectionGroup('menu') index
-//     and an `approved` flag on menu-item docs (see TYPE_MENUS_TODO).
+//   • Type filter now includes Events / Venues / Deals / Galleries.
 //   • Vibe + Amenities pulled from filters/{vibes,amenities} Firestore docs
 //     on first search-bar tap; the hardcoded FALLBACK_VIBES / FALLBACK_AMENITIES
 //     arrays below stay in sync with scripts/scrape/03-transform-and-write.js
@@ -104,22 +102,12 @@ function SearchResultsGridSkeleton({ theme }: { theme: Theme }) {
 
 // ── Filter taxonomy ────────────────────────────────────────────────────
 // Three multi-select dimensions per the handoff. Type is hardcoded (app
-// structure — Events / Venues / Deals / Galleries / Menus); Vibe + Amenities
+// structure — Events / Venues / Deals / Galleries); Vibe + Amenities
 // are pulled from filters/{vibes,amenities} Firestore docs at runtime with
 // the fallback arrays below standing in if the read fails.
-//
-// TYPE_MENUS_TODO — "Menus" is shown in the filter UI but emits no results
-// today. Cross-venue menu search would require a `collectionGroup('menu')`
-// query against the `venues/{venueId}/menu` subcollection. That needs an
-// `approved` flag on menu-item docs + a composite index in
-// firebase/firestore.indexes.json: { approved ASC, name ASC, queryScope:
-// COLLECTION_GROUP } + an explicit `match /{path=**}/menu/{id}` rule in
-// firestore.rules. None of those exist today, and the workflow directive
-// flags such index additions as out-of-scope. When that infra lands, wire
-// `getMenuItemsByName(q)` into ensureSearchData and emit kind:'menu' rows.
 const FILTER_DIMS = ['Type', 'Vibe', 'Amenities'] as const;
 type FilterDim = typeof FILTER_DIMS[number];
-const TYPE_OPTIONS = ['Events', 'Venues', 'Deals', 'Galleries', 'Menus'] as const;
+const TYPE_OPTIONS = ['Events', 'Venues', 'Deals', 'Galleries'] as const;
 type TypeOption = typeof TYPE_OPTIONS[number];
 
 // Fallback values kept in lockstep with the canonical sources:
@@ -142,13 +130,12 @@ const FALLBACK_FILTERS: Record<FilterDim, string[]> = {
   Amenities: FALLBACK_AMENITIES,
 };
 const DIM_ACCENT: Record<FilterDim, string> = { Type: '#5fa080', Vibe: '#9b59b6', Amenities: '#5ba8c4' };
-type SearchKind = 'event' | 'venue' | 'deal' | 'gallery' | 'menu';
+type SearchKind = 'event' | 'venue' | 'deal' | 'gallery';
 const TYPE_COLOR: Record<SearchKind, string> = {
   event:   '#5fa080',
   venue:   '#5ba8c4',
   deal:    '#a8533f',
   gallery: '#9b59b6',
-  menu:    '#c4a35b',
 };
 type Picked = Record<FilterDim, string[]>;
 const EMPTY_PICKS: Picked = { Type: [], Vibe: [], Amenities: [] };
@@ -642,9 +629,6 @@ type SearchItem =
   | { kind: 'venue';   data: FSVenue;  image: string }
   | { kind: 'deal';    id: string; title: string; venueName: string; detail: string; image: string }
   | { kind: 'gallery'; data: GalleryDoc; image: string };
-// `menu` kind intentionally omitted from the union: see TYPE_MENUS_TODO at
-// the top of this file. The "Menus" filter option renders an empty results
-// state until the collectionGroup index lands.
 
 function venueFirstImage(v: FSVenue): string {
   const m = (v.media || []) as any[];
@@ -752,7 +736,6 @@ function SearchBody({
         out.push({ kind: 'gallery', data: g, image: cover });
       });
     }
-    // 'Menus' includeKind('Menus') is intentionally a no-op — see TYPE_MENUS_TODO.
     return out;
   }, [query, picked, events, venues, deals, galleries]);
 
@@ -900,19 +883,10 @@ function SearchBody({
       ListHeaderComponent={<><FilterBar/><ResultCount/></>}
       stickyHeaderIndices={[0]}
       ListEmptyComponent={
-        // Menus-only filter shows a distinct empty state — search across menu
-        // items isn't wired yet (see TYPE_MENUS_TODO at top of file).
-        picked.Type.length === 1 && picked.Type[0] === 'Menus' ? (
-          <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
-            <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Menu search coming soon</Text>
-            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>We're wiring cross-venue menu search. Try a venue to see its menu.</Text>
-          </View>
-        ) : (
-          <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
-            <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Nothing matches that</Text>
-            <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>Try a different search or fewer filters.</Text>
-          </View>
-        )
+        <View style={{ paddingTop: 60, paddingHorizontal: 32, alignItems: 'center' }}>
+          <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display, letterSpacing: -0.2, marginBottom: 6, textAlign: 'center' }}>Nothing matches that</Text>
+          <Text style={{ color: theme.subtext, fontSize: 13, fontFamily: FONTS.body, textAlign: 'center', opacity: 0.7 }}>Try a different search or fewer filters.</Text>
+        </View>
       }
       showsVerticalScrollIndicator={false}
     />
