@@ -215,6 +215,20 @@ service cloud.firestore {
                 .hasOnly(['heartbeatAt', 'batteryPct', 'updatedAt']));
     }
 
+    // ── Web Upload Tokens ────────────────────────────────────────────
+    // webUploadTokens/{token} — no-hardware counterpart to devices/{id}
+    // (issue #255). Minted by staff from the event page (dashboard
+    // bronze-upload-link route) and consumed by two server-only paths:
+    // web/app/upload/[token] (resolves via Admin SDK to render the public
+    // drag-and-drop page) and the ingestWebUpload Cloud Function (validates
+    // the token before ingesting). Neither ever needs a client-side read —
+    // both use the Admin SDK, which bypasses these rules — so this is
+    // staff-only, same as devices.
+    match /webUploadTokens/{token} {
+      allow read:                if isStaff();
+      allow create, update, delete: if isStaff();
+    }
+
     // ── Lens Quarantine Log ──────────────────────────────────────────
     // Written by the ingest Cloud Function when an upload fails device/
     // gallery validation. Read-only for staff.

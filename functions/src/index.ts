@@ -38,6 +38,7 @@ export { apifyWebhook }       from './bridge/apifyWebhook';
 export { runTargetedScrape }  from './bridge/runTargetedScrape';
 export { syncApifySeedList }  from './bridge/syncApifySeedList';
 export { ingestLensUpload }   from './lens/ingestLensUpload';
+export { ingestWebUpload }    from './lens/ingestWebUpload';
 export { onVenueIntelApproved } from './intel/onVenueIntelApproved';
 export { spendFreeUnlock }        from './unlocks/spendFreeUnlock';
 export { getPhotographerEarnings } from './unlocks/getPhotographerEarnings';
