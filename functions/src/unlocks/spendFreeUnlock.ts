@@ -30,7 +30,9 @@ import * as admin from 'firebase-admin';
 
 const db = admin.firestore();
 
-function parsePhotoId(photoId: string): { galleryId: string; index: number } | null {
+// Exported for functions/src/creditEconomy/spendCredit.ts — the credit-spend
+// entitlement writer reuses this exact parse instead of duplicating it.
+export function parsePhotoId(photoId: string): { galleryId: string; index: number } | null {
   // Split on the FINAL hyphen — gallery ids can themselves contain hyphens.
   // Must stay in sync with the client-side parse in
   // mobile-app/src/navigation/RootNavigator.tsx (openLikedPhoto) and

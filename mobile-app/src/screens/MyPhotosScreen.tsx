@@ -17,6 +17,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import { FONTS, MONO } from '../constants/fonts';
 import { SkeletonBlock } from '../components/Skeleton';
+import { CreditBalanceBadge } from '../components/CreditBalanceBadge';
 import { listMyUnlocks, resolveUnlockedPhotos, type UnlockedPhoto } from '../../firestoreService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -35,14 +36,16 @@ type Props = {
 export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
   const [photos,  setPhotos]  = useState<UnlockedPhoto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uid, setUid] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const { getAuth } = await import('@react-native-firebase/auth');
-      const uid = getAuth().currentUser?.uid;
-      if (!uid) { setPhotos([]); return; }
-      const unlocks = await listMyUnlocks(uid);
+      const currentUid = getAuth().currentUser?.uid ?? null;
+      setUid(currentUid);
+      if (!currentUid) { setPhotos([]); return; }
+      const unlocks = await listMyUnlocks(currentUid);
       setPhotos(await resolveUnlockedPhotos(unlocks));
     } catch (e) {
       console.log('MyPhotosScreen load failed', e);
@@ -64,7 +67,7 @@ export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
             </Svg>
           </TouchableOpacity>
           <Text style={{ color: theme.text, fontSize: 20, fontFamily: FONTS.display, letterSpacing: -0.5 }}>My Photos</Text>
-          <View style={{ width: 36 }}/>
+          <CreditBalanceBadge uid={uid} theme={theme}/>
         </View>
       </SafeAreaView>
 

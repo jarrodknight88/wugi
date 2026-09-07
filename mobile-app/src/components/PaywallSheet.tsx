@@ -1,30 +1,39 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — PaywallSheet
-// Photo-unlock paywall (Asana 1216729383901466 / issue #252). Opens from
-// PhotoViewer's "Buy" button. Offers, in order: the evergreen free
-// HD-unlock credit (if unused), the single-photo StoreKit purchase, and
-// the whole-gallery StoreKit purchase — plus Restore Purchases, which
+// Photo-unlock paywall, now on the CREDIT ECONOMY (Asana 1218248530084817
+// / issue #282 — replaces the 2-SKU photo IAP, Asana 1216729383901466 /
+// issue #252). Opens from PhotoViewer's "Buy" button. Offers, in order:
+// the evergreen free HD-unlock credit (if unused), spending existing
+// wallet credits on this photo (server resolves + clamps the price — see
+// functions/src/creditEconomy/spendCredit.ts), and buying more credits
+// via the three StoreKit consumables — plus Restore Purchases, which
 // Apple requires for any IAP-selling app regardless of consumable vs
-// non-consumable (see mobile-app/src/lib/iap.ts restorePurchases doc
-// comment for what it actually recovers).
+// non-consumable.
 // ─────────────────────────────────────────────────────────────────────
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import type { Theme } from '../constants/colors';
 import {
-  PRODUCT_IDS, fetchUnlockProducts, purchaseSinglePhoto, purchaseGallery, useFreeUnlock,
-  restorePurchases, isStoreKitAvailable, CallableFunctionError,
+  PRODUCT_IDS, fetchCreditProducts, purchaseCredits, spendCredit, useFreeUnlock,
+  restorePurchases, isStoreKitAvailable, CallableFunctionError, type CreditSku,
 } from '../lib/iap';
 import type { StoreProduct } from '../../modules/storekit-iap';
-import { getUserProfile } from '../../firestoreService';
+import { getUserProfile, getGalleryById } from '../../firestoreService';
+
+const SKU_LABELS: Record<CreditSku, string> = {
+  credits_1: '1 credit',
+  credits_3: '3 credits',
+  credits_5: '5 credits',
+};
 
 type Props = {
   visible: boolean;
   onClose: () => void;
-  // Fired once a photo/gallery unlock is durably confirmed (free credit or
-  // paid), BEFORE onClose — lets the caller (PhotoViewer) flip its local
-  // "unlocked" state so the Buy button updates without a re-fetch.
-  onUnlocked: (kind: 'photo' | 'gallery') => void;
+  // Fired once a photo unlock is durably confirmed (free credit or
+  // credit-redemption), BEFORE onClose — lets the caller (PhotoViewer)
+  // flip its local "unlocked" state so the Buy button updates without a
+  // re-fetch.
+  onUnlocked: (kind: 'photo') => void;
   theme: Theme;
   uid: string;
   photoId: string;
@@ -35,8 +44,11 @@ type Props = {
 export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId, galleryId, photoIndex }: Props) {
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [freeUnlockAvailable, setFreeUnlockAvailable] = useState(false);
+  const [balance, setBalance] = useState(0);
+  const [photoCost, setPhotoCost] = useState(1);
+  const [galleryFree, setGalleryFree] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(true);
-  const [busy, setBusy] = useState<'free' | 'photo' | 'gallery' | 'restore' | null>(null);
+  const [busy, setBusy] = useState<'free' | 'spend' | CreditSku | 'restore' | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -44,18 +56,21 @@ export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId
     setError('');
     setLoadingProducts(true);
     (async () => {
-      const [fetchedProducts, profile] = await Promise.all([
-        fetchUnlockProducts(),
+      const [fetchedProducts, profile, gallery] = await Promise.all([
+        fetchCreditProducts(),
         getUserProfile(uid),
+        getGalleryById(galleryId),
       ]);
       setProducts(fetchedProducts);
       setFreeUnlockAvailable(!profile?.freeUnlockUsed);
+      setBalance(profile?.creditBalance ?? 0);
+      setGalleryFree(gallery?.promoFlag === true);
+      // Display-only estimate — the server (spendCredit) is the source of
+      // truth and clamps this same value independently at spend time.
+      setPhotoCost(Math.min(4, Math.max(1, gallery?.photoCreditCost ?? 1)));
       setLoadingProducts(false);
     })();
-  }, [visible, uid]);
-
-  const photoProduct   = products.find(p => p.productId === PRODUCT_IDS.photo);
-  const galleryProduct = products.find(p => p.productId === PRODUCT_IDS.gallery);
+  }, [visible, uid, galleryId]);
 
   function friendlyError(e: unknown): string {
     if (e instanceof CallableFunctionError) {
@@ -82,28 +97,27 @@ export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId
     }
   }
 
-  async function handleBuyPhoto() {
-    setBusy('photo');
+  async function handleSpendCredit() {
+    setBusy('spend');
     setError('');
     try {
-      await purchaseSinglePhoto({ uid, photoId, galleryId, photoIndex });
+      const result = await spendCredit(photoId);
+      if (typeof result.balance === 'number') setBalance(result.balance);
       onUnlocked('photo');
       onClose();
     } catch (e) {
-      const msg = friendlyError(e);
-      if (msg) setError(msg);
+      setError(friendlyError(e));
     } finally {
       setBusy(null);
     }
   }
 
-  async function handleBuyGallery() {
-    setBusy('gallery');
+  async function handleBuyCredits(sku: CreditSku) {
+    setBusy(sku);
     setError('');
     try {
-      await purchaseGallery({ uid, galleryId });
-      onUnlocked('gallery');
-      onClose();
+      const result = await purchaseCredits({ uid, sku });
+      setBalance(result.balance);
     } catch (e) {
       const msg = friendlyError(e);
       if (msg) setError(msg);
@@ -119,9 +133,12 @@ export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId
       const recovered = await restorePurchases();
       Alert.alert(
         recovered > 0 ? 'Purchases restored' : 'Nothing to restore',
-        recovered > 0 ? `Recovered ${recovered} unlock${recovered === 1 ? '' : 's'}.` : 'No pending purchases were found for this account.'
+        recovered > 0 ? `Recovered ${recovered} purchase${recovered === 1 ? '' : 's'}.` : 'No pending purchases were found for this account.'
       );
-      if (recovered > 0) { onUnlocked('photo'); onClose(); }
+      if (recovered > 0) {
+        const profile = await getUserProfile(uid);
+        setBalance(profile?.creditBalance ?? 0);
+      }
     } catch (e) {
       console.log('PaywallSheet: restore failed', e);
       setError('Restore failed. Please try again.');
@@ -131,6 +148,8 @@ export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId
   }
 
   const storeKitReady = isStoreKitAvailable();
+  const effectiveCost = galleryFree ? 0 : photoCost;
+  const canSpend = effectiveCost === 0 || balance >= effectiveCost;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -153,6 +172,10 @@ export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId
               </Text>
             ) : (
               <>
+                <Text style={{ color: theme.subtext, fontSize: 13, fontWeight: '600', textAlign: 'center', marginBottom: 16 }}>
+                  You have {balance} credit{balance === 1 ? '' : 's'}
+                </Text>
+
                 {freeUnlockAvailable && (
                   <TouchableOpacity
                     onPress={handleFreeUnlock}
@@ -166,26 +189,45 @@ export function PaywallSheet({ visible, onClose, onUnlocked, theme, uid, photoId
                 )}
 
                 <TouchableOpacity
-                  onPress={handleBuyPhoto}
-                  disabled={busy != null || !photoProduct}
-                  style={{ backgroundColor: theme.card, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderWidth: 1, borderColor: theme.divider, opacity: busy != null && busy !== 'photo' ? 0.5 : 1 }}
+                  onPress={handleSpendCredit}
+                  disabled={busy != null || !canSpend}
+                  style={{ backgroundColor: theme.card, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderWidth: 1, borderColor: theme.divider, opacity: busy != null && busy !== 'spend' ? 0.5 : (canSpend ? 1 : 0.5) }}
                 >
-                  <Text style={{ color: theme.text, fontSize: 15, fontWeight: '600' }}>Unlock this photo</Text>
-                  {busy === 'photo' ? <ActivityIndicator color={theme.text} size="small"/> : (
-                    <Text style={{ color: theme.accent, fontSize: 15, fontWeight: '700' }}>{photoProduct?.displayPrice ?? '—'}</Text>
+                  <Text style={{ color: theme.text, fontSize: 15, fontWeight: '600' }}>
+                    {effectiveCost === 0 ? 'Unlock (gallery is free)' : 'Unlock with credits'}
+                  </Text>
+                  {busy === 'spend' ? <ActivityIndicator color={theme.text} size="small"/> : (
+                    <Text style={{ color: theme.accent, fontSize: 15, fontWeight: '700' }}>
+                      {effectiveCost === 0 ? 'Free' : `${effectiveCost} credit${effectiveCost === 1 ? '' : 's'}`}
+                    </Text>
                   )}
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={handleBuyGallery}
-                  disabled={busy != null || !galleryProduct}
-                  style={{ backgroundColor: theme.card, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderWidth: 1, borderColor: theme.divider, opacity: busy != null && busy !== 'gallery' ? 0.5 : 1 }}
-                >
-                  <Text style={{ color: theme.text, fontSize: 15, fontWeight: '600' }}>Unlock the full gallery</Text>
-                  {busy === 'gallery' ? <ActivityIndicator color={theme.text} size="small"/> : (
-                    <Text style={{ color: theme.accent, fontSize: 15, fontWeight: '700' }}>{galleryProduct?.displayPrice ?? '—'}</Text>
-                  )}
-                </TouchableOpacity>
+                {!canSpend && (
+                  <Text style={{ color: theme.subtext, fontSize: 12, textAlign: 'center', marginBottom: 16 }}>
+                    Not enough credits — buy more below
+                  </Text>
+                )}
+
+                <Text style={{ color: theme.subtext, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 }}>
+                  BUY CREDITS
+                </Text>
+                {(Object.keys(PRODUCT_IDS) as CreditSku[]).map((sku) => {
+                  const product = products.find(p => p.productId === PRODUCT_IDS[sku]);
+                  return (
+                    <TouchableOpacity
+                      key={sku}
+                      onPress={() => handleBuyCredits(sku)}
+                      disabled={busy != null || !product}
+                      style={{ backgroundColor: theme.card, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderWidth: 1, borderColor: theme.divider, opacity: busy != null && busy !== sku ? 0.5 : 1 }}
+                    >
+                      <Text style={{ color: theme.text, fontSize: 15, fontWeight: '600' }}>{SKU_LABELS[sku]}</Text>
+                      {busy === sku ? <ActivityIndicator color={theme.text} size="small"/> : (
+                        <Text style={{ color: theme.accent, fontSize: 15, fontWeight: '700' }}>{product?.displayPrice ?? '—'}</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
 
                 {!!error && <Text style={{ color: '#e74c3c', fontSize: 13, marginTop: 4, marginBottom: 8, textAlign: 'center' }}>{error}</Text>}
 

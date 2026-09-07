@@ -40,6 +40,7 @@ import {
   startAfter,
   serverTimestamp,
   addDoc,
+  onSnapshot,
 } from '@react-native-firebase/firestore';
 import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import type {
@@ -70,6 +71,13 @@ export type UserProfile = {
   // this account spends its evergreen free HD-unlock credit. Absent/false
   // means the credit is still available.
   freeUnlockUsed?: boolean;
+  // Credit-economy wallet balance (Asana 1218248530084817 / issue #282).
+  // Denormalized cache of the running total in the `creditLedger`
+  // subcollection — ONLY ever written by Cloud Functions in the same
+  // transaction as a ledger entry (see firebase/firestore.rules: this
+  // field is excluded from every client update path). Leftover credits
+  // persist — never expire.
+  creditBalance?: number;
   createdAt: any;
 };
 
@@ -270,6 +278,20 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
     recordNonFatal('getUserProfile', e);
     return null;
   }
+}
+
+// Live wallet balance (Asana 1218248530084817 / issue #282, Part 2 —
+// "small wallet presence"). Fires immediately with the current balance,
+// then again whenever a purchase or redemption updates users/{uid}
+// server-side, so the badge never needs a manual refresh. Returns the
+// unsubscribe function.
+export function subscribeToCreditBalance(uid: string, callback: (balance: number) => void): () => void {
+  const ref = doc(collection(db, 'users'), uid);
+  return onSnapshot(ref, (snap: FirebaseFirestoreTypes.DocumentSnapshot) => {
+    callback(Number(snap.data()?.creditBalance ?? 0));
+  }, (e: unknown) => {
+    console.log('subscribeToCreditBalance error:', e);
+  });
 }
 
 // ── Username ──────────────────────────────────────────────────────────
@@ -950,7 +972,12 @@ export async function isFavorite(
 // `spendFreeUnlock` Cloud Function (transactional, prevents double-spend of
 // the one evergreen free credit) — this file only ever READS the
 // collection, matching security rules (`allow write: if false`).
-export type UnlockSource = 'free-credit' | 'purchased';
+// 'credit-redemption' (Asana 1218248530084817 / issue #282) — spent from
+// the credit-economy wallet via spendCredit, tracked via `creditsCost`
+// below. 'purchased' is legacy: unlocks bought directly under the old
+// 2-SKU photo IAP (Asana 1216729383901466 / issue #252), which that
+// restructure replaced — no new 'purchased' unlocks are written.
+export type UnlockSource = 'free-credit' | 'purchased' | 'credit-redemption';
 
 export type UnlockDoc = {
   id: string;
@@ -960,10 +987,13 @@ export type UnlockDoc = {
   photoIndex: number;
   photographerId: string | null;
   source: UnlockSource;
-  // Only present when source === 'purchased' — written by
-  // validateUnlockPurchase (functions/src/unlocks/validateUnlockPurchase.ts).
+  // Only present when source === 'purchased' (legacy) — written by the old
+  // validateUnlockPurchase flow.
   purchaseId?: string;
   amountCents?: number;
+  // Only present when source === 'credit-redemption' — how many credits
+  // this unlock cost, written by functions/src/creditEconomy/spendCredit.ts.
+  creditsCost?: number;
   createdAt?: any;
 };
 
@@ -1011,34 +1041,32 @@ export async function isPhotoUnlocked(userId: string, photoId: string): Promise<
 
 // ── Unlock intents (StoreKit purchase context) ──────────────────────────
 // Top-level `unlockIntents` collection — bridges an anonymous App Store
-// consumable purchase back to "which photo/gallery was this for". Written
-// by the client (own uid only, see firebase/firestore.rules) BEFORE
-// starting the StoreKit purchase, keyed by the same UUID passed to
-// StoreKit as `appAccountToken`. `validateUnlockPurchase`
+// consumable purchase back to "which account". Written by the client (own
+// uid only, see firebase/firestore.rules) BEFORE starting the StoreKit
+// purchase, keyed by the same UUID passed to StoreKit as
+// `appAccountToken`. `validateUnlockPurchase`
 // (functions/src/unlocks/validateUnlockPurchase.ts) reads the
 // appAccountToken back out of Apple's *signed* transaction (never a
-// client-supplied id) and looks up this doc server-side to resolve
-// entitlement targets — see that file for why this exists and its
+// client-supplied id) and looks up this doc server-side to resolve which
+// account to credit — see that file for why this exists and its
 // restore-purchases tradeoffs.
-export type UnlockIntentKind = 'photo' | 'gallery';
+//
+// Credit economy (Asana 1218248530084817 / issue #282): the only intent
+// kind now is 'credits' — purchases aren't tied to a specific
+// photo/gallery anymore, so galleryId/photoId/photoIndex were dropped.
+export type UnlockIntentKind = 'credits';
 
 export async function createUnlockIntent(params: {
   intentId: string;
   uid: string;
   kind: UnlockIntentKind;
   productId: string;
-  galleryId: string;
-  photoId?: string;
-  photoIndex?: number;
 }): Promise<void> {
-  const { intentId, uid, kind, productId, galleryId, photoId, photoIndex } = params;
+  const { intentId, uid, kind, productId } = params;
   await setDoc(doc(collection(db, 'unlockIntents'), intentId), {
     uid,
     kind,
     productId,
-    galleryId,
-    photoId: photoId ?? null,
-    photoIndex: typeof photoIndex === 'number' ? photoIndex : null,
     status: 'pending',
     createdAt: serverTimestamp(),
   });

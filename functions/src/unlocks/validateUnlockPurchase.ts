@@ -1,12 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — validateUnlockPurchase
-// Server-side StoreKit 2 receipt validation for photo-unlock IAP (Asana
-// 1216729383901466 / issue #252) — the entitlement writer the extension
-// point in spendFreeUnlock.ts calls out. Verifies the signed transaction
-// JWS the client got back from StoreKit, then writes to the SAME
-// `unlocks` collection spendFreeUnlock uses (source: 'purchased'), so
-// MyPhotosScreen / isPhotoUnlocked need no changes to support paid
-// unlocks.
+// Server-side StoreKit 2 receipt validation for the CREDIT ECONOMY (Asana
+// 1218248530084817 / issue #282) — replaces the old 2-SKU photo-unlock IAP
+// (Asana 1216729383901466 / issue #252). Apple sells CREDITS only now;
+// everything is priced and unlocked in credits server-side (see
+// functions/src/creditEconomy/spendCredit.ts). Architecture is UNCHANGED
+// from the merged PR #253 (unlockIntents doc as appAccountToken, this CF,
+// the `purchases` idempotency ledger) — only the product catalog and
+// fulfillment target changed: fulfillment now credits `creditBalance`
+// instead of writing a photo/gallery `unlocks` entitlement directly.
 //
 // WHY THE CLIENT CAN'T BE TRUSTED HERE: a client can fabricate any
 // "I bought this" call. The transaction JWS is signed by Apple; this
@@ -14,13 +16,13 @@
 // productId/transactionId back OUT of the verified payload — never off
 // anything the client passed in the RPC body except the JWS itself.
 //
-// PHOTO/GALLERY CONTEXT: Apple's consumable purchases carry no notion of
-// "which photo" — that's bridged via `appAccountToken`, a UUID the client
-// mints and writes to a Firestore `unlockIntents/{token}` doc (uid, kind,
-// galleryId, photoId?) BEFORE starting the StoreKit purchase (see
+// INTENT BRIDGE: Apple's consumable purchases carry no notion of "which
+// account" beyond `appAccountToken`, a UUID the client mints and writes to
+// a Firestore `unlockIntents/{token}` doc (uid, kind: 'credits',
+// productId) BEFORE starting the StoreKit purchase (see
 // mobile-app/src/lib/iap.ts). We read the appAccountToken back out of the
 // VERIFIED payload, then look up that intent doc server-side — a client
-// cannot forge which photo a real Apple-signed purchase pays for.
+// cannot forge which account a real Apple-signed purchase pays into.
 //
 // APPLE ROOT CERTIFICATES: SignedDataVerifier needs Apple's root CA
 // certificates as trust anchors. This sandbox had no network access to
@@ -39,16 +41,16 @@ import { SignedDataVerifier, Environment } from '@apple/app-store-server-library
 
 const db = admin.firestore();
 
-// Reverse-DNS-style but NOT tied to the bundle id on purpose — the app's
-// bundle id has drifted between builds (com.wugimedia.wugitest vs
-// com.wugi.wugi — see PR description), while App Store Connect product
-// ids, once created, are permanent. Must exactly match what's configured
-// in ASC (app id 829564750) and mobile-app/src/lib/iap.ts PRODUCT_IDS.
-const PRODUCT_IDS = {
-  photo: 'unlock_single_photo',
-  gallery: 'unlock_gallery',
-} as const;
-const KNOWN_PRODUCT_IDS = new Set<string>(Object.values(PRODUCT_IDS));
+// Three consumables (replaces unlock_single_photo / unlock_gallery) — must
+// exactly match ASC product ids (app id 829564750, Jarrod creates these in
+// console — out of scope for this task) and mobile-app/src/lib/iap.ts
+// PRODUCT_IDS. Value = credits granted on fulfillment.
+const CREDIT_GRANTS: Record<string, number> = {
+  credits_1: 1,
+  credits_3: 3,
+  credits_5: 5,
+};
+const KNOWN_PRODUCT_IDS = new Set<string>(Object.keys(CREDIT_GRANTS));
 
 // TODO(human, before deploy): confirm this is the bundle id actually
 // registered against ASC app id 829564750 — app.json currently still
@@ -102,10 +104,10 @@ async function getVerifier(environment: Environment): Promise<SignedDataVerifier
   return verifierSandbox;
 }
 
-// TestFlight and sandbox testing (Jarrod's Labor Day demo, pre-submission
-// QA) always produce Sandbox-environment transactions even though it's
-// otherwise "the real app" — try Production first since that's the
-// eventual steady state, fall back to Sandbox rather than rejecting.
+// TestFlight and sandbox testing always produce Sandbox-environment
+// transactions even though it's otherwise "the real app" — try Production
+// first since that's the eventual steady state, fall back to Sandbox
+// rather than rejecting.
 async function verifyTransaction(jws: string) {
   try {
     const verifier = await getVerifier(Environment.PRODUCTION);
@@ -118,11 +120,8 @@ async function verifyTransaction(jws: string) {
 
 type UnlockIntent = {
   uid: string;
-  kind: 'photo' | 'gallery';
+  kind: 'credits';
   productId: string;
-  galleryId: string;
-  photoId?: string | null;
-  photoIndex?: number | null;
   status: 'pending' | 'fulfilled';
 };
 
@@ -159,13 +158,25 @@ export const validateUnlockPurchase = functions.https.onCall(async (data: { jws?
   // client call, etc).
   const purchaseRef = db.collection('purchases').doc(transactionId);
   const intentRef = db.collection('unlockIntents').doc(String(appAccountToken));
+  const userRef = db.collection('users').doc(uid);
 
   return db.runTransaction(async (tx) => {
-    const [purchaseSnap, intentSnap] = await Promise.all([tx.get(purchaseRef), tx.get(intentRef)]);
+    // Firestore transactions require ALL reads to complete before ANY
+    // write is staged — every tx.get() below happens first (via
+    // Promise.all), every tx.set()/tx.update() happens only after.
+    const [purchaseSnap, intentSnap, userSnap] = await Promise.all([
+      tx.get(purchaseRef),
+      tx.get(intentRef),
+      tx.get(userRef),
+    ]);
 
     if (purchaseSnap.exists) {
       const existing = purchaseSnap.data()!;
-      return { unlockIds: existing.unlockIds as string[], kind: existing.kind as 'photo' | 'gallery', alreadyProcessed: true };
+      return {
+        creditsGranted: existing.creditsGranted as number,
+        balance: existing.balanceAfter as number,
+        alreadyProcessed: true,
+      };
     }
 
     if (!intentSnap.exists) {
@@ -175,7 +186,7 @@ export const validateUnlockPurchase = functions.https.onCall(async (data: { jws?
       // restore without a durable per-purchase intent record.
       throw new functions.https.HttpsError(
         'failed-precondition',
-        'No matching unlock request found for this purchase — contact support to resolve.'
+        'No matching purchase request found for this transaction — contact support to resolve.'
       );
     }
     const intent = intentSnap.data() as UnlockIntent;
@@ -183,79 +194,40 @@ export const validateUnlockPurchase = functions.https.onCall(async (data: { jws?
       throw new functions.https.HttpsError('permission-denied', 'This purchase belongs to a different account');
     }
     if (intent.productId !== productId) {
-      throw new functions.https.HttpsError('failed-precondition', 'Product mismatch between purchase and unlock request');
+      throw new functions.https.HttpsError('failed-precondition', 'Product mismatch between purchase and purchase request');
     }
 
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const unlockIds: string[] = [];
+    const creditsGranted = CREDIT_GRANTS[productId];
+    const currentBalance: number = userSnap.exists ? Number(userSnap.data()?.creditBalance ?? 0) : 0;
+    const newBalance = currentBalance + creditsGranted;
 
-    // Firestore transactions require ALL reads to complete before ANY
-    // write is staged — so every tx.get() below happens first (via
-    // Promise.all), and every tx.set()/tx.update() happens only after.
-    if (intent.kind === 'photo') {
-      if (!intent.photoId) {
-        throw new functions.https.HttpsError('failed-precondition', 'Unlock request is missing a photoId');
-      }
-      const galleryRef = db.collection('galleries').doc(intent.galleryId);
-      const unlockRef = db.collection('unlocks').doc(`${uid}_${intent.photoId}`);
-      const [gallerySnap, unlockSnap] = await Promise.all([tx.get(galleryRef), tx.get(unlockRef)]);
-      const photographerId: string | null = gallerySnap.exists ? (gallerySnap.data()?.photographerId ?? null) : null;
-
-      if (!unlockSnap.exists) {
-        tx.set(unlockRef, {
-          userId: uid,
-          photoId: intent.photoId,
-          galleryId: intent.galleryId,
-          photoIndex: intent.photoIndex ?? null,
-          photographerId,
-          source: 'purchased',
-          purchaseId: transactionId,
-          productId,
-          createdAt: now,
-        });
-      }
-      unlockIds.push(unlockRef.id);
-    } else {
-      const galleryRef = db.collection('galleries').doc(intent.galleryId);
-      const gallerySnap = await tx.get(galleryRef);
-      if (!gallerySnap.exists) {
-        throw new functions.https.HttpsError('not-found', `Gallery ${intent.galleryId} not found`);
-      }
-      const images: string[] = gallerySnap.data()?.images || [];
-      const photographerId: string | null = gallerySnap.data()?.photographerId ?? null;
-
-      const unlockRefs = images.map((_, index) => db.collection('unlocks').doc(`${uid}_${intent.galleryId}-${index}`));
-      const unlockSnaps = await Promise.all(unlockRefs.map((ref) => tx.get(ref)));
-
-      unlockRefs.forEach((unlockRef, index) => {
-        unlockIds.push(unlockRef.id);
-        if (!unlockSnaps[index].exists) {
-          tx.set(unlockRef, {
-            userId: uid,
-            photoId: `${intent.galleryId}-${index}`,
-            galleryId: intent.galleryId,
-            photoIndex: index,
-            photographerId,
-            source: 'purchased',
-            purchaseId: transactionId,
-            productId,
-            createdAt: now,
-          });
-        }
-      });
-    }
+    // Append-only ledger entry, running balance for auditability (Part 2)
+    // — source matches the productId exactly (`iap_credits_1` etc, per the
+    // enum in the issue).
+    const ledgerRef = userRef.collection('creditLedger').doc();
+    tx.set(ledgerRef, {
+      source: `iap_${productId}`,
+      delta: creditsGranted,
+      balanceAfter: newBalance,
+      ts: now,
+      ref: transactionId,
+    });
+    tx.set(userRef, { creditBalance: newBalance, updatedAt: now }, { merge: true });
 
     tx.set(purchaseRef, {
       uid,
       productId,
       intentId: appAccountToken,
-      kind: intent.kind,
+      kind: 'credits',
+      creditsGranted,
+      balanceAfter: newBalance,
+      ledgerEntryId: ledgerRef.id,
       environment: payload.environment || null,
-      unlockIds,
       createdAt: now,
     });
     tx.update(intentRef, { status: 'fulfilled', fulfilledAt: now, transactionId });
 
-    return { unlockIds, kind: intent.kind, alreadyProcessed: false };
+    return { creditsGranted, balance: newBalance, alreadyProcessed: false };
   });
 });

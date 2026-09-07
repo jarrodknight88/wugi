@@ -62,17 +62,35 @@ service cloud.firestore {
       allow create: if isAuth() && request.auth.uid == userId;
       // Own-user check MUST come first — isSuperAdmin() calls userDoc() which
       // will fail if the doc doesn't exist yet (brand new account race condition).
+      // `creditBalance` is excluded from every client write path, own-uid
+      // included — the credit economy (Asana 1218248530084817 / issue #282)
+      // requires it to only ever change alongside a `creditLedger` entry in
+      // the SAME transaction (see functions/src/creditEconomy/spendCredit.ts,
+      // validateUnlockPurchase.ts, onUserCreated.ts), which only Cloud
+      // Functions (Admin SDK, bypasses these rules) can do. Allowing it here
+      // — even for isSuperAdmin()/isVenueAdmin() — would let the balance
+      // drift from the ledger's running total, breaking the "investor-clean"
+      // auditability the ledger exists for.
       allow update: if isAuth() && (
         request.auth.uid == userId
         || isSuperAdmin()
         || isVenueAdmin()
-      );
+      ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['creditBalance']);
       allow delete: if isSuperAdmin();
 
       match /activity/{activityId} {
         allow read:   if isAuth() && request.auth.uid == userId;
         allow create: if isAuth() && request.auth.uid == userId;
         allow update, delete: if false;
+      }
+
+      // Append-only credit ledger (Asana 1218248530084817 / issue #282,
+      // Part 2) — every entry: source, delta, balanceAfter, ts, ref. Written
+      // exclusively by Cloud Functions (signup grant, IAP fulfillment,
+      // credit redemption); the owning user may only read their own history.
+      match /creditLedger/{entryId} {
+        allow read:  if isAuth() && request.auth.uid == userId;
+        allow write: if false;  // Cloud Functions only
       }
     }
 
@@ -346,13 +364,14 @@ service cloud.firestore {
 
     // ── Unlock intents (StoreKit purchase context) ──────────────────────
     // Top-level `unlockIntents` collection (Asana 1216729383901466 / issue
-    // #252) — bridges an anonymous App Store consumable purchase back to
-    // "which photo/gallery". Doc id is a client-minted UUID (also passed
-    // to StoreKit as `appAccountToken`). The client creates its OWN
-    // pending intent right before starting a purchase; only
-    // `validateUnlockPurchase` (Admin SDK) may mark it fulfilled or read
-    // someone else's — read access here is scoped the same way as
-    // `unlocks`.
+    // #252, architecture kept as-is by the credit-economy restructure —
+    // Asana 1218248530084817 / issue #282) — bridges an anonymous App
+    // Store consumable purchase back to "which account". Doc id is a
+    // client-minted UUID (also passed to StoreKit as `appAccountToken`).
+    // The client creates its OWN pending intent right before starting a
+    // purchase; only `validateUnlockPurchase` (Admin SDK) may mark it
+    // fulfilled or read someone else's — read access here is scoped the
+    // same way as `unlocks`.
     match /unlockIntents/{intentId} {
       allow read:   if isAuth() && resource.data.uid == request.auth.uid;
       allow create: if isAuth() && request.resource.data.uid == request.auth.uid

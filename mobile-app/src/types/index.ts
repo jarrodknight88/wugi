@@ -51,6 +51,15 @@ export type GalleryDoc = {
   date: string;              // display string, e.g. "SAT MAY 17"
   photographerName?: string;
   photographerId?: string | null;
+  // Credit-economy pricing overrides (Asana 1218248530084817 / issue #282,
+  // Part 3). Server-clamped and written only via
+  // functions/src/creditEconomy/setGalleryCreditPricing.ts (this
+  // collection has no client write rule at all) — never trust an
+  // out-of-range value read here, spendCredit clamps again defensively.
+  // Falls back to config/creditEconomy's defaultPhotoCreditCost when absent.
+  photoCreditCost?: number;      // bounded 1–4 credits per photo
+  galleryUnlockCredits?: number; // optional whole-gallery bundle price, in credits
+  promoFlag?: boolean;           // true = every photo in this gallery is free
   createdAt?: unknown;       // Firestore Timestamp
   source: 'dashboard' | 'lens' | 'seed';
 };
