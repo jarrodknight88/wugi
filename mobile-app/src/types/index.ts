@@ -53,6 +53,17 @@ export type GalleryDoc = {
   photographerId?: string | null;
   createdAt?: unknown;       // Firestore Timestamp
   source: 'dashboard' | 'lens' | 'seed';
+
+  // ── Credit economy overrides (Asana 1218248530084817 / issue #282) ──
+  // Server-side pricing config, admin/photographer-set on the photographer's
+  // behalf for v1 (no photographer-facing pricing UI yet). Units are
+  // integer HALF-credit units (1 credit = 2 HCU) — never floats. Missing
+  // fields fall back to config/creditEconomy defaults; a
+  // photoCreditCostHalfCredits outside {1, 2} is clamped server-side, so a
+  // stale/bad value here is never trusted as-is by spendCredits.
+  photoCreditCostHalfCredits?: number;   // allowed: 1 (0.5 credit) | 2 (1 credit)
+  galleryUnlockCreditsHalfCredits?: number; // optional flat bundle price for the whole gallery
+  promoFlag?: boolean;                   // true = every photo in this gallery is free
 };
 
 // Top-level `photos` collection doc — individual photos within a gallery,

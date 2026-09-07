@@ -67,13 +67,20 @@ measured 2026-07-26/27 and unchanged):
 | Package        | Errors | Command (run from the package dir)          |
 |-----------------|--------|-----------------------------------------------|
 | `functions/`    | 0      | `node node_modules/typescript/bin/tsc --noEmit` |
-| `mobile-app/`   | 38     | `npx tsc --noEmit`                            |
+| `mobile-app/`   | 39     | `npx tsc --noEmit`                            |
 | `check-in-app/` | 5      | `npx tsc --noEmit` (PaymentScreen.tsx, ScannerScreen.tsx) |
 
 - `mobile-app/` drifted from 31 → 38 between 2026-07-27 and 2026-08-02 via
   other merged work (unrelated to any single dispatch) — none of the 38 sit
   in files this UAT-A2 batch touched. Re-measured directly on `main` HEAD
   (`63fb5f5`) before starting the batch.
+- `mobile-app/` drifted 38 → 39 on 2026-09-07 (issue #282, credit economy):
+  the new `scripts/seed-credit-economy-config.ts` imports
+  `./serviceAccount.json`, same as the 7 other `scripts/seed-*.ts` files —
+  that file is gitignored and only materialized from a secret in cloud
+  sessions (see Credentials section above), so every seed script shows a
+  "Cannot find module" error in a sandbox that never had the secret. Not a
+  real code defect; disappears wherever `serviceAccount.json` exists.
 
 - `check-in-app/` had no recorded baseline before 2026-07-26 — `node_modules`
   was never installed there until that session, so it was never measured.

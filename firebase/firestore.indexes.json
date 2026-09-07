@@ -467,6 +467,20 @@
       ]
     },
     {
+      "collectionGroup": "creditLedger",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "source",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "photographerId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "nightObservations",
       "queryScope": "COLLECTION",
       "fields": [

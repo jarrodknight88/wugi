@@ -68,8 +68,18 @@ export type UserProfile = {
   emailVerified?: boolean;
   // Set by the `spendFreeUnlock` Cloud Function the first (and only) time
   // this account spends its evergreen free HD-unlock credit. Absent/false
-  // means the credit is still available.
+  // means the credit is still available. Unrelated to the credit economy
+  // below — a separate one-time mechanic.
   freeUnlockUsed?: boolean;
+  // Credit economy (Asana 1218248530084817 / issue #282). Integer
+  // HALF-credit units (1 credit = 2 HCU) — never render/derive prices by
+  // treating this as whole credits without dividing by 2 first, see
+  // src/utils/credits.ts formatHalfCredits. Written exclusively by Cloud
+  // Functions (validateUnlockPurchase, spendCredits, spendCreditsOnGallery,
+  // onUserCreated's signup grant) — firestore.rules blocks client writes
+  // to both fields even on a user's own doc.
+  creditBalanceHalfCredits?: number;
+  creditBalanceBySource?: Partial<Record<string, number>>;
   createdAt: any;
 };
 
@@ -950,7 +960,14 @@ export async function isFavorite(
 // `spendFreeUnlock` Cloud Function (transactional, prevents double-spend of
 // the one evergreen free credit) — this file only ever READS the
 // collection, matching security rules (`allow write: if false`).
-export type UnlockSource = 'free-credit' | 'purchased';
+// 'purchased' is legacy (pre-issue #282 direct unlock_single_photo/
+// unlock_gallery IAP) — kept for historical docs, no longer written.
+// 'credit_redemption'/'credit_redemption_bundle'/'promo_free' are the
+// credit-economy sources (see functions/src/unlocks/spendCredits.ts /
+// spendCreditsOnGallery.ts).
+export type UnlockSource =
+  | 'free-credit' | 'purchased'
+  | 'credit_redemption' | 'credit_redemption_bundle' | 'promo_free';
 
 export type UnlockDoc = {
   id: string;
@@ -960,10 +977,13 @@ export type UnlockDoc = {
   photoIndex: number;
   photographerId: string | null;
   source: UnlockSource;
-  // Only present when source === 'purchased' — written by
-  // validateUnlockPurchase (functions/src/unlocks/validateUnlockPurchase.ts).
+  // Only present when source === 'purchased' — written by the legacy
+  // validateUnlockPurchase direct-unlock flow (pre-issue #282).
   purchaseId?: string;
   amountCents?: number;
+  // Present when source is one of the credit_redemption* sources.
+  creditsSpentHalfCredits?: number;
+  redemptionLedgerId?: string;
   createdAt?: any;
 };
 
@@ -1011,37 +1031,75 @@ export async function isPhotoUnlocked(userId: string, photoId: string): Promise<
 
 // ── Unlock intents (StoreKit purchase context) ──────────────────────────
 // Top-level `unlockIntents` collection — bridges an anonymous App Store
-// consumable purchase back to "which photo/gallery was this for". Written
-// by the client (own uid only, see firebase/firestore.rules) BEFORE
-// starting the StoreKit purchase, keyed by the same UUID passed to
+// consumable purchase back to what it paid for. As of the 3-SKU credit
+// economy (Asana 1218248530084817 / issue #282), that's always
+// `kind: 'credits'` — Apple sells credit packs only, never a photo/gallery
+// unlock directly (galleryId/photoId are gone from this doc accordingly).
+// Written by the client (own uid only, see firebase/firestore.rules)
+// BEFORE starting the StoreKit purchase, keyed by the same UUID passed to
 // StoreKit as `appAccountToken`. `validateUnlockPurchase`
 // (functions/src/unlocks/validateUnlockPurchase.ts) reads the
 // appAccountToken back out of Apple's *signed* transaction (never a
-// client-supplied id) and looks up this doc server-side to resolve
-// entitlement targets — see that file for why this exists and its
+// client-supplied id) and looks up this doc server-side to resolve which
+// credit pack to grant — see that file for why this exists and its
 // restore-purchases tradeoffs.
-export type UnlockIntentKind = 'photo' | 'gallery';
+export type UnlockIntentKind = 'credits';
 
 export async function createUnlockIntent(params: {
   intentId: string;
   uid: string;
   kind: UnlockIntentKind;
   productId: string;
-  galleryId: string;
-  photoId?: string;
-  photoIndex?: number;
 }): Promise<void> {
-  const { intentId, uid, kind, productId, galleryId, photoId, photoIndex } = params;
+  const { intentId, uid, kind, productId } = params;
   await setDoc(doc(collection(db, 'unlockIntents'), intentId), {
     uid,
     kind,
     productId,
-    galleryId,
-    photoId: photoId ?? null,
-    photoIndex: typeof photoIndex === 'number' ? photoIndex : null,
     status: 'pending',
     createdAt: serverTimestamp(),
   });
+}
+
+// ── Credit ledger (Asana 1218248530084817 / issue #282) ─────────────────
+// Append-only `users/{uid}/creditLedger` subcollection — every grant
+// (IAP fulfillment, signup gift, promo) and every redemption. Read-only
+// from the client (firebase/firestore.rules); written exclusively by
+// Cloud Functions. Amounts are integer HALF-credit units, see
+// src/utils/credits.ts formatHalfCredits.
+export type CreditLedgerSource =
+  | 'iap_credits_1' | 'iap_credits_3' | 'iap_credits_5'
+  | 'signup_grant' | 'promo' | 'redemption' | 'refund';
+
+export type CreditLedgerEntry = {
+  id: string;
+  source: CreditLedgerSource;
+  deltaHalfCredits: number;
+  balanceAfterHalfCredits: number;
+  ts?: any;
+  ref?: string | null;
+};
+
+// Recent ledger history for the wallet UI — newest first, capped since
+// this is a display list, not an accounting export.
+export async function listCreditLedger(uid: string, max: number = 20): Promise<CreditLedgerEntry[]> {
+  try {
+    if (!uid) return [];
+    const snap = await getDocs(
+      query(
+        collection(db, 'users', uid, 'creditLedger'),
+        orderBy('ts', 'desc'),
+        limit(max)
+      )
+    );
+    return snap.docs.map(
+      (d: FirebaseFirestoreTypes.QueryDocumentSnapshot) => ({ ...(d.data() as object), id: d.id } as CreditLedgerEntry)
+    );
+  } catch (e) {
+    console.log('listCreditLedger error:', e);
+    recordNonFatal('listCreditLedger', e);
+    return [];
+  }
 }
 
 // Resolves a batch of unlock docs into displayable photos, fetching each
