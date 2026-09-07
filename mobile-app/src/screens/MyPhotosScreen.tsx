@@ -17,7 +17,8 @@ import Svg, { Path } from 'react-native-svg';
 import type { Theme } from '../constants/colors';
 import { FONTS, MONO } from '../constants/fonts';
 import { SkeletonBlock } from '../components/Skeleton';
-import { listMyUnlocks, resolveUnlockedPhotos, type UnlockedPhoto } from '../../firestoreService';
+import { listMyUnlocks, resolveUnlockedPhotos, getUserProfile, type UnlockedPhoto } from '../../firestoreService';
+import { creditsDecimal } from '../utils/credits';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 3;
@@ -35,6 +36,10 @@ type Props = {
 export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
   const [photos,  setPhotos]  = useState<UnlockedPhoto[]>([]);
   const [loading, setLoading] = useState(true);
+  // Small persistent wallet balance (issue #282) — same source of truth as
+  // AccountScreen's "Photo Credits" row, shown here too since this is the
+  // other screen a user visits specifically about paid photo unlocks.
+  const [creditBalanceHalfCredits, setCreditBalanceHalfCredits] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,8 +47,9 @@ export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
       const { getAuth } = await import('@react-native-firebase/auth');
       const uid = getAuth().currentUser?.uid;
       if (!uid) { setPhotos([]); return; }
-      const unlocks = await listMyUnlocks(uid);
+      const [unlocks, profile] = await Promise.all([listMyUnlocks(uid), getUserProfile(uid)]);
       setPhotos(await resolveUnlockedPhotos(unlocks));
+      setCreditBalanceHalfCredits(profile?.creditBalanceHalfCredits ?? 0);
     } catch (e) {
       console.log('MyPhotosScreen load failed', e);
       setPhotos([]);
@@ -64,7 +70,13 @@ export function MyPhotosScreen({ theme, onBack, onPhotoPress }: Props) {
             </Svg>
           </TouchableOpacity>
           <Text style={{ color: theme.text, fontSize: 20, fontFamily: FONTS.display, letterSpacing: -0.5 }}>My Photos</Text>
-          <View style={{ width: 36 }}/>
+          <View style={{ width: 36, alignItems: 'flex-end' }}>
+            {creditBalanceHalfCredits != null && (
+              <Text style={{ color: theme.subtext, fontSize: 11, fontFamily: MONO, letterSpacing: 0.3 }}>
+                {creditsDecimal(creditBalanceHalfCredits)}✦
+              </Text>
+            )}
+          </View>
         </View>
       </SafeAreaView>
 

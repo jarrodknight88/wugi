@@ -62,17 +62,42 @@ service cloud.firestore {
       allow create: if isAuth() && request.auth.uid == userId;
       // Own-user check MUST come first — isSuperAdmin() calls userDoc() which
       // will fail if the doc doesn't exist yet (brand new account race condition).
+      // CREDIT BALANCE FIELDS (issue #282) are excluded from EVERY client
+      // write path here — self, super_admin, AND venue_admin — not just the
+      // self-update case. Before creditBalanceHalfCredits existed, an
+      // unrestricted self-update was harmless (a user could only vandalize
+      // their own profile fields); once a monetary balance lives on this
+      // doc, the same unrestricted rule becomes a self-grant vulnerability.
+      // The ONLY writers of these fields are Cloud Functions running under
+      // the Admin SDK (validateUnlockPurchase, spendCredits, onUserCreated),
+      // which bypass these rules entirely — so blocking them here costs
+      // those functions nothing.
       allow update: if isAuth() && (
         request.auth.uid == userId
         || isSuperAdmin()
         || isVenueAdmin()
-      );
+      ) && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['creditBalanceHalfCredits', 'creditBalanceBySourceHalfCredits']);
       allow delete: if isSuperAdmin();
 
       match /activity/{activityId} {
         allow read:   if isAuth() && request.auth.uid == userId;
         allow create: if isAuth() && request.auth.uid == userId;
         allow update, delete: if false;
+      }
+
+      // ── Credit ledger (issue #282) ────────────────────────────────────
+      // Append-only audit trail behind users/{uid}.creditBalance*
+      // (iap_credits_1/3/5, signup_grant, promo, redemption, refund
+      // entries — see functions/src/unlocks/creditEconomy.ts). The owner
+      // may read their own history (wallet/receipts UI); staff may read
+      // any user's for support. ALL writes are Cloud Functions/Admin SDK
+      // only (validateUnlockPurchase, spendCredits, onUserCreated) —
+      // never the client, which is exactly why every entry here can be
+      // trusted as an authoritative financial record.
+      match /creditLedger/{entryId} {
+        allow read:  if isAuth() && (request.auth.uid == userId || isStaff());
+        allow write: if false;
       }
     }
 

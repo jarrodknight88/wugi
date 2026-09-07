@@ -70,6 +70,19 @@ export type UserProfile = {
   // this account spends its evergreen free HD-unlock credit. Absent/false
   // means the credit is still available.
   freeUnlockUsed?: boolean;
+  // ── Credit economy (issue #282) ─────────────────────────────────────
+  // Integer HALF-CREDIT sub-units (1 credit = 2 half-credits) — never a
+  // float. Written ONLY by Cloud Functions (onUserCreated signup grant,
+  // validateUnlockPurchase IAP fulfillment, spendCredits redemption);
+  // firestore.rules blocks these fields on every client update path,
+  // including staff. Use src/utils/credits.ts to render either field as
+  // a display string — never format the raw number directly.
+  creditBalanceHalfCredits?: number;
+  // Per-funding-source remaining balance (e.g. { signup_grant: 4,
+  // iap_credits_1: 2 }) — powers the payout drawdown attribution in
+  // spendCredits, not generally needed for display (creditBalanceHalfCredits
+  // is the number to show). Exposed here mainly for completeness/debugging.
+  creditBalanceBySourceHalfCredits?: Record<string, number>;
   createdAt: any;
 };
 
@@ -950,7 +963,12 @@ export async function isFavorite(
 // `spendFreeUnlock` Cloud Function (transactional, prevents double-spend of
 // the one evergreen free credit) — this file only ever READS the
 // collection, matching security rules (`allow write: if false`).
-export type UnlockSource = 'free-credit' | 'purchased';
+// 'credit' (issue #282) — written by the new spendCredits Cloud Function
+// (functions/src/unlocks/spendCredits.ts) when a photo/gallery is unlocked
+// by spending from the credit wallet, replacing 'purchased' as the paid
+// path going forward ('purchased' entries from before the cutover still
+// exist and still read fine — this is additive, not a migration).
+export type UnlockSource = 'free-credit' | 'purchased' | 'credit';
 
 export type UnlockDoc = {
   id: string;
@@ -964,6 +982,10 @@ export type UnlockDoc = {
   // validateUnlockPurchase (functions/src/unlocks/validateUnlockPurchase.ts).
   purchaseId?: string;
   amountCents?: number;
+  // Only present when source === 'credit' — points at the
+  // users/{uid}/creditLedger entry that funded this unlock (see
+  // functions/src/unlocks/spendCredits.ts).
+  redemptionRef?: string;
   createdAt?: any;
 };
 
@@ -1020,14 +1042,21 @@ export async function isPhotoUnlocked(userId: string, photoId: string): Promise<
 // client-supplied id) and looks up this doc server-side to resolve
 // entitlement targets — see that file for why this exists and its
 // restore-purchases tradeoffs.
-export type UnlockIntentKind = 'photo' | 'gallery';
+// 'photo' | 'gallery' were the pre-credit-economy fixed-price SKUs
+// (unlock_single_photo / unlock_gallery, issue #252) — no longer created
+// by the client (see src/lib/iap.ts), but the union stays documented here
+// since historical `unlockIntents` docs with those kinds still exist.
+// Every NEW intent this client mints is 'credits' (issue #282): Apple
+// only sells credit packs now, so an intent just bridges "this uid is
+// mid-purchase for this productId", not a specific photo/gallery.
+export type UnlockIntentKind = 'photo' | 'gallery' | 'credits';
 
 export async function createUnlockIntent(params: {
   intentId: string;
   uid: string;
   kind: UnlockIntentKind;
   productId: string;
-  galleryId: string;
+  galleryId?: string;
   photoId?: string;
   photoIndex?: number;
 }): Promise<void> {
@@ -1036,7 +1065,7 @@ export async function createUnlockIntent(params: {
     uid,
     kind,
     productId,
-    galleryId,
+    galleryId: galleryId ?? null,
     photoId: photoId ?? null,
     photoIndex: typeof photoIndex === 'number' ? photoIndex : null,
     status: 'pending',

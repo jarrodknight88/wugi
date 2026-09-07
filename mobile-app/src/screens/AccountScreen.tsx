@@ -15,6 +15,7 @@ import { ChevronRightIcon } from '../components/icons';
 import { checkUsernameAvailable, saveUsername, getUserProfile } from '../../firestoreService';
 import { getAuth, sendPasswordResetEmail } from '@react-native-firebase/auth';
 import { FONTS, MONO } from '../constants/fonts';
+import { creditsLabel } from '../utils/credits';
 
 // ── Password strength (mirrors SignupScreen) ──────────────────────────
 type StrengthLevel = 'weak' | 'fair' | 'strong';
@@ -56,6 +57,13 @@ export function AccountScreen({ theme, onViewPasses, onViewPhotos }: Props) {
   const [localError,      setLocalError]      = useState<string | null>(null);
   const [resetSent,       setResetSent]       = useState(false);
 
+  // Credit wallet balance (issue #282) — small persistent display, sourced
+  // from users/{uid}.creditBalanceHalfCredits (Cloud-Function-written only,
+  // see firebase/firestore.rules). Re-loaded alongside username on mount /
+  // user change; PaywallSheet keeps its own live copy while open, this is
+  // just "what did the account have as of opening Settings".
+  const [creditBalanceHalfCredits, setCreditBalanceHalfCredits] = useState(0);
+
   // Username state (for users who skipped)
   const [savedUsername,    setSavedUsername]   = useState<string | null>(null);
   const [usernameInput,    setUsernameInput]   = useState('');
@@ -88,7 +96,10 @@ export function AccountScreen({ theme, onViewPasses, onViewPhotos }: Props) {
       }
     });
     if (user) {
-      getUserProfile(user.uid).then(p => { if (p?.username) setSavedUsername(p.username); });
+      getUserProfile(user.uid).then(p => {
+        if (p?.username) setSavedUsername(p.username);
+        setCreditBalanceHalfCredits(p?.creditBalanceHalfCredits ?? 0);
+      });
     }
   }, [user]);
 
@@ -431,6 +442,24 @@ export function AccountScreen({ theme, onViewPasses, onViewPhotos }: Props) {
         <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ color: theme.text, fontSize: 17, fontFamily: FONTS.display, letterSpacing: -0.3, marginBottom: 16 }}>App Settings</Text>
           <ToggleRow label="Location Services" subtitle="Used for Near Me and distance info" value={locationEnabled} onToggle={() => setLocationEnabled(p => !p)}/>
+        </View>
+
+        {/* Credit wallet (issue #282) */}
+        <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 16, borderRadius: 12, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f1c40f22', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 16 }}>✦</Text>
+              </View>
+              <View>
+                <Text style={{ color: theme.text, fontSize: 15, fontFamily: FONTS.display }}>Photo Credits</Text>
+                <Text style={{ color: theme.subtext, fontSize: 12, fontFamily: FONTS.body, marginTop: 1 }}>Spend on photo unlocks — never expire</Text>
+              </View>
+            </View>
+            <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>{creditsLabel(creditBalanceHalfCredits)}</Text>
+          </View>
         </View>
 
         {/* My Passes */}

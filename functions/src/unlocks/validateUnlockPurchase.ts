@@ -1,26 +1,40 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — validateUnlockPurchase
-// Server-side StoreKit 2 receipt validation for photo-unlock IAP (Asana
-// 1216729383901466 / issue #252) — the entitlement writer the extension
-// point in spendFreeUnlock.ts calls out. Verifies the signed transaction
-// JWS the client got back from StoreKit, then writes to the SAME
-// `unlocks` collection spendFreeUnlock uses (source: 'purchased'), so
-// MyPhotosScreen / isPhotoUnlocked need no changes to support paid
-// unlocks.
+// Server-side StoreKit 2 receipt validation for the credit-pack IAP
+// economy (issue #282, superseding the fixed-price photo/gallery SKUs
+// from Asana 1216729383901466 / issue #252). Verifies the signed
+// transaction JWS the client got back from StoreKit, then CREDITS THE
+// USER'S LEDGER (users/{uid}.creditBalanceHalfCredits +
+// users/{uid}/creditLedger) instead of unlocking a specific photo —
+// Apple now only ever sells credit packs; what those credits buy is
+// entirely server-priced (see creditEconomy.ts / spendCredits.ts).
+//
+// EVERYTHING BELOW THIS COMMENT BLOCK — the JWS verification, the
+// `unlockIntents` appAccountToken bridge, the `purchases/{transactionId}`
+// idempotency ledger, the Production-then-Sandbox verify fallback — is
+// UNCHANGED from the original photo/gallery version. Only the fulfillment
+// write at the bottom (previously "create an `unlocks` doc") changed to
+// "credit the ledger". Do not re-litigate this architecture without
+// reading the original PR #253 first.
 //
 // WHY THE CLIENT CAN'T BE TRUSTED HERE: a client can fabricate any
 // "I bought this" call. The transaction JWS is signed by Apple; this
 // function is the only thing that verifies that signature and reads the
 // productId/transactionId back OUT of the verified payload — never off
-// anything the client passed in the RPC body except the JWS itself.
+// anything the client passed in the RPC body except the JWS itself. In
+// particular, the number of half-credits granted is looked up
+// server-side from the VERIFIED productId (PRODUCT_HALF_CREDITS) — never
+// trusted from the intent doc or the RPC body.
 //
-// PHOTO/GALLERY CONTEXT: Apple's consumable purchases carry no notion of
-// "which photo" — that's bridged via `appAccountToken`, a UUID the client
-// mints and writes to a Firestore `unlockIntents/{token}` doc (uid, kind,
-// galleryId, photoId?) BEFORE starting the StoreKit purchase (see
+// WHICH SKU CONTEXT: Apple's consumable purchases carry no notion of
+// "which SKU semantics" beyond productId, but we still need to bridge a
+// purchase back to "this uid was mid-purchase for this reason" (mostly
+// so a stray/replayed transaction from a different account can't credit
+// the wrong uid) — that's `appAccountToken`, a UUID the client mints and
+// writes to a Firestore `unlockIntents/{token}` doc (uid, kind: 'credits',
+// productId) BEFORE starting the StoreKit purchase (see
 // mobile-app/src/lib/iap.ts). We read the appAccountToken back out of the
-// VERIFIED payload, then look up that intent doc server-side — a client
-// cannot forge which photo a real Apple-signed purchase pays for.
+// VERIFIED payload, then look up that intent doc server-side.
 //
 // APPLE ROOT CERTIFICATES: SignedDataVerifier needs Apple's root CA
 // certificates as trust anchors. This sandbox had no network access to
@@ -36,6 +50,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import * as https from 'https';
 import { SignedDataVerifier, Environment } from '@apple/app-store-server-library';
+import { PRODUCT_HALF_CREDITS, CREDIT_PRODUCT_IDS, type LedgerSource } from './creditEconomy';
 
 const db = admin.firestore();
 
@@ -44,11 +59,12 @@ const db = admin.firestore();
 // com.wugi.wugi — see PR description), while App Store Connect product
 // ids, once created, are permanent. Must exactly match what's configured
 // in ASC (app id 829564750) and mobile-app/src/lib/iap.ts PRODUCT_IDS.
-const PRODUCT_IDS = {
-  photo: 'unlock_single_photo',
-  gallery: 'unlock_gallery',
-} as const;
-const KNOWN_PRODUCT_IDS = new Set<string>(Object.values(PRODUCT_IDS));
+// credits_1/credits_3/credits_5 REPLACE the old unlock_single_photo /
+// unlock_gallery SKUs — any in-flight transaction for the old SKUs from
+// before this deploy will fail closed here with "Unrecognized product
+// id" (same fail-closed philosophy as the rest of this file) and needs
+// manual support resolution; that's an accepted one-time cutover cost.
+const KNOWN_PRODUCT_IDS = new Set<string>(CREDIT_PRODUCT_IDS);
 
 // TODO(human, before deploy): confirm this is the bundle id actually
 // registered against ASC app id 829564750 — app.json currently still
@@ -118,11 +134,8 @@ async function verifyTransaction(jws: string) {
 
 type UnlockIntent = {
   uid: string;
-  kind: 'photo' | 'gallery';
+  kind: 'credits';
   productId: string;
-  galleryId: string;
-  photoId?: string | null;
-  photoIndex?: number | null;
   status: 'pending' | 'fulfilled';
 };
 
@@ -159,13 +172,21 @@ export const validateUnlockPurchase = functions.https.onCall(async (data: { jws?
   // client call, etc).
   const purchaseRef = db.collection('purchases').doc(transactionId);
   const intentRef = db.collection('unlockIntents').doc(String(appAccountToken));
+  const userRef = db.collection('users').doc(uid);
 
   return db.runTransaction(async (tx) => {
-    const [purchaseSnap, intentSnap] = await Promise.all([tx.get(purchaseRef), tx.get(intentRef)]);
+    // All reads before any writes — required by Firestore transactions.
+    const [purchaseSnap, intentSnap, userSnap] = await Promise.all([
+      tx.get(purchaseRef), tx.get(intentRef), tx.get(userRef),
+    ]);
 
     if (purchaseSnap.exists) {
       const existing = purchaseSnap.data()!;
-      return { unlockIds: existing.unlockIds as string[], kind: existing.kind as 'photo' | 'gallery', alreadyProcessed: true };
+      return {
+        deltaHalfCredits: existing.deltaHalfCredits as number,
+        balanceAfterHalfCredits: existing.balanceAfterHalfCredits as number,
+        alreadyProcessed: true,
+      };
     }
 
     if (!intentSnap.exists) {
@@ -185,65 +206,37 @@ export const validateUnlockPurchase = functions.https.onCall(async (data: { jws?
     if (intent.productId !== productId) {
       throw new functions.https.HttpsError('failed-precondition', 'Product mismatch between purchase and unlock request');
     }
+    if (intent.kind !== 'credits') {
+      throw new functions.https.HttpsError('failed-precondition', `Unsupported unlock intent kind: ${intent.kind}`);
+    }
 
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const unlockIds: string[] = [];
 
-    // Firestore transactions require ALL reads to complete before ANY
-    // write is staged — so every tx.get() below happens first (via
-    // Promise.all), and every tx.set()/tx.update() happens only after.
-    if (intent.kind === 'photo') {
-      if (!intent.photoId) {
-        throw new functions.https.HttpsError('failed-precondition', 'Unlock request is missing a photoId');
-      }
-      const galleryRef = db.collection('galleries').doc(intent.galleryId);
-      const unlockRef = db.collection('unlocks').doc(`${uid}_${intent.photoId}`);
-      const [gallerySnap, unlockSnap] = await Promise.all([tx.get(galleryRef), tx.get(unlockRef)]);
-      const photographerId: string | null = gallerySnap.exists ? (gallerySnap.data()?.photographerId ?? null) : null;
+    // Half-credits granted is looked up from the Apple-VERIFIED productId
+    // (PRODUCT_HALF_CREDITS), never trusted off the intent doc or RPC body.
+    const halfCredits = PRODUCT_HALF_CREDITS[productId];
+    const source = (`iap_${productId}` as LedgerSource);
 
-      if (!unlockSnap.exists) {
-        tx.set(unlockRef, {
-          userId: uid,
-          photoId: intent.photoId,
-          galleryId: intent.galleryId,
-          photoIndex: intent.photoIndex ?? null,
-          photographerId,
-          source: 'purchased',
-          purchaseId: transactionId,
-          productId,
-          createdAt: now,
-        });
-      }
-      unlockIds.push(unlockRef.id);
-    } else {
-      const galleryRef = db.collection('galleries').doc(intent.galleryId);
-      const gallerySnap = await tx.get(galleryRef);
-      if (!gallerySnap.exists) {
-        throw new functions.https.HttpsError('not-found', `Gallery ${intent.galleryId} not found`);
-      }
-      const images: string[] = gallerySnap.data()?.images || [];
-      const photographerId: string | null = gallerySnap.data()?.photographerId ?? null;
+    const currentBalance: number = userSnap.exists ? (userSnap.data()?.creditBalanceHalfCredits ?? 0) : 0;
+    const currentBySource: Partial<Record<LedgerSource, number>> =
+      userSnap.exists ? (userSnap.data()?.creditBalanceBySourceHalfCredits ?? {}) : {};
+    const balanceAfterHalfCredits = currentBalance + halfCredits;
+    const newBySource = { ...currentBySource, [source]: (currentBySource[source] ?? 0) + halfCredits };
 
-      const unlockRefs = images.map((_, index) => db.collection('unlocks').doc(`${uid}_${intent.galleryId}-${index}`));
-      const unlockSnaps = await Promise.all(unlockRefs.map((ref) => tx.get(ref)));
+    const ledgerRef = userRef.collection('creditLedger').doc(transactionId);
+    tx.set(ledgerRef, {
+      source,
+      deltaHalfCredits: halfCredits,
+      balanceAfterHalfCredits,
+      ts: now,
+      ref: transactionId,
+    });
 
-      unlockRefs.forEach((unlockRef, index) => {
-        unlockIds.push(unlockRef.id);
-        if (!unlockSnaps[index].exists) {
-          tx.set(unlockRef, {
-            userId: uid,
-            photoId: `${intent.galleryId}-${index}`,
-            galleryId: intent.galleryId,
-            photoIndex: index,
-            photographerId,
-            source: 'purchased',
-            purchaseId: transactionId,
-            productId,
-            createdAt: now,
-          });
-        }
-      });
-    }
+    tx.set(userRef, {
+      creditBalanceHalfCredits: balanceAfterHalfCredits,
+      creditBalanceBySourceHalfCredits: newBySource,
+      updatedAt: now,
+    }, { merge: true });
 
     tx.set(purchaseRef, {
       uid,
@@ -251,11 +244,12 @@ export const validateUnlockPurchase = functions.https.onCall(async (data: { jws?
       intentId: appAccountToken,
       kind: intent.kind,
       environment: payload.environment || null,
-      unlockIds,
+      deltaHalfCredits: halfCredits,
+      balanceAfterHalfCredits,
       createdAt: now,
     });
     tx.update(intentRef, { status: 'fulfilled', fulfilledAt: now, transactionId });
 
-    return { unlockIds, kind: intent.kind, alreadyProcessed: false };
+    return { deltaHalfCredits: halfCredits, balanceAfterHalfCredits, alreadyProcessed: false };
   });
 });

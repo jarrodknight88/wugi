@@ -53,6 +53,26 @@ export type GalleryDoc = {
   photographerId?: string | null;
   createdAt?: unknown;       // Firestore Timestamp
   source: 'dashboard' | 'lens' | 'seed';
+
+  // ── Credit-economy pricing overrides (issue #282) ──────────────────
+  // Server-priced; the ONLY write path is the `setGalleryCreditPricing`
+  // callable (functions/src/unlocks/setGalleryCreditPricing.ts) — never
+  // written directly by the client, which only reads these to render
+  // prices and compute what to request from `spendCredits`. The actual
+  // charge is always recomputed server-side from the gallery doc, never
+  // trusted off the client.
+  // Per-photo unlock cost, in half-credits. Restricted to EXACTLY {1, 2}
+  // (½ or 1 credit) server-side; falls back to
+  // config/creditEconomy.defaultPhotoCreditCostHalfCredits when absent.
+  photoCreditCostHalfCredits?: number;
+  // Optional "unlock every photo in this gallery" bundle price, in
+  // half-credits. No upper bound. Absent = no bundle offered for this
+  // gallery (only per-photo unlocks).
+  galleryUnlockCreditsHalfCredits?: number | null;
+  // Promo/free galleries cost 0 credits to unlock (still go through
+  // spendCredits so an `unlocks` entitlement + ledger entry are written).
+  promoFlag?: boolean;
+  free?: boolean;
 };
 
 // Top-level `photos` collection doc — individual photos within a gallery,
