@@ -53,6 +53,18 @@ export type GalleryDoc = {
   photographerId?: string | null;
   createdAt?: unknown;       // Firestore Timestamp
   source: 'dashboard' | 'lens' | 'seed';
+
+  // ── Credit-economy pricing overrides (Part 3, issue #282) ────────────
+  // Set exclusively via the `setGalleryCreditPricing` Cloud Function
+  // (photographer-owned or staff-on-their-behalf) — never written
+  // directly by the client. Stored as integer HALF-CREDIT UNITS (1
+  // credit == 2 units); absent means "use config/creditEconomy's
+  // default". photoCreditCostHalfUnits is server-clamped to the launch
+  // allowed set ({0.5, 1} credit); galleryUnlockCreditsHalfUnits (the
+  // optional whole-gallery bundle price) may be any half-credit multiple.
+  photoCreditCostHalfUnits?: number;
+  galleryUnlockCreditsHalfUnits?: number;
+  promoFlag?: boolean;
 };
 
 // Top-level `photos` collection doc — individual photos within a gallery,

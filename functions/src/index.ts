@@ -43,3 +43,5 @@ export { onVenueIntelApproved } from './intel/onVenueIntelApproved';
 export { spendFreeUnlock }        from './unlocks/spendFreeUnlock';
 export { getPhotographerEarnings } from './unlocks/getPhotographerEarnings';
 export { validateUnlockPurchase } from './unlocks/validateUnlockPurchase';
+export { spendCredits }           from './credits/spendCredits';
+export { setGalleryCreditPricing } from './credits/setGalleryCreditPricing';
