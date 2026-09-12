@@ -1,13 +1,20 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — getPhotographerEarnings
-// Read-only photographer earnings report over the `unlocks` ledger
-// (Asana 1216729526587350, scope item 5). Purchased unlocks are the only
-// source that generates payable revenue; free-credit unlocks are counted
-// separately for visibility but never contribute to `purchasedCount`.
+// Read-only photographer report. Two independent sections:
+//   1. `unlocks` visibility counts — every unlock ever recorded for this
+//      photographer, bucketed by source, purely informational.
+//   2. `payout` — the actual credit-economy Part 5 payout attribution,
+//      aggregated from the `creditLedger` collection-group (every user's
+//      `users/{uid}/creditLedger` subcollection) filtered to redemption
+//      entries carrying this photographerId. This is the single query a
+//      payout report needs — no automated payout execution here (P3,
+//      post-launch, explicitly out of scope for issue #282).
 //
-// Payout EXECUTION (marking entries paid, Stripe Connect transfers) is
-// explicitly out of scope for this task (P3, post-launch) — this function
-// only reads and aggregates, it never mutates `unlocks`.
+// IMPORTANT: the aggregation sums over the FULL query result before any
+// capping — a 200-entry `.limit()` applied before summing would silently
+// understate a photographer's total once they pass 200 redemptions. Only
+// the returned entry LIST is capped, matching the `unlocks` section's
+// existing pattern below.
 // ─────────────────────────────────────────────────────────────────────
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
@@ -30,17 +37,23 @@ export const getPhotographerEarnings = functions.https.onCall(async (data: { pho
     }
   }
 
-  const snap = await db.collection('unlocks')
-    .where('photographerId', '==', targetPhotographerId)
-    .get();
+  const [unlockSnap, ledgerSnap] = await Promise.all([
+    db.collection('unlocks').where('photographerId', '==', targetPhotographerId).get(),
+    db.collectionGroup('creditLedger')
+      .where('photographerId', '==', targetPhotographerId)
+      .where('source', '==', 'redemption')
+      .get(),
+  ]);
 
   let purchasedCount = 0;
   let freeCreditCount = 0;
+  let creditRedemptionCount = 0;
   const entries: Array<{ unlockId: string; photoId: string; galleryId: string; userId: string; source: string; createdAt: unknown }> = [];
 
-  snap.forEach((doc) => {
+  unlockSnap.forEach((doc) => {
     const d = doc.data();
     if (d.source === 'purchased') purchasedCount += 1;
+    else if (d.source === 'credit_redemption') creditRedemptionCount += 1;
     else freeCreditCount += 1;
     entries.push({
       unlockId: doc.id,
@@ -58,12 +71,40 @@ export const getPhotographerEarnings = functions.https.onCall(async (data: { pho
     return bt - at;
   });
 
+  // Aggregate over the FULL result set — no .limit() before summing.
+  let creditsRedeemedHalfUnits = 0;
+  let totalPayoutCentsOwed = 0;
+  const payoutEntries: Array<{ ledgerId: string; halfUnits: number; payoutCents: number; ref: unknown; ts: unknown }> = [];
+
+  ledgerSnap.forEach((doc) => {
+    const d = doc.data();
+    const breakdown: Array<{ source: string; halfUnits: number; payoutCents: number }> = d.breakdown || [];
+    const halfUnits = breakdown.reduce((sum, b) => sum + (b.halfUnits || 0), 0);
+    const payoutCents = typeof d.totalPayoutCents === 'number' ? d.totalPayoutCents : breakdown.reduce((sum, b) => sum + (b.payoutCents || 0), 0);
+    creditsRedeemedHalfUnits += halfUnits;
+    totalPayoutCentsOwed += payoutCents;
+    payoutEntries.push({ ledgerId: doc.id, halfUnits, payoutCents, ref: d.ref, ts: d.ts });
+  });
+
+  payoutEntries.sort((a, b) => {
+    const at = (a.ts as admin.firestore.Timestamp | undefined)?.toMillis?.() ?? 0;
+    const bt = (b.ts as admin.firestore.Timestamp | undefined)?.toMillis?.() ?? 0;
+    return bt - at;
+  });
+
   return {
     photographerId: targetPhotographerId,
     purchasedCount,
     freeCreditCount,
-    totalUnlocks: purchasedCount + freeCreditCount,
+    creditRedemptionCount,
+    totalUnlocks: purchasedCount + freeCreditCount + creditRedemptionCount,
     // Read-only report — cap the raw entry list, aggregates above cover the full set.
     entries: entries.slice(0, MAX_ENTRIES),
+    payout: {
+      creditsRedeemedHalfUnits,
+      creditsRedeemed: creditsRedeemedHalfUnits / 2,
+      totalPayoutCentsOwed,
+      entries: payoutEntries.slice(0, MAX_ENTRIES),
+    },
   };
 });

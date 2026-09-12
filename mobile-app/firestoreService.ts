@@ -68,8 +68,17 @@ export type UserProfile = {
   emailVerified?: boolean;
   // Set by the `spendFreeUnlock` Cloud Function the first (and only) time
   // this account spends its evergreen free HD-unlock credit. Absent/false
-  // means the credit is still available.
+  // means the credit is still available. DELTA 3 (issue #282): no longer
+  // offered from the paywall or granted to new accounts — `onUserCreated`
+  // stopped writing `freeUnlockUsed: false`, so this is now only ever
+  // present on pre-credit-economy accounts. `spendFreeUnlock` itself is
+  // untouched, so this field can still legitimately flip to `true`.
   freeUnlockUsed?: boolean;
+  // Credit-economy wallet (issue #282) — integer HALF-CREDIT UNITS (1
+  // credit == 2 units), mutated only by Cloud Function transactions.
+  // Display via mobile-app/src/utils/credits.ts, never render the raw
+  // half-unit number.
+  creditBalanceHalfUnits?: number;
   createdAt: any;
 };
 
@@ -950,7 +959,7 @@ export async function isFavorite(
 // `spendFreeUnlock` Cloud Function (transactional, prevents double-spend of
 // the one evergreen free credit) — this file only ever READS the
 // collection, matching security rules (`allow write: if false`).
-export type UnlockSource = 'free-credit' | 'purchased';
+export type UnlockSource = 'free-credit' | 'purchased' | 'credit_redemption';
 
 export type UnlockDoc = {
   id: string;
@@ -1020,25 +1029,25 @@ export async function isPhotoUnlocked(userId: string, photoId: string): Promise<
 // client-supplied id) and looks up this doc server-side to resolve
 // entitlement targets — see that file for why this exists and its
 // restore-purchases tradeoffs.
-export type UnlockIntentKind = 'photo' | 'gallery';
+// Issue #282: the only kind minted today is 'credits' — a credit-pack
+// purchase isn't "for" any particular photo/gallery, unlike the original
+// PR #253 photo-unlock intents this bridge was built for. The kind field
+// is kept (rather than dropped) because the appAccountToken/intent-doc
+// mechanism itself is explicitly retained architecture — see
+// validateUnlockPurchase.ts's module doc comment.
+export type UnlockIntentKind = 'credits';
 
 export async function createUnlockIntent(params: {
   intentId: string;
   uid: string;
   kind: UnlockIntentKind;
   productId: string;
-  galleryId: string;
-  photoId?: string;
-  photoIndex?: number;
 }): Promise<void> {
-  const { intentId, uid, kind, productId, galleryId, photoId, photoIndex } = params;
+  const { intentId, uid, kind, productId } = params;
   await setDoc(doc(collection(db, 'unlockIntents'), intentId), {
     uid,
     kind,
     productId,
-    galleryId,
-    photoId: photoId ?? null,
-    photoIndex: typeof photoIndex === 'number' ? photoIndex : null,
     status: 'pending',
     createdAt: serverTimestamp(),
   });

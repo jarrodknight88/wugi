@@ -1,35 +1,52 @@
 // ─────────────────────────────────────────────────────────────────────
 // Wugi — iap.ts
-// Orchestrates the photo-unlock purchase flow: mint an unlock intent,
-// drive the local StoreKit 2 module (../../modules/storekit-iap), and
-// hand the resulting signed transaction to the `validateUnlockPurchase`
-// Cloud Function for server-side verification + Firestore entitlement
-// write. The free-credit path (spendFreeUnlock) lives here too since
-// it's offered from the same paywall surface.
+// Orchestrates the credit-economy purchase flow (Asana 1218248530084817 /
+// issue #282 — replaces the original 2-SKU photo-unlock IAP this module
+// shipped for under issue #252): mint a purchase intent, drive the local
+// StoreKit 2 module (../../modules/storekit-iap), and hand the resulting
+// signed transaction to the `validateUnlockPurchase` Cloud Function for
+// server-side verification + credit-ledger fulfillment. Spending credits
+// on a specific photo/gallery is a SEPARATE server-side call
+// (spendCreditsOnPhoto/spendCreditsOnGallery below) — Apple never learns
+// which photo anything was for anymore, only that credits were bought.
 //
-// Two consumable SKUs (Asana 1216729383901466 / issue #252):
-//   - PRODUCT_IDS.photo   — unlock a single photo
-//   - PRODUCT_IDS.gallery — unlock every photo in a gallery
+// Three consumable SKUs (Jarrod 9/7 scope amendment): credits_1 ($9.99,
+// 1 credit), credits_3 ($24.99, 3 credits), credits_5 ($39.99, 5 credits).
 // Configured in App Store Connect (ASC app id 829564750) — see the PR
 // description for the exact product setup a human must do there; this
 // sandbox has no App Store Connect access to create them itself.
+//
+// DELTA 3 (Jarrod/PM 9/12): the evergreen free HD-unlock credit
+// (`useFreeUnlock`) is retired from this module — it's no longer offered
+// from the paywall. `spendFreeUnlock` (functions/src/unlocks/
+// spendFreeUnlock.ts) stays deployed untouched; decommissioning it is a
+// separate post-launch cleanup, not a mobile-app change.
 // ─────────────────────────────────────────────────────────────────────
 import * as StoreKitIAP from '../../modules/storekit-iap';
 import type { StoreProduct, StoreTransaction } from '../../modules/storekit-iap';
 import { callCallableFunction, CallableFunctionError } from './callableFunction';
 import { createUnlockIntent } from '../../firestoreService';
 
-export const PRODUCT_IDS = {
-  photo: 'unlock_single_photo',
-  gallery: 'unlock_gallery',
+export const CREDIT_PACK_IDS = {
+  credits_1: 'credits_1',
+  credits_3: 'credits_3',
+  credits_5: 'credits_5',
 } as const;
 
-export type UnlockKind = 'photo' | 'gallery';
+export type CreditPackId = typeof CREDIT_PACK_IDS[keyof typeof CREDIT_PACK_IDS];
 
 export type ValidatePurchaseResult = {
-  unlockIds: string[];
-  kind: UnlockKind;
+  creditsGranted: number;
+  newBalanceHalfUnits: number;
   alreadyProcessed: boolean;
+};
+
+export type SpendCreditsResult = {
+  alreadyUnlocked: boolean;
+  unlockId?: string;
+  unlockIds?: string[];
+  creditsSpentHalfUnits?: number;
+  newBalanceHalfUnits?: number;
 };
 
 async function mintIntentId(): Promise<string> {
@@ -41,12 +58,12 @@ export function isStoreKitAvailable(): boolean {
   return StoreKitIAP.isAvailable();
 }
 
-export async function fetchUnlockProducts(): Promise<StoreProduct[]> {
-  return StoreKitIAP.getProducts([PRODUCT_IDS.photo, PRODUCT_IDS.gallery]);
+export async function fetchCreditPackProducts(): Promise<StoreProduct[]> {
+  return StoreKitIAP.getProducts(Object.values(CREDIT_PACK_IDS));
 }
 
 // Validates a signed transaction server-side, then finishes it in
-// StoreKit ONLY after the server confirms the entitlement was durably
+// StoreKit ONLY after the server confirms the credit grant was durably
 // written — see modules/storekit-iap's finishTransaction doc comment for
 // why finishing early is unsafe.
 async function validateAndFinish(transaction: StoreTransaction): Promise<ValidatePurchaseResult> {
@@ -57,53 +74,32 @@ async function validateAndFinish(transaction: StoreTransaction): Promise<Validat
   return result;
 }
 
-export async function purchaseSinglePhoto(params: {
-  uid: string;
-  photoId: string;
-  galleryId: string;
-  photoIndex: number;
-}): Promise<ValidatePurchaseResult> {
+export async function purchaseCreditPack(params: { uid: string; packId: CreditPackId }): Promise<ValidatePurchaseResult> {
   const intentId = await mintIntentId();
   await createUnlockIntent({
     intentId,
     uid: params.uid,
-    kind: 'photo',
-    productId: PRODUCT_IDS.photo,
-    galleryId: params.galleryId,
-    photoId: params.photoId,
-    photoIndex: params.photoIndex,
+    kind: 'credits',
+    productId: params.packId,
   });
-  const transaction = await StoreKitIAP.purchase(PRODUCT_IDS.photo, intentId);
+  const transaction = await StoreKitIAP.purchase(params.packId, intentId);
   return validateAndFinish(transaction);
 }
 
-export async function purchaseGallery(params: {
-  uid: string;
-  galleryId: string;
-}): Promise<ValidatePurchaseResult> {
-  const intentId = await mintIntentId();
-  await createUnlockIntent({
-    intentId,
-    uid: params.uid,
-    kind: 'gallery',
-    productId: PRODUCT_IDS.gallery,
-    galleryId: params.galleryId,
-  });
-  const transaction = await StoreKitIAP.purchase(PRODUCT_IDS.gallery, intentId);
-  return validateAndFinish(transaction);
+// Redeems credits from the caller's own balance to unlock a single photo.
+// Entirely server-side pricing/balance logic (functions/src/credits/
+// spendCredits.ts) — no StoreKit involved.
+export async function spendCreditsOnPhoto(params: { photoId: string }): Promise<SpendCreditsResult> {
+  return callCallableFunction('spendCredits', { kind: 'photo', photoId: params.photoId });
 }
 
-// "Use your free unlock" — wires the previously-unused spendFreeUnlock
-// Cloud Function (functions/src/unlocks/spendFreeUnlock.ts) to the
-// paywall. Not a StoreKit purchase at all; kept in this module because
-// it's offered from the same UI surface as the paid SKUs.
-export async function useFreeUnlock(photoId: string): Promise<{ unlockId: string; alreadyUnlocked: boolean }> {
-  return callCallableFunction('spendFreeUnlock', { photoId });
+export async function spendCreditsOnGallery(params: { galleryId: string }): Promise<SpendCreditsResult> {
+  return callCallableFunction('spendCredits', { kind: 'gallery', galleryId: params.galleryId });
 }
 
 // "Restore Purchases" — replays any StoreKit transaction that completed
 // on Apple's side but was never confirmed back to our server (dropped
-// network, killed app mid-purchase). Returns how many unlocks were
+// network, killed app mid-purchase). Returns how many credit grants were
 // recovered; throws only on a hard failure (e.g. no network at all), not
 // on "nothing to restore".
 export async function restorePurchases(): Promise<number> {

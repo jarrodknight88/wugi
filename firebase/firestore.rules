@@ -62,17 +62,38 @@ service cloud.firestore {
       allow create: if isAuth() && request.auth.uid == userId;
       // Own-user check MUST come first — isSuperAdmin() calls userDoc() which
       // will fail if the doc doesn't exist yet (brand new account race condition).
+      // Credit-economy balance fields (Asana 1218248530084817 / issue #282)
+      // are excluded from EVERY client update path, including admin roles —
+      // they may only change via a Cloud Function transaction alongside a
+      // matching `creditLedger` entry (validateUnlockPurchase, spendCredits,
+      // the signup grant in onUserCreated). Without this, once the fields
+      // existed a client could otherwise write itself unlimited credits.
       allow update: if isAuth() && (
         request.auth.uid == userId
         || isSuperAdmin()
         || isVenueAdmin()
-      );
+      ) && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['creditBalanceHalfUnits', 'creditBalanceBySourceHalfUnits']);
       allow delete: if isSuperAdmin();
 
       match /activity/{activityId} {
         allow read:   if isAuth() && request.auth.uid == userId;
         allow create: if isAuth() && request.auth.uid == userId;
         allow update, delete: if false;
+      }
+
+      // ── Credit ledger (Part 2) ───────────────────────────────────────
+      // Append-only per-user subcollection, `users/{uid}/creditLedger/
+      // {entryId}` — every credit grant (iap_credits_1/3/5, signup_grant,
+      // promo) and every spend (source: 'redemption') is one entry here,
+      // each carrying the running `balanceAfterHalfUnits` for auditability.
+      // Written EXCLUSIVELY by Cloud Functions (Admin SDK bypasses these
+      // rules) — validateUnlockPurchase, spendCredits, onUserCreated's
+      // signup grant. getPhotographerEarnings reads this collection-group
+      // scoped, also via the Admin SDK.
+      match /creditLedger/{entryId} {
+        allow read:  if isAuth() && request.auth.uid == userId;
+        allow write: if false;    // Cloud Functions only
       }
     }
 
@@ -345,9 +366,11 @@ service cloud.firestore {
     }
 
     // ── Unlock intents (StoreKit purchase context) ──────────────────────
-    // Top-level `unlockIntents` collection (Asana 1216729383901466 / issue
-    // #252) — bridges an anonymous App Store consumable purchase back to
-    // "which photo/gallery". Doc id is a client-minted UUID (also passed
+    // Top-level `unlockIntents` collection (originally Asana
+    // 1216729383901466 / issue #252, kept unchanged as the credit-economy
+    // purchase bridge per issue #282) — bridges an anonymous App Store
+    // consumable purchase back to "which account this credit pack pays
+    // for" (kind: 'credits'). Doc id is a client-minted UUID (also passed
     // to StoreKit as `appAccountToken`). The client creates its OWN
     // pending intent right before starting a purchase; only
     // `validateUnlockPurchase` (Admin SDK) may mark it fulfilled or read
@@ -367,6 +390,17 @@ service cloud.firestore {
     // MyPhotosScreen reads entitlements from `unlocks`, not this ledger.
     match /purchases/{transactionId} {
       allow read, write: if false;    // Cloud Functions only
+    }
+
+    // ── Gallery bundle unlocks (credit-economy gallery redemption marker) ──
+    // Top-level `galleryBundleUnlocks/{uid}_{galleryId}` — written once by
+    // spendCredits.ts when a user redeems credits for an entire gallery, so
+    // a retried/duplicate call is a no-op instead of double-charging. Same
+    // read/write posture as `unlocks`: own-read only, Cloud Functions only
+    // for writes.
+    match /galleryBundleUnlocks/{bundleId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow write: if false;    // Cloud Functions only
     }
 
     // ── Reports ──────────────────────────────────────────────────────
